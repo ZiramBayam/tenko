@@ -90,6 +90,11 @@ DECISIONS: frozenset[str] = frozenset({"GO", "NO_GO"})
 #: perekam, dan batas ini menjaga biayanya tetap kecil meski satu (tool, args) punya ribuan baris.
 FRESH_SCAN_LIMIT = 64
 
+#: Batas baris yang dibaca `recent_args` (lihat metodenya). Perekam memanggil satu
+#: `analyze_token` per simbol per siklus, jadi 8192 baris menutup jendela 26 jam bahkan pada
+#: siklus 5 menit dengan 25 simbol (26 x 12 x 25 = 7800) tanpa memuat seluruh tabel.
+RECENT_ARGS_LIMIT = 8192
+
 _INT64_MAX = 2**63 - 1  # batas bind integer SQLite; di atas ini sqlite3 melempar OverflowError
 
 # Skema PERSIS seperti data/ryo.db yang hidup (`.schema`, 1 Sep 2026). Dijalankan HANYA oleh
@@ -727,6 +732,80 @@ class Store:
             if best_ts is None or ts > best_ts:
                 best, best_ts = snapshot, ts
         return best
+
+    def recent_args(
+        self,
+        tool: str,
+        max_age_min: float,
+        *,
+        min_age_min: float = 0.0,
+        now: datetime | None = None,
+        limit: int = RECENT_ARGS_LIMIT,
+    ) -> list[dict[str, Any]]:
+        """Argumen UNIK untuk `tool` dengan pembacaan berumur `[min_age_min, max_age_min]`
+        menit, terbaru dulu.
+
+        Dipakai `core.recorder` untuk dua pertanyaan yang berlawanan, tanpa menaruh SQL di
+        luar modul ini: "simbol mana yang direkam dalam 26 jam terakhir" (`min_age_min=0`) dan
+        "simbol mana yang SUDAH punya pembacaan berumur ≥24 jam" (`min_age_min=24*60`, yaitu
+        yang kewajiban follow-up-nya selesai). Hanya kolom `args_json`/`ts_utc` yang dibaca
+        (payload tidak ikut) supaya pemanggilan per siklus tetap murah.
+
+        `min_age_min=0` berarti tanpa batas atas kesegaran: baris ber-`ts_utc` di masa depan
+        (jam mesin mundur) tetap ikut, bukan hilang diam-diam.
+
+        Baris dengan `ts_utc` tidak terbaca atau `args_json` yang bukan objek JSON DILEWATI
+        dan dicatat — bukan dianggap segar, dan bukan pula mematikan siklus.
+        """
+        if "snapshots" not in self.tables:
+            return []
+        moment = now if now is not None else datetime.now(UTC)
+        if not isinstance(moment, datetime):
+            raise StoreError(f"now harus datetime, bukan {type(moment).__name__}")
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        try:
+            cutoff = moment - timedelta(minutes=float(max_age_min))
+            floor = float(min_age_min)
+            newest = moment - timedelta(minutes=floor)
+        except (TypeError, ValueError, OverflowError):
+            raise StoreError(
+                f"batas umur tidak sah: {type(max_age_min).__name__}/{type(min_age_min).__name__}"
+            ) from None
+        if floor < 0:
+            raise StoreError(f"min_age_min tidak boleh negatif: {min_age_min}")
+        row_limit = max(0, _as_int(limit, "limit"))
+        rows = self._select(
+            "SELECT args_json, ts_utc FROM snapshots WHERE tool = ? ORDER BY ts_utc DESC LIMIT ?",
+            (_as_text(tool, "tool"), row_limit),
+        )
+        if len(rows) >= row_limit > 0:
+            # Baris paling basi terpotong LIMIT: jawabannya masih benar untuk jendela terbaru,
+            # tetapi pemanggil berhak tahu bahwa horizonnya tidak lagi dibatasi waktu.
+            log.warning(
+                "%s: recent_args mencapai batas %d baris; pembacaan lebih lama dari itu tidak dilihat",
+                tool,
+                row_limit,
+            )
+        seen: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for args_json, ts_utc in rows:
+            ts = _parse_ts(ts_utc)
+            if ts is None or ts < cutoff:
+                continue
+            if floor > 0 and ts > newest:
+                continue
+            if not isinstance(args_json, str) or args_json in seen:
+                continue
+            seen.add(args_json)
+            try:
+                args = json.loads(args_json)
+            except ValueError:
+                log.warning("%s: args_json tidak terbaca, dilewati", tool)
+                continue
+            if isinstance(args, dict):
+                out.append(args)
+        return out
 
     def get_snapshots(self, ids: Iterable[int]) -> list[Snapshot]:
         """Snapshot untuk `ids`, urut id menaik; id yang tidak ada dilewati diam-diam.

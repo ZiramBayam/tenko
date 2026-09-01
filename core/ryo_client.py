@@ -557,12 +557,12 @@ class RyoClient(BaseRyoClient):
         batas produk (`core/skill_cli.py`) yang mengubahnya jadi
         `SkillResult{status:"unavailable"}`.
 
-        **Cakupan yang jujur:** ini jalur produksi satu-satunya DI DALAM `core/`, bukan di
-        seluruh repo. Perekam sementara `scripts/bootstrap_recorder.py` memanggil RYO dengan
-        `httpx` langsung, sehingga ia BELUM tercakup gate ini maupun token bucket bersama
-        per-key. Cakupan penuh datang saat TASKS 0.5 menggantinya dengan `core/recorder.py`
-        yang memakai klien ini; sampai itu terjadi, jangan membaca kalimat di atas sebagai
-        jaminan tingkat repo.
+        **Cakupan:** sejak TASKS 0.5 (1 Sep 2026) ini benar-benar jalur produksi satu-satunya
+        di repo — `scripts/bootstrap_recorder.py`, yang dulu memanggil RYO dengan `httpx`
+        langsung dan karenanya melewati gate ini maupun token bucket bersama per-key, sudah
+        dihapus dan digantikan `core/recorder.py` yang memakai klien ini. Setiap pemanggil
+        RYO baru WAJIB lewat sini; menambah jalur `httpx` langsung membuka kembali lubang
+        yang sama.
         """
         if "bucket" in kwargs:
             raise RyoError("parameter 'bucket' hanya untuk tes; jalur produksi memakai bucket per-key")

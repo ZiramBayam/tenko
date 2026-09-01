@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import logging
 import math
 import re
 import sqlite3
@@ -312,6 +313,98 @@ def test_latest_fresh_accepts_z_suffix_and_naive_now(store: Store) -> None:
 def test_latest_fresh_labels_bad_arguments(store: Store, bad: object) -> None:
     with pytest.raises(StoreError):
         store.latest_fresh("analyze_token", sha256_hex(ARGS), bad)  # type: ignore[arg-type]
+
+
+# --- recent_args (prasyarat follow-up perekam, TASKS 0.5) -----------------------------------
+def _seed_ages(store: Store, ages_h: dict[str, float]) -> None:
+    """Satu baris analyze_token per simbol dengan umur tertentu."""
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    for symbol, hours in ages_h.items():
+        store.insert_snapshot(
+            "analyze_token",
+            {"symbol": symbol},
+            ENVELOPE,
+            ts_utc=(now - timedelta(hours=hours)).isoformat(),
+        )
+
+
+def test_recent_args_keeps_rows_inside_the_window_only(store: Store) -> None:
+    _seed_ages(store, {"OLD25": 25.0, "OLD27": 27.0, "NEW": 1.0})
+    got = store.recent_args("analyze_token", 26 * 60, now=datetime(2026, 9, 1, 12, 0, tzinfo=UTC))
+    assert [a["symbol"] for a in got] == ["NEW", "OLD25"]  # terbaru dulu
+
+
+def test_recent_args_deduplicates_identical_arguments(store: Store) -> None:
+    _seed_ages(store, {"SOL": 1.0})
+    store.insert_snapshot("analyze_token", {"symbol": "SOL"}, ENVELOPE)
+    got = store.recent_args("analyze_token", 26 * 60, now=datetime(2026, 9, 1, 12, 0, tzinfo=UTC))
+    assert got == [{"symbol": "SOL"}]
+
+
+def test_recent_args_is_scoped_to_one_tool(store: Store) -> None:
+    _seed_ages(store, {"SOL": 1.0})
+    store.insert_snapshot("deep_analysis", {"symbol": "BTC", "include_perp": True}, ENVELOPE)
+    got = store.recent_args("analyze_token", 26 * 60, now=datetime(2026, 9, 1, 12, 0, tzinfo=UTC))
+    assert got == [{"symbol": "SOL"}]
+
+
+def test_recent_args_skips_unparsable_timestamp(store: Store) -> None:
+    store.insert_snapshot("analyze_token", ARGS, ENVELOPE, ts_utc="kemarin")
+    assert store.recent_args("analyze_token", 26 * 60) == []
+
+
+def test_recent_args_honours_the_row_limit(store: Store) -> None:
+    _seed_ages(store, {"A": 1.0, "B": 2.0, "C": 3.0})
+    got = store.recent_args("analyze_token", 26 * 60, now=datetime(2026, 9, 1, 12, 0, tzinfo=UTC), limit=2)
+    assert [a["symbol"] for a in got] == ["A", "B"]
+
+
+def test_recent_args_returns_empty_for_unknown_tool(store: Store) -> None:
+    _seed_ages(store, {"SOL": 1.0})
+    assert store.recent_args("market_overview", 26 * 60) == []
+
+
+def test_recent_args_min_age_selects_only_old_enough_rows(store: Store) -> None:
+    """`min_age_min` menjawab "sudah punya pembacaan LAMA?" — dasar pensiun follow-up 0.5."""
+    _seed_ages(store, {"OLD25": 25.0, "OLD30": 30.0, "NEW": 1.0})
+    got = store.recent_args(
+        "analyze_token", 7 * 24 * 60, min_age_min=24 * 60, now=datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    )
+    assert [a["symbol"] for a in got] == ["OLD25", "OLD30"]
+
+
+def test_recent_args_empty_when_min_age_exceeds_max_age(store: Store) -> None:
+    _seed_ages(store, {"SOL": 1.0})
+    assert store.recent_args("analyze_token", 60, min_age_min=120) == []
+
+
+def test_recent_args_keeps_future_timestamps_when_min_age_is_zero(store: Store) -> None:
+    """Jam mesin mundur → baris "masa depan" tidak boleh hilang diam-diam dari jendela."""
+    _seed_ages(store, {"AHEAD": -2.0})
+    assert store.recent_args("analyze_token", 26 * 60, now=datetime(2026, 9, 1, 12, 0, tzinfo=UTC)) == [
+        {"symbol": "AHEAD"}
+    ]
+
+
+def test_recent_args_rejects_negative_min_age(store: Store) -> None:
+    with pytest.raises(StoreError):
+        store.recent_args("analyze_token", 60, min_age_min=-1)
+
+
+def test_recent_args_warns_when_the_row_limit_is_reached(
+    store: Store, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Batas LIMIT memotong baris paling basi; pemanggil berhak tahu horizonnya terpotong."""
+    _seed_ages(store, {"A": 1.0, "B": 2.0})
+    with caplog.at_level(logging.WARNING, logger="core.store"):
+        store.recent_args("analyze_token", 26 * 60, limit=2)
+    assert "batas 2 baris" in caplog.text
+
+
+@pytest.mark.parametrize("bad", ["lama", None, float("nan")])
+def test_recent_args_labels_bad_arguments(store: Store, bad: object) -> None:
+    with pytest.raises(StoreError):
+        store.recent_args("analyze_token", bad)  # type: ignore[arg-type]
 
 
 # --- AC 3: get_snapshots -------------------------------------------------------------------
