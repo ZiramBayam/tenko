@@ -164,3 +164,28 @@ Penambahan field top-level baru di kemudian hari butuh ADR sendiri. README menam
 `analyze_token` sebagaimana diminta ADR-013.
 Status: kode 1.3 dibangun memakai `"1.0"` karena itu yang terverifikasi dari sumber primer; bila manusia menolak,
 yang berubah hanya satu konstanta + satu tes.
+
+## ADR-016 (USULAN 1 Sep 2026) Dua generasi di data/ryo.db: dilaporkan STALE_ALGO, tidak dihapus, tidak disembunyikan
+Konteks: `data/ryo.db` memuat 19 baris `decisions` + 9 `trade_events` yang ditulis implementasi yang
+dihapus 1 Sep 2026. `blocking_json`-nya berisi integer (`'[5,6,10]'`) sedangkan `core/replay.py`
+mewajibkan id item bertipe `str` → `ReplayError`; `card_json`-nya tidak memuat `algo`; `params_hash`-nya
+dihitung algoritma yang tidak ada lagi. ADR-006 (append-only) melarang penghapusan. Produk ini menjual
+"replay identik", jadi `make replay ID=13` yang meledak akan terbaca sebagai tamper — itu persis
+pertanyaan juri #4 di `docs/judge-reports/fase-1.md`.
+Keputusan:
+1. Baris `decisions` yang `card_json`-nya TIDAK memuat kunci `algo` dilaporkan `STALE_ALGO` dengan
+   `algo: null` dan kalimat sebab yang menyebut penghapusan implementasi. Bukan `ReplayError`, bukan
+   MISMATCH. Kosakata verdict replay menjadi tiga: IDENTICAL · MISMATCH · STALE_ALGO. Kait ini sudah
+   dirancang di TASKS 1.4; ADR ini menghidupkannya lebih awal dari yang diduga.
+2. Pembeda generasi HANYA ada/tidaknya `algo` di `card_json`. Tidak ada kolom baru, tidak ada migrasi,
+   tidak ada ambang id sebagai angka ajaib.
+3. Baris warisan tidak dihapus, tidak ditulis ulang, tidak di-backfill, dan tidak disembunyikan dari
+   `/api/decision/{id}`. Yang dikecualikan hanya dari agregat yang akan berbohong bila memuatnya:
+   watchlist, daftar keputusan, dan lipatan posisi ledger — masing-masing dengan alasan tertulis.
+4. Ditolak: menulis baris penanda batas generasi ke store. Append-only membuatnya sah secara mekanis,
+   tetapi baris `decisions` yang bukan keputusan adalah data fabrikasi (spec §8 "tidak dinilai").
+5. Ditolak: menyembunyikan 19 baris itu. PRD §2 — yang tidak tersebut wajib disebut sebagai tidak
+   tersebut; menyembunyikannya adalah kebalikan dari tesis produk.
+Konsekuensi: AC TASKS 2.4 berubah dari dua verdict menjadi tiga (task 2.4a/2.4b); `ui/` mendapat satu
+cabang tampilan (3.1a); README memuat satu paragraf "dua generasi". Kenaikan versi algoritma di masa
+depan memakai jalur yang sama dan tidak akan pernah tampak sebagai tuduhan tamper.
