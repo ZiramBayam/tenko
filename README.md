@@ -176,8 +176,8 @@ Satu BUIDL, tiga track (`docs/api-facts.md` §E: maksimal satu BUIDL per tim):
 
 Kepatuhan (`docs/rules-compliance.md`): kredensial hanya dari env dan tidak pernah dilog atau di-repr · label
 SIMULATED di README dan (nanti) di semua layar · jalur nyata hanya memakai sumber yang `enabled: true` **dan**
-`approved: true` di `sources.yaml` — hari ini dua sumber: tool RYO dan satu LLM untuk narasi · `DISCLOSURE.md` sedang
-dilengkapi (TASKS 5.3b; per laporan juri Fase 1 daftarnya belum lengkap — jangan pakai versi sekarang sebagai rujukan).
+`approved: true` di `sources.yaml` — hari ini dua sumber: tool RYO dan satu LLM untuk narasi · dependency, aset, dan
+sumber pihak ketiga didaftarkan di `DISCLOSURE.md` (32 paket `uv.lock`, dijaga `tests/test_disclosure.py`).
 
 ---
 
