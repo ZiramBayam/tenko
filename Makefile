@@ -25,7 +25,11 @@ grade:             ## (opsional) grading outcome keputusan → reputasi item
 	uv run python -m grading.grader
 ui:
 	uv run uvicorn ui.app:app --port $${UI_PORT:-8000}
-demo:              ## naskah docs/spec.md §7 dari nol (fixture offline) — TASKS 4.4
-	@echo "TASKS 4.4 belum dikerjakan: implementasikan scripts/demo.sh sesuai docs/spec.md §7"
+demo:              ## naskah docs/spec.md §7 dari nol (fixture offline) — TASKS 3.4
+	@if [ -x scripts/demo.sh ]; then bash scripts/demo.sh; else \
+	  echo "make demo: TASKS 3.4 belum dikerjakan — scripts/demo.sh belum ada." >&2; \
+	  echo "Gagal keras dengan sengaja: target yang exit 0 tanpa menjalankan apa pun" >&2; \
+	  echo "melaporkan sukses palsu ke shell, CI, dan juri (temuan juri Fase 1)." >&2; \
+	  exit 1; fi
 autopilot:
 	bash scripts/autopilot.sh $${N:-3}
