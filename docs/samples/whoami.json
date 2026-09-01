@@ -1,0 +1,18 @@
+{
+  "key_id": "<redacted>",
+  "label": "<redacted>",
+  "scopes": [
+    "tools:read"
+  ],
+  "expires_at": "2026-12-17T23:20:01.905965Z",
+  "rate_limit_per_min": 60,
+  "rate_limit_remaining": 60,
+  "tools": [
+    "market_overview",
+    "scan_market",
+    "analyze_token",
+    "deep_analysis",
+    "compare_tokens",
+    "monitor_market_sentiment_shift"
+  ]
+}

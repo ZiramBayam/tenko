@@ -1,0 +1,14 @@
+# Setiap sumber data eksternal HARUS terdaftar di sini (aturan RYO: hanya endpoint approved + disclosure).
+# ADR-012/013: jalur nyata hanya memakai tool RYO + satu LLM untuk narasi. Tidak ada sumber pasar lain.
+sources:
+  ryo_tools:
+    enabled: true
+    approved: true            # disediakan penyelenggara
+    used_for: [market_overview, scan_market, analyze_token, deep_analysis, compare_tokens, monitor_market_sentiment_shift]
+    note: "input = simbol, bukan mint; tidak ada tool safety; envelope status/data_mode/availability (api-facts §A)"
+    rate_per_minute: 60       # dari email kredensial 1 Sep 2026; kuota lain: docs/samples/whoami.json
+  llm_narration:
+    enabled: true
+    approved: true            # "your own AI model" (landing page); hanya narasi, tidak menyentuh keputusan (ADR-003/011)
+    provider: anthropic       # SDK anthropic 1.2.0, model claude-opus-5 (docs/versions.md)
+    used_for: [narrate_items]

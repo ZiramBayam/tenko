@@ -1,0 +1,15 @@
+# rahasia & data lokal
+.env
+# snapshot pasar ber-timestamp (lokal, tidak bisa dibuat ulang)
+data/
+logs/
+# skill desain pihak ketiga, 13 MB, tidak di-ship
+references/
+
+# artefak build
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+docs/samples/*.raw.json

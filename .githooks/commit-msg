@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Menegakkan Conventional Commits (docs/commit-convention.md). Exit != 0 → commit ditolak.
+msg_file="$1"
+subject="$(grep -vE '^\s*#' "$msg_file" | sed '/./,$!d' | head -1)"
+
+[ -z "$subject" ] && { echo "commit-msg: pesan commit kosong." >&2; exit 1; }
+case "$subject" in
+  "Merge "*|"Revert "*) exit 0;;
+esac
+
+types='feat|fix|test|docs|refactor|perf|build|ci|chore|revert'
+scopes='core|preflight|agent|ui|grading|scripts|docs|deps|hooks'
+if ! printf '%s' "$subject" | grep -qE "^($types)(\(($scopes)\))?!?: .+"; then
+  cat >&2 <<MSG
+commit-msg: DITOLAK — subjek tidak sesuai Conventional Commits.
+  didapat : $subject
+  format  : <type>(<scope>): <ringkasan imperatif>
+  type    : $types
+  scope   : $scopes  (opsional)
+  contoh  : feat(preflight): tambah item kesegaran bukti dari as_of envelope
+  aturan lengkap: docs/commit-convention.md
+MSG
+  exit 1
+fi
+
+len=${#subject}
+if [ "$len" -gt 72 ]; then
+  echo "commit-msg: DITOLAK — subjek $len karakter, maksimal 72." >&2; exit 1
+fi
+case "$subject" in
+  *.) echo "commit-msg: DITOLAK — subjek tidak diakhiri titik." >&2; exit 1;;
+esac
+if grep -qiE '^Co-Authored-By:.*(claude|anthropic)' "$msg_file"; then
+  echo "commit-msg: DITOLAK — jangan menambahkan trailer Co-Authored-By untuk Claude (permintaan pemilik repo)." >&2
+  exit 1
+fi
+desc="${subject#*: }"
+case "$desc" in
+  [A-Z]*) echo "commit-msg: DITOLAK — mulai deskripsi dengan huruf kecil." >&2; exit 1;;
+esac
+exit 0

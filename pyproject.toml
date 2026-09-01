@@ -1,0 +1,29 @@
+[project]
+name = "tenko"
+version = "0.1.0"
+description = "Tenko — pre-departure roll call for practice trades on RYO-CHAN research tools (RYO-CHAN Hackathon 2026). SIMULATED practice trades only."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "httpx==0.28.1",
+  "pydantic==2.13.5",
+  "pyyaml==6.0.3",
+  "anthropic==1.2.0",
+  "fastapi==0.141.1",
+  "uvicorn==0.52.4",
+]
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "ruff==0.16.5"]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

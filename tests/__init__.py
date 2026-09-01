@@ -1,0 +1,1 @@
+"""Suite tes Tenko."""
