@@ -18,18 +18,152 @@ Endpoint: `https://app-ryochan.com/api/mcp` · protocol `2024-11-05` · auth `Au
 Katalog live (`/tools`): market_overview {} · scan_market {chain, theme, top_n} · analyze_token {symbol, **chain**} · deep_analysis {symbol, **chain**, include_perp} · compare_tokens {symbols, intent} · monitor_market_sentiment_shift {time_window}. Rate limit header huruf kecil: `x-ratelimit-limit: 60`, `x-ratelimit-remaining`, `x-ratelimit-reset` (epoch). whoami: `scopes:["tools:read"]`, `rate_limit_per_min: 60`, `expires_at`.
 | Tool | `data` field yang dipakai (path persis) | Nilai yang terlihat | availability keys |
 |---|---|---|---|
-| market_overview | `regime`; `sentiment.fear_greed_index`, `sentiment.label`; `market.breadth`, `market.breadth_details{universe_size,advancing,declining}`; `top_movers.gainers[]/losers[]{symbol,change_24h_pct}` | regime `risk_on`; label `extreme_greed`; breadth 0.8571 (91 listing) | market_regime, market_totals, market_sentiment, market_breadth, top_movers |
+| market_overview | `regime`; `sentiment.fear_greed_index`, `sentiment.label`; `market.breadth`, `market.breadth_details{universe_size,advancing,declining}`; `top_movers.gainers[]/losers[]{symbol,change_24h_pct}` | regime `risk_on`; label `extreme_greed`; breadth 0.8571 (91 listing) — sampel tunggal; kosakata penuh (regime juga `neutral` DAN `risk_off`, label juga `greed`) di "Kosakata terukur". **`risk_on` bukan satu-satunya nilai**: `risk_off` teramati 1× (id 763, 2026-09-01T18:06:48Z) | market_regime, market_totals, market_sentiment, market_breadth, top_movers |
 | scan_market | `candidates[]{rank,symbol,name,chain,contract,price_usd,change_24h_pct,market_cap_usd,volume_24h_usd,turnover_ratio,momentum_score,established_asset,reason}`, `selection_method`, `excluded_candidate_count` | top: USELESS, ARB, PONS, CASHCAT, BONK — **memecoin ada**; `contract` terisi (Solana & EVM), `chain` null; method "Ranked by 24-hour momentum and market activity" | ranked_candidates, theme_filter (`not_requested`) |
-| analyze_token | `asset{symbol,name,chain,contract,rank}`; `market{price_usd,market_cap_usd,fully_diluted_value_usd,volume_24h_usd}`; `performance{change_1h_pct,change_24h_pct,change_7d_pct,change_30d_pct}`; `technical_analysis{trend,rsi_14,momentum_30d_pct,atr_14_pct}`; `intelligence{narrative,catalysts[],risks[]}`; **`verdict` (string)** | trend `up`; rsi 68.9; verdict **`accumulate`** | market_data, technical_analysis, market_intelligence |
+| analyze_token | `asset{symbol,name,chain,contract,rank}`; `market{price_usd,market_cap_usd,fully_diluted_value_usd,volume_24h_usd}`; `performance{change_1h_pct,change_24h_pct,change_7d_pct,change_30d_pct}`; `technical_analysis{trend,rsi_14,momentum_30d_pct,atr_14_pct}`; `intelligence{narrative,catalysts[],risks[]}`; **`verdict` (string)** | trend `up`; rsi 68.9; verdict **`accumulate`** — sampel tunggal; 4 nilai verdict & 3 nilai trend terukur di "Kosakata terukur" | market_data, technical_analysis, market_intelligence |
 | deep_analysis | `market{mcap_usd,fdv_usd,volume_24h_usd,dominance_pct,circulating_supply,max_supply,price_usd}`; `performance{h1,h24,d7,d30}`; `technical_analysis{…sama}`; `confluence{state,score,gates[]{name,passed,detail},status}`; **`verdict{call,headline,bottom_line,key_driver,what_changes_it,confluence_score}`**; `token_profile` (null); `derivatives` (null); **`trade_plan{entry,stop,targets[],atr_14_usd,atr_14_pct,atr_multiplier,risk_reward[],method,preview_only}`**; `intelligence{…}` | status **partial** untuk SOL: token_profile & derivatives `unavailable` meski include_perp=true (warning: "Derivatives analysis is unavailable or was not requested"); confluence `CONFIRMED` 1.0, gates momentum & market_activity; verdict.call **`constructive`**; plan entry 103.90 stop 96.91 targets [110.88,117.86] rr [1,2] method `wilder_atr_14_from_daily_ohlcv` preview_only true | market_data, technical_analysis, token_profile, derivatives, trade_plan |
 | compare_tokens | `tokens[]{symbol,rank,price_usd,changes{h1,h24,d7,d30},metrics{market_cap_usd,volume_24h_usd,rsi_14,atr_14_pct,trend},verdict,token_profile}`; `factors[]{key,label,winner,scores{sym:val}}` (momentum, market_activity, volatility); `winner`; `conclusion{pick,headline,rationale,runner_up_case,confidence,method}`; `coverage_by_token{sym:{market_data,token_profile}}` | conclusion.method `deterministic`, confidence `medium`; warning "no narrative model was used" | token_market_data, comparison_factors, token_profiles, conclusion |
 | monitor_market_sentiment_shift | `observation_as_of`; `evidence.fear_greed{value,label,baseline_7d_value,change_7d_points,change_direction,material_shift}`; `evidence.funding{latest_bps,current_7d_window.mean_bps,wow_change_bps,current_7d_percentile_90d,crowding_state}`; `evidence.liquidation{total_usd,dominant_liquidated_side,percentile_90d,pressure_state,long_share_pct}`; `evidence.altseason{index,phase}`; `evidence.sentiment_regime` | F&G 75 (−5, material_shift false); funding crowding `normal`; liquidation pressure `normal`; altseason 27 `transition`; regime `extreme_greed_unconfirmed` | research, evidence, diagnostics |
-**Kosakata terukur** dari 65 snapshot perekam (1 Sep 2026 03:47–04:10Z; ulangi dengan `make vocab`):
-- `analyze_token.data.verdict`: `accumulate` (12) · `caution — overbought` (9) · `neutral` (7) — **bentuk majemuk** "kepala — kualifikasi"; arah dibaca dari kata kepala.
-- `deep_analysis.data.verdict.call`: `constructive` (13) · `neutral` (12) · `cautious` (2).
-- `deep_analysis.data.confluence.state`: `CONFIRMED` (16) · `MIXED` (11); gate yang pernah gagal: `momentum` (7), `market_activity` (4).
-- `market_overview.data.regime`: `risk_on` (3) — belum pernah melihat nilai lain.
-Enum lengkap tetap tidak diketahui → nilai di luar tabel `preflight/params.py` menjadikan item `unspoken` (tidak ditebak) dan tercatat.
+**Kosakata terukur** — DIPERBARUI 1 Sep 2026 16:45Z (menggantikan hitungan 65-snapshot sebelumnya). Sumber: `data/ryo.db`
+(perekam kami sendiri, BUKAN spesifikasi RYO), dibuka read-only `sqlite3.connect("file:data/ryo.db?mode=ro", uri=True)`,
+satu lintasan penuh atas **697 snapshot** (`id <= 697`, ts 2026-09-01T03:51:43Z–16:42:54Z ≈ 12,9 jam; analyze_token 365 ·
+deep_analysis 271 · market_overview 19 · monitor_market_sentiment_shift 19 · compare_tokens 14 · scan_market 9).
+DB tidak di-commit dan perekam masih menulis saat dihitung → hitungan naik antar-lintasan, himpunan nilai stabil.
+Tidak ada target `make vocab` (dicek di Makefile 1 Sep 2026 — kalimat lama salah); ulangi dengan:
+`python3 -c 'import sqlite3,json,collections;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);k=collections.defaultdict(collections.Counter);[k[t].update([json.dumps(json.loads(p).get("data",{}).get("verdict"))]) for t,p in c.execute("SELECT tool,payload_json FROM snapshots")];print(k)'`
+(untuk path lain ganti pemetaan: `data.verdict.call`, `data.confluence.state`, `data.regime`).
+
+- `analyze_token.data.verdict` (365): `accumulate` (167) · `caution — overbought` (108) · `neutral` (86) · **`avoid` (4 — NILAI KEEMPAT, baru terlihat 1 Sep 08:45Z, id 349/420/483/688)**.
+  **Bentuk string:** 3 dari 4 nilai adalah **kata tunggal tanpa pemisah**; satu-satunya bentuk majemuk yang pernah terlihat
+  adalah `caution — overbought`. Di seluruh 365 string, karakter non-alfanumerik yang muncul hanya spasi `U+0020` (216×) dan
+  em dash `U+2014` (108×) → pemisahnya persis `" — "` (spasi ASCII + U+2014 + spasi ASCII), bukan `-`, `–`, atau NBSP.
+  Kata kepala setelah split di `U+2014`: accumulate 167 · caution 108 · neutral 86 · avoid 4. Kata `caution` **tidak pernah
+  muncul telanjang** (0/365). `avoid` mentah = `"avoid"` (escape `avoid`, tanpa pemisah), summary.headline `"STABLE analysis: avoid."`
+  — bandingkan `"… analysis: caution — overbought."` → `avoid` adalah **kata kepala yang berdiri sendiri**, sejajar `accumulate`.
+  **Untuk `preflight/params.py`:** cocokkan **string penuh** lebih dulu dari tabel eksplisit; split di `—` boleh hanya sebagai
+  lapisan kedua (dan kualifikasi seperti `overbought` wajib ikut tercatat, tidak dibuang diam-diam). Memotong-lebih-dulu tidak
+  aman: bila kelak muncul `avoid — <kualifikasi>` atau `accumulate — <kualifikasi>`, potongan kepala akan menyembunyikan
+  informasi yang belum pernah kita lihat.
+- Konteks `avoid` (deskriptif, BUKAN aturan RYO — jangan diturunkan ke kode): keempatnya simbol `STABLE`, `status: ok`,
+  `technical_analysis.trend: down`, `rsi_14: 39.7`, `momentum_30d_pct` −10,2…−14,2%. `STABLE` juga pernah `neutral` (2×) →
+  verdict adalah fungsi data, bukan properti simbol. Rentang `rsi_14` per verdict: accumulate 53,8–69,3 · caution — overbought
+  70,4–93,2 · neutral 39,7–68,9 · avoid 39,7. verdict × trend: `avoid` hanya dengan `down` (4/4), tetapi `neutral` juga muncul
+  dengan `down` (4) → `avoid` bukan sekadar fungsi `trend`.
+- `deep_analysis.data.verdict.call` (271): `neutral` (131) · `constructive` (126) · `cautious` (14). Semuanya kata tunggal;
+  **0/271 mengandung `U+2014`** → tidak ada bentuk majemuk di field ini. `verdict` selalu 6 kunci yang sama
+  (`bottom_line, call, confluence_score, headline, key_driver, what_changes_it`) di 271/271.
+- `deep_analysis.data.confluence.state` (271): `CONFIRMED` (155) · `MIXED` (116). `confluence.status` = `available` di 271/271.
+  `gates` selalu tepat 2 dan berurutan `[momentum, market_activity]` (271/271); yang pernah gagal: `momentum` (86), `market_activity` (30).
+- `market_overview.data.regime` — **DIGANTI oleh sapuan `id <= 835` di bawah (n=20): `neutral` 13 · `risk_on` 6 · `risk_off` 1**.
+  Angka sapuan 697 dulu: `neutral` (13) · `risk_on` (6). Kalimat lama "`risk_on` (3) — belum pernah melihat
+  nilai lain" SALAH per 1 Sep 2026 dan dihapus; `neutral` justru mayoritas. Nilai pertama `neutral` pada id 135, 05:27Z;
+  nilai pertama `risk_off` pada id 763, 18:06:48Z.
+- `market_overview.data.sentiment.label` (19): `extreme_greed` (12) · **`greed` (7 — nilai kedua; tabel "Field nyata" di atas
+  hanya mencatat `extreme_greed` dari sampel tunggal)** — **hitungan diganti sapuan `id <= 835`: `extreme_greed` 12 · `greed` 8**.
+- `monitor_market_sentiment_shift.data.evidence.sentiment_regime` (19): `extreme_greed_unconfirmed` (12) · **`mixed_sentiment` (7 — nilai kedua)**
+  — **hitungan diganti sapuan `id <= 835`: 12 · 8**.
+- `compare_tokens.data.tokens[].verdict` (42 token dari 14 panggilan): `neutral` (31) · `constructive` (11) → field ini memakai
+  **kosakata `deep_analysis.verdict.call`**, BUKAN kosakata `analyze_token.verdict` (`accumulate`/`avoid` tidak pernah muncul di sini).
+  Dua namespace verdict yang berbeda; jangan disatukan dalam satu tabel pemetaan.
+- `technical_analysis.trend`: analyze_token `up` (326) · `sideways` (31) · `down` (8); deep_analysis `up` (247) · `sideways` (22) · `down` (2)
+  — **hitungan diganti sapuan `id <= 835`: analyze_token 402 · 37 · 13; deep_analysis 289 · 26 · 4; compare_tokens `up` 42/42**.
+  (Tabel "Field nyata" hanya menyebut `up` karena sampelnya satu.)
+- **Sapuan menyeluruh 697 baris** atas SEMUA field string kategoris (bukan sampel): tidak ada nilai tambahan berfrekuensi 1–2
+  di keempat field di atas — himpunan di atas lengkap terhadap DB ini. Satu-satunya nilai langka di seluruh sapuan ada pada
+  `market_overview.data.top_movers.gainers[].symbol` (`ETHFI` 1×, `ENA` 2×), dan itu simbol, bukan enum.
+
+**Sapuan 2 Sep 2026 (BERLAKU) — `id <= 835`.** `data/ryo.db` dibuka read-only saat perekam live masih menulis
+(`sqlite3.connect("file:data/ryo.db?mode=ro", uri=True)`), **835 snapshot** (ts 2026-09-01T03:51:43Z–18:25:36Z;
+analyze_token 452 · deep_analysis 319 · market_overview 20 · monitor_market_sentiment_shift 20 · compare_tokens 14 · scan_market 10).
+Hitungan lengkap sapuan ini (menggantikan semua hitungan sapuan 697 dan 762 di atas; himpunan nilai = daftar di bawah):
+`analyze_token.data.verdict` accumulate 203 · caution — overbought 129 · neutral 115 · avoid 5 ·
+`deep_analysis.data.verdict.call` neutral 156 · constructive 145 · cautious 18 ·
+`deep_analysis.data.confluence.state` CONFIRMED 183 · MIXED 136 ·
+`market_overview.data.regime` neutral 13 · risk_on 6 · **risk_off 1** ·
+`market_overview.data.sentiment.label` extreme_greed 12 · greed 8 ·
+`monitor….evidence.sentiment_regime` extreme_greed_unconfirmed 12 · mixed_sentiment 8 ·
+`monitor….evidence.funding.crowding_state` normal 20/20 · `monitor….evidence.liquidation.pressure_state` normal 20/20 ·
+`monitor….evidence.fear_greed.change_direction` down 20/20 · `compare_tokens.data.tokens[].verdict` neutral 31 · constructive 11 (42 token) ·
+`technical_analysis.trend` analyze_token up 402 · sideways 37 · down 13; deep_analysis up 289 · sideways 26 · down 4.
+Hitungan yang dilaporkan quant-engineer (accumulate 195 · caution — overbought 123 · neutral 107 · avoid 5; call neutral 154 ·
+constructive 145 · cautious 17; CONFIRMED 182 · MIXED 134) DIVERIFIKASI benar **pada `id <= 810`** (ts ≤ 18:20:14Z) — bukan salah,
+hanya lebih tua ~25 baris / ~19 menit. Himpunan nilainya identik; yang berubah hanya frekuensi.
+
+- **DICABUT — klaim "`risk_off` = 0 amatan" (sapuan `id <= 762`, ditulis 2 Sep 2026).** Klaim itu benar saat ditulis dan basi
+  satu baris kemudian. Ikut dicabut, sebagai satu paket: "pencarian substring `risk[_ -]?off` atas seluruh payload → 0 baris",
+  "ejaan `risk_off` hanya ada di `docs/spec.md` §4 (dokumen KAMI)", dan "bentuk negatifnya belum pernah terlihat sama sekali".
+  Ketiganya sekarang **TIDAK BENAR**. Jangan kutip lagi; jangan pakai untuk menghapus baris `risk_off` dari `preflight/params.py`.
+- **`market_overview.data.regime` = `risk_off` TERAMATI.** Nilai ketiga field ini. n=20 amatan `market_overview`:
+  `neutral` 13 · `risk_on` 6 · **`risk_off` 1**. Amatan tunggal itu, verbatim dari `payload_json`:
+  `id=763`, `ts_utc 2026-09-01T18:06:48.538132+00:00`, `as_of 2026-09-01T18:06:48Z`, `status: ok`, `data_mode: live`,
+  `warnings: []`, `availability.market_regime: available`, `data.regime: "risk_off"`, `data.sentiment.label: "greed"`,
+  `data.sentiment.fear_greed_index: 73.0`, `data.market.breadth: 0.3846` (advancing 35 / declining 56 / universe 91).
+  Jadi ia **bukan lagi baris spec-only**: RYO benar-benar mengeluarkan string `risk_off` dengan ejaan snake_case itu.
+  Ulangi (satu baris, mencetak sebaran + id kemunculan pertama + max id yang disapu):
+  `python3 -c 'import sqlite3,json,collections;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);r=list(c.execute("SELECT id,tool,payload_json FROM snapshots ORDER BY id"));m=[(i,json.loads(p)["data"]["regime"]) for i,t,p in r if t=="market_overview"];print("max id",r[-1][0]);print(collections.Counter(v for _,v in m));print({v:min(i for i,w in m if w==v) for _,v in m})'`
+  → `max id 835` · `Counter({'neutral': 13, 'risk_on': 6, 'risk_off': 1})` · `{'risk_on': 1, 'neutral': 135, 'risk_off': 763}`.
+- **Konteks `risk_off` — n=1, DESKRIPTIF, BUKAN kontrak.** Amatan itu datang dengan `breadth` 0.3846, terendah dari 20 amatan
+  (`risk_on`: 0.8571 ×4 dan 0.9011 ×2; `neutral`: 0.4835–0.8022), dan `sentiment.label` `greed` (bukan `extreme_greed`).
+  Urutan breadth memang rapi, **tetapi jangan diturunkan menjadi aturan**: n=1 untuk `risk_off`, dan `label: greed` sama sekali
+  tidak diskriminatif — 8 amatan berlabel `greed`, 7 di antaranya `neutral`. Tidak ada ambang breadth yang boleh dikodekan dari
+  sini; regime dibaca apa adanya dari `data.regime`, tidak pernah dihitung ulang dari `breadth`.
+- `monitor….data.evidence.fear_greed.change_direction` (20): **`down` 20/20 · `up` = 0 amatan** (`id <= 835`). Nol itu STRUKTURAL,
+  bukan kebetulan sampel: `baseline_7d_date` = `2026-08-25` dan `baseline_7d_value` = 80 di 20/20, `value` 73–75, `change_7d_points`
+  ∈ {−5, −6, −7} (selalu negatif) → jendela ini secara aritmetis tidak bisa menghasilkan arah lain. `fear_greed.data_date`
+  = `2026-09-01` di 20/20: **F&G diperbarui sekali sehari**, jadi 20 panggilan ≈ 1 titik data, bukan 20 bukti independen.
+  Nilai untuk `change_7d_points == 0` (entah `flat`, `sideways`, `unchanged`, atau lainnya) juga belum pernah terlihat.
+  **Jebakan grep:** nilai string `"up"` MEMANG muncul **1022×** di DB (`id <= 835`) — tetapi hanya pada empat path `…trend`:
+  `analyze_token.data.technical_analysis.trend` 402 · `deep_analysis.data.technical_analysis.trend` 289 ·
+  `deep_analysis.data.confluence.gates[].detail.trend` 289 · `compare_tokens.data.tokens[].metrics.trend` 42;
+  **0×** pada `change_direction` (yang di sana `down` 20/20). Namespace berbeda; kemunculan `"up"` di `trend` BUKAN bukti untuk
+  `FEAR_GREED_CHANGE_DIRECTION`. Pencabutan baris `up` (provenance = tebakan kami; spec §4 item 4 tidak pernah menulis string itu)
+  tetap BERLAKU.
+- `monitor….data.evidence.fear_greed.material_shift` = `false` di **20/20** (`id <= 835`) → cabang "pergeseran material" item 4 spec §4 —
+  SATU-SATUNYA cabang yang membaca `change_direction` — belum pernah dijalankan oleh data nyata.
+- Kunci `monitor` yang lengkap di 20/20 (baris "Field nyata" di atas hanya menyebut yang dipakai item): `data` =
+  {observation_as_of, status, source_attribution, summary, evidence, source, diagnostics}; `fear_greed` = {data_date, value,
+  label, baseline_7d_date, baseline_7d_value, change_7d_points, change_direction, material_shift}; `funding` juga punya
+  {data_date, previous_7d_window, wow_change_pct}; `liquidation` juga punya {data_date, coverage_scope}; `altseason` =
+  {data_date, index, phase}.
+- Kosakata kategoris monitor lain (20 amatan, semuanya nilai TUNGGAL — jangan dibaca sebagai enum lengkap):
+  `liquidation.dominant_liquidated_side` `shorts` (20) · `altseason.phase` `transition` (20), di samping
+  `funding.crowding_state` dan `liquidation.pressure_state` `normal` (20) yang sudah tercatat di atas.
+- `deep_analysis.data.trade_plan` **long di 319/319** (`id <= 835`) (`stop < entry` selalu). Arah `short` yang disebut spec §4 ("bila plan short
+  muncul, arah dibalik") BELUM PERNAH TERAMATI → cabang short adalah cabang tak-teruji-data, bukan cabang biasa.
+
+**Baris kosakata dengan NOL amatan tidak boleh ada di `preflight/params.py`.** Aturan §A ini ("nilai di luar tabel → `unspoken`,
+tidak ditebak") berlaku dua arah: memasukkan string yang belum pernah kami lihat ke dalam tabel adalah menebak bahwa RYO akan
+mengeluarkan string itu, dengan ejaan itu — persis jenis karangan yang dilarang, hanya berpindah tempat. Dua alasan operasional,
+bukan estetika: (1) bila ejaan sebenarnya berbeda (`risk-off`, `RISK_OFF`, `risk_off_confirmed`) barisnya tidak cocok dan sama
+sekali tidak menolong; (2) di kedua tempat itu barisnya hanya bisa mengubah `unspoken` (yang MEMVETO, karena item 3 & 4 wajib)
+menjadi IZIN — `risk_off` + plan short → hijau, `change_direction: up` + plan long → hijau. Menghapusnya gagal-tertutup
+(fail closed) dan sama sekali tidak mengubah keputusan pada semua data yang pernah kami lihat. Menambahkannya kembali: lewat
+`@agent-api-verifier` dengan hitungan + tanggal, setelah nilainya benar-benar muncul.
+
+**Aturan itu TETAP BERLAKU dan terbukti dua arah dalam satu jam (2 Sep 2026).** Ia mencabut `FEAR_GREED_CHANGE_DIRECTION["up"]`
+(0 amatan, dan spec §4 item 4 memang tidak pernah menulis string itu — provenance = tebakan kami) **dan** ia yang memaksa
+`MARKET_REGIME["risk_off"]` kembali masuk **dengan provenance amatan** (id 763), bukan dengan provenance spec. Kriterianya bukan
+"ada di spec" dan bukan "pernah dihapus", melainkan satu-satunya yang bisa diperiksa: **hitungan amatan > 0 di DB, dengan `id`,
+`ts`, dan `status` yang bisa dibuka lagi.**
+
+**Sapuan kosakata kedaluwarsa dalam HITUNGAN JAM, bukan hari — perlakukan seperti data basi, bukan seperti fakta.**
+Setiap klaim "0 amatan" WAJIB menyebut `id` maksimum yang disapu (mis. "0 dari `id <= 762`"); tanpa itu klaimnya tidak bisa
+diperiksa dan tidak boleh dipakai untuk menghapus baris kosakata. Bukti: klaim "`risk_off` 0 dari 762" benar saat ditulis dan
+salah pada baris **763** — kemunculan pertama ada tepat satu baris sesudah batas sapuan, dan sebuah sapuan lain basi ~25 baris
+dalam ~19 menit. Konsekuensi praktis: (1) klaim nol punya masa berlaku, sapu ulang sebelum commit yang bersandar padanya;
+(2) yang menangkap nilai baru secara otomatis adalah kanari kosakata di `tests/test_params.py` yang membaca DB hidup `mode=ro` —
+itu mekanisme deteksi, jangan dilemahkan; (3) hitungan frekuensi di komentar kode akan selalu tertinggal — yang harus benar
+adalah HIMPUNAN nilainya, bukan angkanya.
+
+**ENUM DI ATAS TETAP TIDAK LENGKAP** dan tidak bisa dibuktikan lengkap dari sini. Ini pengamatan atas 835 respons (`id <= 835`) dalam ~14,5 jam
+pada satu rezim pasar (F&G greed/extreme_greed) dengan universe simbol perekam kami — **bukan spesifikasi RYO**; Guide maupun
+katalog `/tools` tidak pernah mencantumkan enum untuk `verdict`, `verdict.call`, `confluence.state`, atau `regime`.
+Bukti historis bahwa daftar ini bocor: dalam ~14,5 jam muncul TIGA nilai yang sebelumnya "belum pernah terlihat"
+(`avoid` id 349 · `regime: neutral` id 135 · `regime: risk_off` id 763) — yang ketiga muncul TEPAT satu baris setelah sebuah
+sapuan menyimpulkan nol untuknya.
+Konsekuensi wajib (spec §4, ADR-013): nilai di luar tabel → item **`unspoken` + warning**; TIDAK ditebak, TIDAK dipetakan ke
+tetangga terdekat, TIDAK dijadikan 0/netral, dan tidak boleh melempar exception. `preflight/params.py` harus menutup cabang
+default-nya seperti itu, dan menambah nilai baru ke tabel ini hanya lewat `@agent-api-verifier` dengan hitungan + tanggal.
 `as_of` ISO-8601 Z; `chain` null di semua sampel; `contract` hanya di scan_market.
 **Latensi terukur (1 Sep 2026, WIB siang):** `deep_analysis` **17–34 dtk**; `analyze_token`, `market_overview`, `scan_market`, `monitor_market_sentiment_shift` ≈1–3 dtk; `compare_tokens` ≈40 dtk (3 simbol). Siklus perekam 6 simbol = 281 dtk. **Konsekuensi desain: yang mengikat adalah LATENSI, bukan kuota 60/mnt.** UI tidak boleh memanggil tool secara live; `preflight` memakai snapshot store yang masih segar (item 1) dan hanya memanggil live bila perlu — sebuah preflight penuh yang semuanya live bisa >60 dtk.
 

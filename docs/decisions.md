@@ -189,3 +189,34 @@ Keputusan:
 Konsekuensi: AC TASKS 2.4 berubah dari dua verdict menjadi tiga (task 2.4a/2.4b); `ui/` mendapat satu
 cabang tampilan (3.1a); README memuat satu paragraf "dua generasi". Kenaikan versi algoritma di masa
 depan memakai jalur yang sama dan tidak akan pernah tampak sebagai tuduhan tamper.
+
+## ADR-017 (USULAN 2 Sep 2026) Keadaan ketiga spec §4: `neutral` = hijau tanpa konfirmasi
+Konteks: spec §4 hanya punya kolom Hijau ("searah plan") dan Merah ("berlawanan"). Data nyata
+(`data/ryo.db`, 756 baris, dibaca `mode=ro`, 2 Sep 2026) justru DIDOMINASI keadaan ketiga:
+`market_overview.data.regime` `neutral` 13/19 (68%) · `deep_analysis.data.verdict.call` `neutral`
+144/294 (49%) · `analyze_token.data.verdict` `neutral` 99/407 (24%); item 10 "terakhir di momentum saja"
+juga tidak punya baris di spec. Setiap field itu SUDAH punya kosakata keberatan tersendiri yang teramati
+terpisah: `caution — overbought` 118× · `avoid` 5× · `cautious` 15× · `risk_off` 0× (ada di spec, belum
+pernah dikeluarkan RYO).
+Keputusan:
+1. `neutral` (dan padanan struktural di item 10) → item **hijau**, dengan `reason` yang menyatakan
+   "not opposed to the plan, but not a confirmation either" dan `value.stance = "neutral"`. Hijau dalam
+   Tenko berarti **"tidak ada keberatan"**, bukan "mendukung" — persis seperti kolom Hijau item 4
+   (`material_shift=false` ATAU searah) dan kolom Merah item 10 (terakhir di KEDUA faktor) yang ditulis
+   manusia di spec §4.
+2. `neutral` → `red` DITOLAK: itu **mengarang keberatan yang sumbernya menolak nyatakan** — satu keluarga
+   dengan mengarang nilai `crowded` untuk item 8, hanya terbalik arahnya. Konsistensi anti-halusinasi
+   harus berlaku dua arah.
+3. `neutral` → `unspoken` DITOLAK: `core/skill.py` mewajibkan item `unspoken` tidak membawa `value`, jadi
+   jawaban nyata RYO akan HILANG dari kartu — kita melaporkan "tidak terjawab" untuk panggilan yang
+   terjawab. Itu juga membuat `unspoken` berarti dua hal sekaligus dan merusak dasar klaim produk serta
+   jawaban untuk pertanyaan juri #1 ("NO_GO yang penyebabnya angka yang TIDAK ADA").
+4. Satu knob seragam `Params.neutral_stance_status`; TIDAK ada nilai per item tanpa bukti yang
+   membedakannya. Knob ikut `params_hash`.
+5. Kompensasi WAJIB: daya pisah tiap item dilaporkan empiris dengan n (TASKS 2.1b) dan dirender berbeda
+   di kartu (TASKS 3.2). Item yang 0× merah DAN 0× unspoken atas n penuh disebut apa adanya — tidak
+   disembunyikan dan tidak dibuat bergigi buatan dengan menambah ambang.
+Konsekuensi: NO_GO datang dari item yang benar-benar berbicara (verdict abstain 31% pada item 5,
+confluence MIXED 43%, kesegaran, kelengkapan, rr, relatif), bukan dari mayoritas yang diam. Bila RYO kelak
+menerbitkan enum resmi yang menyatakan `neutral` bermakna bearish, ADR ini dicabut, `params_hash` berubah,
+dan keputusan lama tetap bisa di-replay dengan params lamanya.
