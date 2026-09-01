@@ -40,6 +40,27 @@ Aturan pemakaian dari guide: logika dari `data`, bukan `summary`; **jangan ubah 
 Error REST: HTTP status + `code` stabil + message + trace id. Error protokol MCP di `error`; kegagalan tool di `result.isError`.
 Nama field di dalam `data`: DIVERIFIKASI dari docs/samples (tabel "Field nyata" di atas). Enum verdict lengkap belum.
 
+### Bentuk transport & error REST — DIVERIFIKASI 1 Sep 2026 (TASKS 1.1, verifikasi klien `core/ryo_client.py`)
+Sumber: `docs/samples/*.json`, `docs/samples/*.headers` (rekaman 1 Sep 2026 03:47–03:48Z) + probe langsung tanpa auth 1 Sep 2026 08:34Z
+(`curl -sS -i https://app-ryochan.com/api/mcp/health`, `.../tools`, `-X POST .../tools/market_overview/call -d '{}'`).
+- **Top-level respons REST sukses = `{tool, result, latency_ms}`** — bukan hanya `result`. Envelope tetap `response.json()["result"]`
+  (10 kunci, urutan: `schema_version, tool, status, data_mode, as_of, request, data, summary, availability, warnings`). `schema_version` = `"1.0"` (string) di keenam sampel.
+- `latency_ms` = latensi sisi server. Terukur: `compare_tokens` 42409 · `deep_analysis` 28770 · `monitor_market_sentiment_shift` 618 ·
+  `market_overview` 431 · `analyze_token` 307 · `scan_market` 158. → **timeout klien 90 dtk aman** (>2× terburuk yang pernah terlihat).
+- **`x-trace-id` (huruf kecil) ada di SETIAP respons** — 200, 401, dan `/health` tanpa auth. Ini header yang dibaca untuk trace id, bukan `trace_id` body saja.
+- **Error REST**: body `{code, message, details, trace_id}`; `code` UPPER_SNAKE. Terlihat: `401 {"code":"UNAUTHENTICATED","message":"Missing credential. Send 'Authorization: Bearer ryo_mcp_...'.","details":null,"trace_id":"…"}` + header `www-authenticate: Bearer`.
+- `GET /health` **200 tanpa auth** dan **tanpa header `x-ratelimit-*`**. `/tools` dan `/tools/{tool}/call` tanpa auth → 401 (bukan 404) → kedua path terkonfirmasi ada.
+- `x-ratelimit-reset` = **epoch detik**: `1788234492` = 2026-09-01T03:48:12Z, ±58 dtk setelah header `Date` respons → jendela per menit.
+  `x-ratelimit-limit: 60` di keenam sampel. `x-ratelimit-remaining` turun 1 tiap panggilan tool di dalam satu jendela
+  (59→58→57→56) lalu naik lagi saat jendela berganti. **Header dihitung saat request DITERIMA, bukan saat respons dikirim**:
+  `compare_tokens.headers` punya `Date: 03:48:28` tetapi `x-ratelimit-reset` = 03:48:12 (sudah lewat), karena panggilan itu
+  masuk ~03:47:46 dan berjalan 42 dtk → jangan pakai `Date` respons untuk menghitung sisa jendela.
+- **inputSchema (docs/samples/catalog.json)**: keenam tool `additionalProperties: false`. `required`: `analyze_token`/`deep_analysis` = `["symbol"]`,
+  `compare_tokens` = `["symbols"]`; tiga tool lain tanpa `required`. Tipe: `top_n` **number**, `include_perp` **boolean**, `symbols` **string** ("2-4 simbol,
+  dipisah koma/spasi"), `intent` enum `swing|hold|spot`, `time_window` enum `["7d"]` default `"7d"`, sisanya string.
+  **Catatan presisi:** `additionalProperties:false` melarang properti *tidak dikenal*, BUKAN nilai `null`. Alasan sah untuk tidak mengirim argumen
+  `None` adalah **tipe** properti (string/number/boolean, tak ada yang nullable) — bukan `additionalProperties`.
+
 ## B–D. Sumber eksternal — TIDAK DIPAKAI (ADR-012/013)
 Jalur nyata hanya memakai tool RYO (§A) + satu LLM untuk narasi (SDK/model dipin di docs/versions.md saat TASKS 2.3). Sumber lain
 (Helius, Jupiter, DexScreener, GeckoTerminal) dihapus dari desain; bila suatu saat dibutuhkan, verifikasi dulu di sini.
