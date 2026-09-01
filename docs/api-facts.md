@@ -61,6 +61,35 @@ Sumber: `docs/samples/*.json`, `docs/samples/*.headers` (rekaman 1 Sep 2026 03:4
   **Catatan presisi:** `additionalProperties:false` melarang properti *tidak dikenal*, BUKAN nilai `null`. Alasan sah untuk tidak mengirim argumen
   `None` adalah **tipe** properti (string/number/boolean, tak ada yang nullable) — bukan `additionalProperties`.
 
+### Tipe & kosakata envelope (10 field) — DIVERIFIKASI 1 Sep 2026 (TASKS 1.3, verifikasi `core/skill.py` = cermin envelope, ADR-013/015)
+Sumber: keenam `docs/samples/*.json` (`response["result"]`) + **470 envelope perekam** di `data/ryo.db` (dibuka read-only,
+`sqlite3.connect("file:data/ryo.db?mode=ro", uri=True)`, hitung 1 Sep 2026; DB tidak di-commit, ulangi dengan `make record`).
+Semua 470 payload memakai **himpunan 10 kunci yang sama** — tidak ada satu pun envelope dengan kunci lebih/kurang.
+| Field | Tipe yang benar-benar muncul | Nilai teramati (6 sampel + 470 snapshot) |
+|---|---|---|
+| `schema_version` | `str` | `"1.0"` di **6/6 sampel DAN 470/470 snapshot** — bukan hanya `analyze_token`; tidak pernah `"1"` |
+| `tool` | `str` | nama tool, sama dengan `tool` di level respons REST |
+| `status` | `str` | **hanya `ok` & `partial`** (snapshot: ok 278/partial 192; sampel: ok 5/partial 1 = `deep_analysis`); `unavailable` **BELUM PERNAH TERAMATI** (0/476). Enum bertiga berasal dari RYO Builder MCP Guide, bukan dari sampel |
+| `data_mode` | `str` | **hanya `live` (476/476)**; `mixed`, `simulated`, `unknown` **BELUM PERNAH TERAMATI**. Enum berempat berasal dari Guide |
+| `as_of` | `str`, **tidak pernah `null`** (0/476) | selalu presisi DETIK: `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$` — tidak pernah ada mikrodetik |
+| `request` | `dict` | argumen ternormalisasi; nilai bertipe sesuai inputSchema (`symbol:str`, `include_perp:bool`, `top_n:int`, `intent:str`, `symbols:str`, `time_window:str`) — `scan_market` mengembalikan `{"top_n":10}` meski dipanggil tanpa argumen → server MENGISI default ke `request` |
+| `data` | `dict`, **tidak pernah `null`** (0/476) | kunci per tool: lihat tabel "Field nyata" |
+| `summary` | `dict` dengan **persis** `{headline, key_points}` di 476/476 | `headline: str`, `key_points: list[str]` (tidak pernah list kosong-bertipe-lain) |
+| `availability` | `dict[str, str]` | kosakata NILAI teramati: `available` (1430) · `unavailable` (398) · `not_requested` (5, `scan_market.theme_filter`). Kunci = nama SEKSI tool, bukan id item |
+| `warnings` | `list[str]` | 0–2 entri di sampel; semua elemen `str` |
+
+**Penyimpangan Tenko yang disengaja terhadap envelope di atas** (dicatat di sini supaya tidak terbaca sebagai fakta RYO):
+1. Field ke-11 `simulated: true` — diwajibkan `docs/rules-compliance.md`, tidak ada di RYO (ADR-015).
+2. `SkillResult.as_of` boleh `null` dan `data` boleh `null` saat `status == "unavailable"` (spec §3). RYO **tidak pernah**
+   mengeluarkan ketiganya; cabang ini karena itu TIDAK BISA diverifikasi terhadap RYO. Sah, bukan kontradiksi: Guide tidak
+   pernah menyatakan `as_of` non-null, dan `as_of` adalah waktu DATA — tanpa `data` tidak ada waktu data yang jujur untuk ditulis
+   (menulis `now()` justru mengarang kesegaran). Bila RYO kelak mengeluarkan `status: unavailable`, bandingkan lagi di sini.
+3. Nilai `availability` `"unspoken"` adalah kosakata TENKO (spec §3), bukan RYO; kunci kita = id item, kunci RYO = nama seksi.
+   Keduanya `dict[str,str]` sehingga klien RYO tetap bisa membacanya.
+4. `as_of` kita di-serialisasi lewat `datetime.isoformat()` → **mikrodetik ikut tercetak bila datetime-nya punya mikrodetik**
+   (`2026-09-01T03:47:12.123456Z`), bentuk yang tidak pernah dipakai RYO. Jalur `from_items` aman (as_of diparse dari envelope
+   RYO, presisi detik), tetapi `ItemSource.as_of` yang diisi dari `snapshots.ts_utc` (mikrodetik) akan menyimpang.
+
 ## B–D. Sumber eksternal — TIDAK DIPAKAI (ADR-012/013)
 Jalur nyata hanya memakai tool RYO (§A) + satu LLM untuk narasi (SDK/model dipin di docs/versions.md saat TASKS 2.3). Sumber lain
 (Helius, Jupiter, DexScreener, GeckoTerminal) dihapus dari desain; bila suatu saat dibutuhkan, verifikasi dulu di sini.

@@ -133,3 +133,34 @@ LICENSE.txt` harus dibuat manual karena upstream tidak menyediakan file lisensi 
 ScrollTrigger 3.12.5 → 3.15.0 BELUM DIVERIFIKASI (changelog resmi tidak dapat diambil) sehingga wajib diuji visual di
 3.2; Chart.js gugur — grafik memakai SVG/canvas inline; `sources.yaml` tidak bertambah karena file vendored bukan
 sumber runtime eksternal.
+
+## ADR-015 (USULAN — menunggu keputusan manusia, 1 Sep 2026) `SkillResult` mengikuti envelope RYO NYATA: `schema_version="1.0"`, `simulated` satu-satunya field tambahan
+Konteks: `docs/spec.md` §3 menulis `schema_version: str = "1"`. Itu ditulis SEBELUM sampel live TASKS 0.3 ada.
+Keenam `docs/samples/*.json` memakai `"1.0"` dan berbagi sepuluh field top-level yang persis sama
+(`schema_version, tool, status, data_mode, as_of, request, data, summary, availability, warnings`) — diverifikasi
+1 Sep 2026. Sementara itu ADR-013 menuntut skill kita bisa dipasang di katalog RYO tanpa mengubah klien mereka,
+dan `docs/rules-compliance.md` mewajibkan `simulated: true` di setiap respons API — padahal envelope RYO tidak
+punya field itu. AC TASKS 1.3 ("field top-level identik") karena itu tidak bisa dibaca harfiah: dua kewajiban
+yang sah saling bertabrakan.
+Keputusan (usulan):
+1. `SkillResult.schema_version` default **`"1.0"`**, mengikuti fakta sampel, bukan teks spec.
+2. Bentuk kita = **superset aditif**: seluruh sepuluh field RYO ada dengan nama & tipe sama, ditambah TEPAT SATU
+   field baru, `simulated`. Klien RYO membaca per-nama sehingga field ekstra tidak merusak; menghapusnya justru
+   melanggar rules-compliance.
+3. "Field top-level identik" di AC 1.3 dibaca sebagai invarian himpunan yang diuji mekanis terhadap
+   `docs/samples/analyze_token.json`: `RYO_TOP_LEVEL ⊆ milik kita` DAN selisihnya tepat `{"simulated"}`.
+4. (ditambahkan setelah verifikasi api-verifier 1 Sep 2026) Dua penyimpangan lain dari teks spec §3 ikut diputuskan
+   di sini, supaya tidak ada perubahan diam-diam: (a) spec menulis `as_of: datetime` non-null, kode memakai
+   `datetime | None` karena cabang `unavailable` tidak punya bukti dan karenanya tidak punya waktu — memaksa
+   `now()` di situ akan melanggar determinisme ADR-003 dan merusak AC "dua run byte-identik"; (b) spec tidak
+   memberi default untuk `data_mode`, kode memakai `"unknown"` — nilai jujur ketika belum ada bukti sama sekali.
+   Catatan fakta: RYO sendiri TIDAK PERNAH mengeluarkan `status: unavailable`, `data: null`, maupun `as_of: null`
+   (0 dari 476 amatan: 6 sampel + 470 snapshot perekam), jadi ketiga cabang itu milik kita dan tidak punya
+   padanan RYO untuk dibandingkan. Itu konsekuensi yang diterima, bukan kelalaian.
+5. `as_of` diserialisasi pada presisi DETIK (`...THH:MM:SSZ`), mengikuti 476/476 amatan RYO. `snapshots.ts_utc`
+   menyimpan mikrodetik, jadi tanpa pemotongan eksplisit envelope kita akan berbentuk yang tidak pernah dipakai RYO.
+Konsekuensi: `docs/spec.md` §3 perlu dikoreksi (`"1"` → `"1.0"`) oleh manusia — agen tidak mengubah spec.
+Penambahan field top-level baru di kemudian hari butuh ADR sendiri. README menampilkan diff bentuk terhadap
+`analyze_token` sebagaimana diminta ADR-013.
+Status: kode 1.3 dibangun memakai `"1.0"` karena itu yang terverifikasi dari sumber primer; bila manusia menolak,
+yang berubah hanya satu konstanta + satu tes.

@@ -16,7 +16,7 @@ hooks:             ## aktifkan git hook commit-msg (Conventional Commits)
 daemons:           ## make daemons ARGS=start|status|stop — perekam+agen lepas dari sesi
 	bash scripts/daemons.sh $${ARGS:-status}
 skill:             ## make skill ARGS="preflight SOL"  |  ARGS="preflight SOL hold"
-	uv run python -m core.skill_cli $(ARGS)
+	@uv run python -m core.skill_cli $(ARGS)   # @ : stdout harus JSON saja (spec §7 langkah 1)
 agent-tick:        ## satu siklus agen buku-ganda (SIMULASI)
 	uv run python -m agent.main --once
 replay:            ## make replay ID=<trade_id> → decision_hash harus identik

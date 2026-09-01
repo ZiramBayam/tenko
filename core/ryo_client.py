@@ -71,6 +71,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from core.sources import RYO_TOOLS, require_source
+
 log = logging.getLogger("core.ryo_client")
 
 # --- konstanta dari docs/api-facts.md §A -------------------------------------------------
@@ -546,7 +548,22 @@ class RyoClient(BaseRyoClient):
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None, **kwargs: Any) -> RyoClient:
-        """Baca RYO_MCP_URL/RYO_MCP_KEY dari environment (satu-satunya sumber kredensial)."""
+        """Baca RYO_MCP_URL/RYO_MCP_KEY dari environment (satu-satunya sumber kredensial).
+
+        Gate ADR-005 berdiri di sini: `sources.yaml` harus menyatakan `ryo_tools` `enabled`
+        DAN `approved: true` SEBELUM klien terbentuk — sumber yang belum disetujui tidak
+        boleh menerima satu request pun. `FixtureClient` sengaja tidak lewat sini (ADR-005:
+        fixture tetap boleh). Penolakan berupa :class:`core.sources.SourceNotApprovedError`;
+        batas produk (`core/skill_cli.py`) yang mengubahnya jadi
+        `SkillResult{status:"unavailable"}`.
+
+        **Cakupan yang jujur:** ini jalur produksi satu-satunya DI DALAM `core/`, bukan di
+        seluruh repo. Perekam sementara `scripts/bootstrap_recorder.py` memanggil RYO dengan
+        `httpx` langsung, sehingga ia BELUM tercakup gate ini maupun token bucket bersama
+        per-key. Cakupan penuh datang saat TASKS 0.5 menggantinya dengan `core/recorder.py`
+        yang memakai klien ini; sampai itu terjadi, jangan membaca kalimat di atas sebagai
+        jaminan tingkat repo.
+        """
         if "bucket" in kwargs:
             raise RyoError("parameter 'bucket' hanya untuk tes; jalur produksi memakai bucket per-key")
         source = os.environ if env is None else env
@@ -554,6 +571,7 @@ class RyoClient(BaseRyoClient):
         api_key = source.get(ENV_KEY, "")
         if not base_url or not api_key:
             raise RyoError(f"{ENV_URL}/{ENV_KEY} belum diset (lihat .env.example)")
+        require_source(RYO_TOOLS, env=None if env is None else dict(env))
         return cls(base_url, api_key, **kwargs)
 
     # -- housekeeping --
