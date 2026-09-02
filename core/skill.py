@@ -26,6 +26,30 @@ STRUKTURAL, bukan dengan pemindai numerik generik: satu-satunya tempat angka per
 adalah ``data["items"][*]["value"]``, dan invarian 1 mengosongkannya. Angka turunan
 (mis. ``plan``) baru muncul di TASKS 2.2 dan dibangun dari item yang tersebut saja.
 
+**Batas yang diakui, harus dibaca sebelum menaruh angka agregat di sini** (temuan review
+TASKS 1.5, dipatok TASKS 2.2a; scope, bukan cacat yang belum diperbaiki): karena penjagaan
+di atas bersifat struktural, ia berhenti tepat di kunci ``items``. ``data`` yang TIDAK punya
+kunci ``items`` melewati SELURUH invarian item — ``SkillResult(tool="t", status="ok",
+data={"foo": 1}, availability={})`` diterima apa adanya, dengan nol item dan ``availability``
+kosong. Artinya: **angka agregat di luar ``items`` tidak punya penjaga ``n`` di lapisan ini**,
+dan aturan "tidak ada angka agregat tanpa ``n``" (CLAUDE.md, spec §3) bukan sesuatu yang
+model ini tegakkan untuk Anda. TASKS 2.2-lah yang wajib menyediakan ``n``-nya sendiri —
+menghitungnya dari item yang benar-benar tersebut, dan menolak merakit ``plan``/``decision``
+saat ``n`` nol — bukan mengandalkan validator di sini. Pengakuan ini dipatok tes yang
+MENGHARAPKAN bentuk tanpa ``items`` itu diterima
+(``test_acknowledged_gap_ok_without_items_key_passes_every_item_invariant``), supaya celah
+itu tidak pernah ditutup — atau diperlebar — tanpa pembahasan.
+
+Konvensi ``warnings`` untuk penulis TASKS 2.2 (supaya tidak perlu menebak): preseden repo
+adalah **"batasi + sebutkan jumlah aslinya"**, bukan membuang diam-diam. Contohnya
+`core/skill_cli.py` (``MAX_ARGS=8``: argumen yang dicetak dipotong, lalu ``args_total``
+menyebut berapa banyak yang sebenarnya ada; dipatok
+``test_many_arguments_do_not_become_a_huge_envelope``). Di model ini,
+:meth:`SkillResult._bounded_warnings` memotong PANJANG tiap warning tetapi tidak pernah
+mengurangi JUMLAHNYA — membuang satu warning sama dengan menyembunyikan satu kegagalan.
+Skill yang perlu membatasi cacah warning harus menambahkan hitungan aslinya (mis.
+``warnings_total``) di tempat yang terbaca, mengikuti pola yang sama.
+
 ``as_of`` = **waktu data, bukan waktu pemanggilan**. :meth:`SkillResult.from_items`
 mengambil as_of TERTUA dari envelope bukti (paling konservatif untuk item kesegaran); tanpa
 bukti sama sekali nilainya ``None`` — bukan ``now()`` — sehingga tidak ada kesegaran yang

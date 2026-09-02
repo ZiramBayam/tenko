@@ -323,6 +323,26 @@ def test_items_must_be_a_list_of_objects() -> None:
         SkillResult(tool="preflight", status="ok", data={"items": "rr"}, availability={})
 
 
+def test_acknowledged_gap_ok_without_items_key_passes_every_item_invariant() -> None:
+    """BATAS YANG DIAKUI (TASKS 2.2a): `data` tanpa kunci `items` lolos SEMUA invarian item.
+
+    Invarian 1/2 (`unspoken` tanpa value, `availability` dua arah) hanya berlaku untuk
+    `data["items"][*]`; tanpa kunci itu, `_parsed_items` mengembalikan None dan validator
+    berhenti lebih awal. Jadi angka agregat yang duduk di luar `items` — persis bentuk yang
+    dirakit TASKS 2.2 (`plan`, `decision`) — TIDAK punya penjaga `n` di lapisan ini.
+
+    Tes ini MEMATOK celah itu, bukan menyetujuinya sebagai selamanya: menutupnya adalah
+    pekerjaan 2.2 (yang wajib menyediakan `n`-nya sendiri) dan mengubah desain "struktural"
+    TASKS 1.3 harus terlihat sebagai kegagalan tes ini, bukan berubah senyap.
+    """
+    result = SkillResult(tool="t", status="ok", data={"foo": 1}, availability={})
+
+    assert result.status == "ok"
+    assert result.items == []  # nol item: tidak ada yang bisa dijaga invarian item
+    assert result.availability == {}  # dan tidak ada entri availability yang dituntut
+    assert result.data == {"foo": 1}  # angka agregat lewat apa adanya, tanpa `n`
+
+
 # --- status unavailable ⇒ data None ------------------------------------------------------
 def test_unavailable_with_data_is_rejected() -> None:
     with pytest.raises(ValidationError):
