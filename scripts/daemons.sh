@@ -47,14 +47,18 @@ case "${1:-status}" in
     done
     ;;
   status)
-    for n in recorder agent; do
-      if [ -f "logs/$n.pid" ] && kill -0 "$(cat "logs/$n.pid")" 2>/dev/null; then
-        echo "$n: JALAN (pid $(cat "logs/$n.pid")) — $(tail -1 "logs/$n.log" 2>/dev/null | cut -c1-90)"
-      else
-        echo "$n: mati"
-      fi
-    done
-    python3 scripts/db_status.py 2>/dev/null || true
+    # Status MENDIAGNOSIS, tidak pernah mengintervensi (TASKS 1.13): nol sinyal (`kill -0`
+    # yang dulu di sini sudah dibuang), dan `logs/recorder.lock` TIDAK PERNAH dihapus —
+    # flock advisory pada inode, jadi menghapusnya saat pemegangnya hidup justru
+    # mengizinkan perekam kedua. Yang dibersihkan hanya `logs/<name>.pid` yang pid-nya mati;
+    # itu terjadi di dalam proc_status.py (satu tempat, punya tes).
+    # `2>/dev/null` sengaja TIDAK dipakai: peredam itulah yang menyembunyikan kegagalan
+    # diagnostik. Kesalahan boleh terlihat, tetapi `status` tetap exit 0 karena skrip lain
+    # memanggilnya — peringatan disampaikan sebagai teks di stdout.
+    python3 scripts/proc_status.py --dir logs --name recorder --name agent \
+      --lock "${RECORDER_LOCK_PATH:-logs/recorder.lock}" || echo "PERINGATAN: proc_status.py gagal (lihat pesan di atas)"
+    python3 scripts/db_status.py || echo "PERINGATAN: db_status.py gagal (lihat pesan di atas) - umur snapshot TIDAK diketahui, jangan disimpulkan segar"
+    exit 0
     ;;
   *) echo "pakai: bash scripts/daemons.sh start|status|stop"; exit 2;;
 esac
