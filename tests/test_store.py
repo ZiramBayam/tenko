@@ -222,6 +222,31 @@ def test_insert_helper_rejects_statements_outside_the_fixed_list(store: Store) -
     assert _rows(store.path, "SELECT tool FROM snapshots") == [("analyze_token",)]
 
 
+def test_acknowledged_limit_replace_into_through_raw_db_handle_overwrites_a_row(
+    store: Store,
+) -> None:
+    """BATAS YANG DIAKUI (docstring modul), bukan bug yang lolos: hanya-tambah dijamin di
+    batas API `Store`, bukan pada koneksi.
+
+    `store._db` adalah handle SQLite mentah yang sengaja tidak dilindungi allowlist
+    pernyataan, dan authorizer menyaring aksi (bukan teks) sehingga `REPLACE INTO`
+    dilaporkan sebagai aksi INSERT. Tes ini MENGHARAPKAN serangan itu berhasil: kalau kelak
+    seseorang menutup celahnya, tes ini jatuh dan pembahasannya dipaksa terjadi. Yang
+    menjaga sisanya tetap `MUTATING_SQL` di atas, yang menuntut penolakan.
+    """
+    row_id = store.insert_snapshot("analyze_token", ARGS, ENVELOPE)
+    replace_sql = (
+        "REPLACE INTO snapshots"
+        " (id, tool, args_json, args_hash, ts_utc, payload_json, payload_hash)"
+        " VALUES (?,?,?,?,?,?,?)"
+    )
+    store._db.execute(replace_sql, (row_id, "DIGANTI", "{}", "h", "t", "{}", "h"))
+    store._db.commit()
+
+    rows = _rows(store.path, "SELECT id, tool, payload_json FROM snapshots")
+    assert rows == [(row_id, "DIGANTI", "{}")]  # baris asli hancur, jumlah baris tetap 1
+
+
 def test_journal_mode_of_the_database_file_is_left_alone(store: Store) -> None:
     """Perekam sedang menulis ke DB hidup; membalik journal_mode ke WAL bersifat persisten."""
     store.insert_snapshot("analyze_token", ARGS, ENVELOPE)

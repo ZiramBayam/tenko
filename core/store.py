@@ -15,16 +15,32 @@ Sifat modul ini (setiap klaim di bawah punya tes di ``tests/test_store.py``):
      lengkap aksi yang ditolak dibuktikan di ``tests/test_store.py`` dengan SQL sungguhan.)
      ``PRAGMA`` disaring per nama (:data:`ALLOWED_PRAGMAS`), jadi ``writable_schema`` dan
      ``journal_mode`` juga tertutup.
-  2. **Allowlist pernyataan**: :meth:`Store._insert` menolak SQL apa pun yang bukan salah
-     satu dari tiga konstanta di :data:`INSERT_STATEMENTS`. Itu menutup satu-satunya celah
-     yang lolos authorizer, yaitu ``INSERT OR REPLACE``/``REPLACE INTO`` (SQLite melaporkan
-     keduanya sebagai aksi INSERT, padahal keduanya membuang baris lama).
+  2. **Allowlist pernyataan, hanya di batas API** :class:`Store`: :meth:`Store._insert`
+     menolak SQL apa pun yang bukan salah satu dari tiga konstanta di
+     :data:`INSERT_STATEMENTS`. Itu menutup ``INSERT OR REPLACE``/``REPLACE INTO`` —
+     satu-satunya bentuk perusak baris yang lolos authorizer (SQLite melaporkan keduanya
+     sebagai aksi INSERT, padahal keduanya membuang baris lama) — **bagi kode yang memanggil
+     lewat metode** :class:`Store`, bukan bagi pemegang koneksinya; lihat "Batas yang
+     diakui" di bawah.
   3. Pembuatan tabel dijalankan pada **koneksi terpisah berumur pendek** yang langsung
      ditutup (``_create_schema``), sehingga koneksi kerja tidak pernah punya izin DDL.
 
   Duplikat DISENGAJA: menulis payload yang sama dua kali menghasilkan dua baris dengan
   ``payload_hash``/``args_hash`` identik. Tanpa itu grading kehilangan ``n`` (berapa kali
   kondisi yang sama teramati) dan replay kehilangan urutan waktu.
+
+  **Batas yang diakui, harus dibaca sebelum mengklaim apa pun tentang modul ini** (dicatat
+  hackathon-judge, 1 Sep 2026; scope, bukan cacat yang belum diperbaiki): jaminan
+  hanya-tambah berlaku **di batas API** :class:`Store`, BUKAN pada objek koneksi.
+  ``Store._db`` adalah handle SQLite mentah yang SENGAJA tidak dilindungi lapis (2): siapa
+  pun yang memegangnya bisa menjalankan ``REPLACE INTO``/``INSERT OR REPLACE`` sendiri, dan
+  itu **berhasil** — baris lama hancur diam-diam (jumlah baris tetap, isinya tergantikan),
+  karena authorizer menyaring aksi dan SQLite melaporkan bentuk itu sebagai aksi INSERT.
+  Yang lewat ``_db`` tetap ditolak: verb pengubah & pembuang baris, ``DROP``, ``ALTER``,
+  ``ATTACH``, ``VACUUM``, ``PRAGMA writable_schema``, ``PRAGMA journal_mode``. Pengakuan ini
+  dipatok tes yang MENGHARAPKAN ``REPLACE INTO`` lewat ``_db`` berhasil
+  (``test_acknowledged_limit_replace_into_through_raw_db_handle_overwrites_a_row``), supaya
+  celah itu tidak pernah ditutup — atau diperlebar — tanpa pembahasan.
 
 * **Skema mengikuti ``data/ryo.db`` yang sudah hidup.** ``CREATE TABLE IF NOT EXISTS``
   TIDAK memigrasi tabel lama, jadi kolom yang meleset berarti tulis diam-diam ke bentuk
@@ -234,8 +250,12 @@ def _authorizer(
 ) -> int:
     """Allowlist aksi SQLite untuk koneksi kerja; sisanya `SQLITE_DENY`.
 
-    Dipasang lewat `set_authorizer`, jadi ia berlaku untuk SQL apa pun yang sampai ke
-    koneksi ini — termasuk SQL yang dirakit saat runtime oleh kode masa depan.
+    Dipasang lewat `set_authorizer`, jadi ia menyaring SQL apa pun yang sampai ke koneksi
+    ini — termasuk SQL yang dirakit saat runtime oleh kode masa depan. Yang disaring adalah
+    **aksi**, bukan teks: `REPLACE INTO`/`INSERT OR REPLACE` dilaporkan SQLite sebagai aksi
+    INSERT, jadi bentuk itu LOLOS di lapis ini. Penutupnya hanya :meth:`Store._insert`, yang
+    berdiri di batas API :class:`Store` — bukan pada koneksi ini. Lihat "Batas yang diakui"
+    pada docstring modul.
     """
     if action == sqlite3.SQLITE_PRAGMA:
         if (arg1 or "").strip().lower() in ALLOWED_PRAGMAS:
