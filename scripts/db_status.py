@@ -27,7 +27,7 @@ def main() -> int:
         print(f"  terbaru  : {last}")
     for table, label in (("decisions", "keputusan"), ("trade_events", "trade event")):
         if has(table):
-            print(f"  {label}: {c.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]}")
+            print(f"  {label}: {c.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]}")  # noqa: S608 - `table` dari tuple literal di baris `for`, bukan input
     return 0
 
 

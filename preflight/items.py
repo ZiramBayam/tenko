@@ -1166,7 +1166,7 @@ def evaluate_derivatives(evidence: Evidence) -> ItemOutcome:
         )
     warnings: list[str] = []
     deep = evidence.get(TOOL_DEEP)
-    per_token = "absent"
+    per_token = "absent"  # noqa: S105 — status seksi derivatif, bukan kredensial
     if deep is not None:
         marker = deep.availability.get("derivatives")
         per_token = _text_value(marker) or "absent"

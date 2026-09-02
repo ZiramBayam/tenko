@@ -638,7 +638,9 @@ class RyoClient(BaseRyoClient):
         self._key = Secret(api_key)
         self._timeout = timeout
         self._max_retries = max(0, max_retries)
-        self._rng = rng or random.Random()
+        # Supresi di baris berikut disengaja: jitter backoff BUKAN kripto, dan `secrets`
+        # tidak bisa disuntik jam palsu — tes rate limiter butuh rng yang deterministik.
+        self._rng = rng or random.Random()  # noqa: S311 - jitter backoff, bukan kripto
         self._sleep = sleep_fn
         # kuota per key → bucket dibagi antar instance dengan kunci yang sama (api-facts §A)
         self._bucket = bucket or _shared_bucket(api_key, rate_per_min, time_fn=time_fn, sleep_fn=sleep_fn)

@@ -23,7 +23,26 @@ line-length = 110
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
+select = ["E", "F", "I", "B", "UP", "BLE", "DTZ", "S", "RUF100"]
+# Kenapa persis ini (TASKS 1.7, 2 Sep 2026 — angka dari `ruff check --select <rule> .`):
+#   BLE  — 15 `# noqa: BLE001` sudah menjelaskan KENAPA tiap `except Exception` disengaja
+#          (pagar terakhir perekam, kontrak RyoError, `_invoke` CLI). Tanpa BLE aktif,
+#          komentar itu tidak menekan apa pun: klaim disiplin tanpa penegakan.
+#   S    — 925 temuan, 911 di antaranya S101 (assert di tes; itu memang gunanya). 14 sisanya
+#          semuanya positif palsu di kode ini dan diberi `# noqa` beralasan satu per satu,
+#          BUKAN dimatikan massal. Nilainya ada di masa depan: exec, yaml tak aman, dan
+#          kredensial ter-hardcode akan tertangkap murah.
+#   RUF100 saja, bukan `RUF` penuh — RUF001/002/003 (55 temuan) menandai em dash pada
+#          komentar berbahasa Indonesia sebagai "karakter ambigu". Itu prosa, bukan cacat;
+#          mengaktifkannya berarti mengubah tulisan agar linter senang.
+# Tidak diaktifkan: ANN/D (dokumentasi & anotasi sudah dijaga review, bukan alat),
+#          PTH/EM/TRY (gaya, nol nilai keamanan di sini).
+
+[tool.ruff.lint.per-file-ignores]
+# Tes memang berisi assert (S101), memang memanggil subprocess dengan argumen yang kita
+# susun sendiri (S603), dan memang memuat nama field RYO seperti `token_profile`/`secret`
+# yang S105 kira kredensial (S105). Kredensial nyata dijaga tes khusus, bukan oleh linter.
+"tests/**" = ["S101", "S603", "S105"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

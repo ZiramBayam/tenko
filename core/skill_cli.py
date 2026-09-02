@@ -132,7 +132,7 @@ def _envelope_text(result: SkillResult) -> str:
     try:
         checked = SkillResult.model_validate(result.model_dump())
         payload = checked.model_dump(mode="json")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — validasi akhir tidak boleh punya jalur keluar
         log.warning("hasil skill ditolak validasi akhir: %s", type(exc).__name__)
         tool = getattr(result, "tool", CLI_TOOL)
         payload = _fallback(tool, f"result failed final validation: {type(exc).__name__}").model_dump(
@@ -140,7 +140,7 @@ def _envelope_text(result: SkillResult) -> str:
         )
     try:
         return _safe_text(canonical_json(payload))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — stdout wajib tetap satu baris JSON yang sah
         log.warning("hasil skill tidak bisa dikanonikalisasi: %s", type(exc).__name__)
         fallback = _fallback(payload.get("tool"), f"result could not be serialised: {type(exc).__name__}")
         return _safe_text(canonical_json(fallback.model_dump(mode="json")))
@@ -187,7 +187,7 @@ def _invoke(label: str, fn: Any, args: list[str], request: dict[str, Any]) -> Sk
         message = _speakable(exc)
         log.warning("skill %r gagal: %s", label, message)
         return SkillResult.unavailable(label, request=request, warnings=[message])
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — skill pihak lain; kontrak CLI: selalu exit 0
         # Pesan pihak lain tidak pernah dicetak: bisa memuat kredensial atau teks server.
         # Juga TIDAK ke log (scripts/daemons.sh mengarahkan stderr ke logs/*.log, dan SDK
         # pihak ketiga — mis. LLM di TASKS 2.3 — tidak punya mesin redaksi seperti
@@ -210,7 +210,7 @@ def _invoke(label: str, fn: Any, args: list[str], request: dict[str, Any]) -> Sk
         # melewatkan validator sama sekali. Yang dikembalikan adalah SALINAN tervalidasi,
         # bukan objek skill, supaya penambalan setelah ini pun tidak ikut terbawa.
         return SkillResult.model_validate(result.model_dump())
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — envelope bohong tidak boleh lolos ke pemanggil
         log.warning("envelope dari skill %r ditolak validasi akhir: %s", label, type(exc).__name__)
         return SkillResult.unavailable(
             label,

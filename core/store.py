@@ -735,7 +735,7 @@ class Store:
         except (TypeError, ValueError, OverflowError):
             raise StoreError(f"max_age_min tidak sah: {type(max_age_min).__name__}") from None
         rows = self._select(
-            f"SELECT {_SNAPSHOT_COLUMNS} FROM snapshots"
+            f"SELECT {_SNAPSHOT_COLUMNS} FROM snapshots"  # noqa: S608 - kolom dari konstanta modul; nilai parameterized
             " WHERE tool = ? AND args_hash = ? ORDER BY ts_utc DESC LIMIT ?",
             (_as_text(tool, "tool"), _as_text(args_hash, "args_hash"), FRESH_SCAN_LIMIT),
         )
@@ -839,7 +839,7 @@ class Store:
             return []
         placeholders = ",".join("?" * len(wanted))
         rows = self._select(
-            f"SELECT {_SNAPSHOT_COLUMNS} FROM snapshots WHERE id IN ({placeholders}) ORDER BY id",
+            f"SELECT {_SNAPSHOT_COLUMNS} FROM snapshots WHERE id IN ({placeholders}) ORDER BY id",  # noqa: S608 - placeholders dari len(), id di-bind
             wanted,
         )
         return [Snapshot.from_row(row) for row in rows]

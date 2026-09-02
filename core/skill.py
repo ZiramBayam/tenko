@@ -541,7 +541,8 @@ def load_skill(name: str) -> SkillFn | None:
         return None
     try:
         importlib.import_module(module_name)
-    except Exception as exc:  # modul skill rusak: laporkan kelasnya, jangan pesannya
+    except Exception as exc:  # noqa: BLE001 — modul skill pihak lain: apa pun boleh meledak
+        # Laporkan KELASNYA saja; pesan impor bisa memuat path atau teks pihak ketiga.
         raise SkillError(
             f"skill {name!r} failed to load from {module_name!r}: {type(exc).__name__}"
         ) from None

@@ -345,7 +345,7 @@ def test_unavailable_helper_is_honest() -> None:
 # --- waktu -------------------------------------------------------------------------------
 def test_naive_datetime_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        SkillResult(tool="preflight", status="unavailable", as_of=datetime(2026, 9, 1, 3, 47, 14))
+        SkillResult(tool="preflight", status="unavailable", as_of=datetime(2026, 9, 1, 3, 47, 14))  # noqa: DTZ001 - naif ADALAH input yang diuji
 
 
 def test_as_of_serializes_like_ryo() -> None:
