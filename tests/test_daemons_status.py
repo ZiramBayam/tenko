@@ -73,8 +73,8 @@ def _fake_proc(root: Path, pid: int, argv: list[str], state: str = "S") -> None:
     (entry / "stat").write_text(f"{pid} (python3) {state} 1 1 1", encoding="utf-8")
 
 
-def _stub_recorder(tmp_path: Path, extra: list[str]) -> subprocess.Popen:
-    """Proses nyata ber-cmdline `python -m core.recorder ...` tanpa menyentuh apa pun.
+def _stub_package(tmp_path: Path) -> None:
+    """Paket `core.recorder` tiruan: hanya tidur, tidak menyentuh apa pun.
 
     Modul aslinya sengaja TIDAK dipakai: yang diuji adalah pencocokan cmdline, dan perekam
     asli akan mencoba mengambil `logs/recorder.lock` produksi.
@@ -83,6 +83,11 @@ def _stub_recorder(tmp_path: Path, extra: list[str]) -> subprocess.Popen:
     pkg.mkdir(parents=True, exist_ok=True)
     (pkg / "__init__.py").write_text("", encoding="utf-8")
     (pkg / "recorder.py").write_text("import time\ntime.sleep(120)\n", encoding="utf-8")
+
+
+def _stub_recorder(tmp_path: Path, extra: list[str]) -> subprocess.Popen:
+    """Proses nyata ber-cmdline `python -m core.recorder ...` tanpa menyentuh apa pun."""
+    _stub_package(tmp_path)
     return subprocess.Popen(
         [sys.executable, "-m", "core.recorder", *extra],
         cwd=str(tmp_path),
@@ -91,13 +96,75 @@ def _stub_recorder(tmp_path: Path, extra: list[str]) -> subprocess.Popen:
     )
 
 
-def _wait_alive(proc: subprocess.Popen, seconds: float = 5.0) -> None:
+class _ForeignPid:
+    """Pengganti `Popen` untuk menguji :func:`_wait_alive` sendiri: pid proses lain + argv karangan.
+
+    `poll()` selalu None karena proses yang dipinjam pid-nya memang hidup; yang diuji lewat
+    kelas ini adalah jalur TIMEOUT, bukan jalur "proses keluar sebelum exec".
+    """
+
+    def __init__(self, pid: int, args: list[str]) -> None:
+        self.pid = pid
+        self.args = args
+
+    def poll(self) -> int | None:
+        return None
+
+
+def _wait_alive(
+    proc: subprocess.Popen | _ForeignPid,
+    seconds: float = 5.0,
+    expected_argv: list[str] | None = None,
+) -> None:
+    """Tunggu sampai `/proc/<pid>/cmdline` BENAR-BENAR berisi argv yang diluncurkan.
+
+    Versi TASKS 1.13 hanya menunggu berkas itu ADA — padahal `/proc/<pid>` sudah ada sejak
+    `fork`, sebelum `exec`, dan di jendela itu isinya masih cmdline INDUK (pytest). Di sana
+    `ps.runs_module(argv, "core.recorder")` menjawab False dan `check_daemon` melaporkan
+    bukan-JALAN: `test_live_pid_file_is_kept_and_tail_shown` merah sekali lalu tidak bisa
+    direproduksi, dan mesin yang sibuk memperbesar jendelanya (TASKS 1.13a).
+
+    Kesiapan yang ditunggu di sini adalah persis prakondisi keempat pemanggilnya: semuanya
+    menilai kode produksi yang MEMBACA `/proc/<pid>/cmdline`, jadi "siap" = cmdline sudah
+    menjadi milik proses uji. Karena itu tidak ada handshake seperti `_lock_holder` di bawah:
+    pemegang kunci mengumumkan diri karena keadaan yang ditunggu (kunci sudah dipegang) tidak
+    terlihat dari luar, sedangkan di sini keadaan yang ditunggu justru berkas yang dibaca kode
+    produksi — stub tidak perlu diminta bekerja sama, dan satu mekanisme lebih baik daripada
+    dua. `proc.poll()` tetap diperiksa supaya proses uji yang mati sebelum exec memberi pesan
+    yang menyebut exit code, bukan timeout yang tidak menjelaskan apa pun.
+
+    Syaratnya sengaja BUKAN `ps.runs_module`: kalau matcher produksi rusak, tesnya harus gagal
+    di assert-nya sendiri, bukan menggantung di helper ini. Pembandingnya argv literal yang
+    diluncurkan tes (`expected_argv` bila prosesnya nanti `execv` menjadi argv lain).
+    """
+    expected = tuple(str(a) for a in (proc.args if expected_argv is None else expected_argv))
+    path = Path(f"/proc/{proc.pid}/cmdline")
     deadline = time.monotonic() + seconds
+    seen: tuple[str, ...] | None = None
     while time.monotonic() < deadline:
-        if Path(f"/proc/{proc.pid}/cmdline").exists():
-            return
-        time.sleep(0.05)
-    raise AssertionError("proses uji tidak pernah muncul di /proc")
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            raw = None
+        if raw is not None:
+            seen = tuple(part for part in raw.decode("utf-8", "replace").split("\0") if part)
+            if seen == expected:
+                return
+        code = proc.poll()
+        if code is not None:
+            raise AssertionError(
+                f"proses uji pid {proc.pid} keluar (rc={code}) sebelum cmdline-nya menjadi {list(expected)}"
+            )
+        time.sleep(0.02)
+    if seen is None:
+        raise AssertionError(
+            f"cmdline pid {proc.pid} tidak pernah cocok dalam {seconds}s: {path} tidak pernah "
+            f"terbaca — proses tidak muncul di /proc; yang ditunggu {list(expected)}"
+        )
+    raise AssertionError(
+        f"cmdline pid {proc.pid} tidak pernah menjadi {list(expected)} dalam {seconds}s; "
+        f"terakhir terbaca {list(seen)}"
+    )
 
 
 def _lock_holder(path: Path) -> subprocess.Popen:
@@ -112,6 +179,98 @@ def _lock_holder(path: Path) -> subprocess.Popen:
     assert proc.stdout is not None
     assert proc.stdout.readline().strip() == "ready"
     return proc
+
+
+# --- TASKS 1.13a: helper kesiapan harus menggigit -------------------------------------------
+def test_wait_alive_waits_for_the_exec_not_for_the_proc_entry(tmp_path: Path) -> None:
+    """Regresi 1.13a: `/proc/<pid>` ada sejak fork; isinya baru benar sesudah exec.
+
+    Prosesnya sengaja start dengan cmdline umpan lalu `execv` menjadi `-m core.recorder`.
+    Syarat lama ("berkasnya ada") sudah terpenuhi sejak detik pertama — helper lama pulang di
+    situ, dengan cmdline yang masih milik umpan.
+    """
+    _stub_package(tmp_path)
+    target = [sys.executable, "-m", "core.recorder"]
+    decoy = f"import os, time\ntime.sleep(0.5)\nos.execv({sys.executable!r}, {target!r})\n"
+    proc = subprocess.Popen(
+        [sys.executable, "-c", decoy],
+        cwd=str(tmp_path),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        assert Path(f"/proc/{proc.pid}/cmdline").exists(), "syarat lama sudah lolos di sini"
+
+        started = time.monotonic()
+        _wait_alive(proc, expected_argv=target)
+        elapsed = time.monotonic() - started
+
+        argv = ps.read_cmdline(proc.pid)
+        assert argv is not None and ps.runs_module(argv, ps.RECORDER_MODULE) is True
+        assert elapsed >= 0.25, "helper pulang sebelum exec — jendela fork/exec masih terbuka"
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_wait_alive_postcondition_is_what_check_daemon_needs(tmp_path: Path) -> None:
+    """Sesudah helper kembali, matcher produksi HARUS setuju — itu yang dipakai 4 pemanggilnya."""
+    proc = _stub_recorder(tmp_path, ["--client", "fixture"])
+    try:
+        _wait_alive(proc)
+        argv = ps.read_cmdline(proc.pid)
+        assert argv is not None
+        assert ps.runs_module(argv, ps.RECORDER_MODULE) is True
+        assert ps.client_kind(argv) == "fixture"
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_wait_alive_times_out_and_names_what_it_actually_read() -> None:
+    """Pid yang cmdline-nya tidak akan pernah cocok: timeout keras, dengan kedua cmdline disebut."""
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        _wait_alive(other)  # tunggu exec-nya sendiri, supaya pesan menyebut cmdline yang NYATA
+        never = _ForeignPid(other.pid, [sys.executable, "-m", "core.recorder"])
+
+        started = time.monotonic()
+        with pytest.raises(AssertionError) as err:
+            _wait_alive(never, seconds=0.3)
+        elapsed = time.monotonic() - started
+
+        message = str(err.value)
+        assert elapsed >= 0.3, "helper menyerah sebelum batas waktunya"
+        assert str(other.pid) in message
+        assert "core.recorder" in message, "yang DIHARAPKAN harus disebut"
+        assert "time.sleep(60)" in message, "yang BENAR-BENAR terbaca harus disebut"
+        assert "tidak muncul di /proc" not in message, (
+            "pesan 1.13 berbohong untuk kasus ini: prosesnya ADA, cmdline-nya yang tidak cocok"
+        )
+        assert other.poll() is None, "helper mengirim sinyal ke pid yang ditunggunya"
+    finally:
+        other.kill()
+        other.wait()
+
+
+def test_wait_alive_says_plainly_when_the_process_never_appeared() -> None:
+    gone = _ForeignPid(_dead_pid(), [sys.executable, "-m", "core.recorder"])
+    with pytest.raises(AssertionError) as err:
+        _wait_alive(gone, seconds=0.2)
+    message = str(err.value)
+    assert "tidak muncul di /proc" in message
+    assert str(gone.pid) in message
+
+
+def test_wait_alive_reports_a_process_that_dies_before_it_matches() -> None:
+    """Stub yang gagal start tidak boleh berakhir sebagai timeout yang tidak menjelaskan apa pun."""
+    proc = subprocess.Popen([sys.executable, "-c", "raise SystemExit(3)"])
+    try:
+        with pytest.raises(AssertionError) as err:
+            _wait_alive(proc, expected_argv=[sys.executable, "-m", "core.recorder"])
+        assert "rc=3" in str(err.value)
+    finally:
+        proc.wait()
 
 
 # --- 1. pid mati vs hidup ------------------------------------------------------------------
@@ -206,6 +365,7 @@ def test_recycled_pid_is_not_reported_running(tmp_path: Path) -> None:
     """
     other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
+        _wait_alive(other)  # sampai exec selesai, cmdline-nya masih milik pytest
         pid_file = tmp_path / "recorder.pid"
         pid_file.write_text(f"{other.pid}\n", encoding="utf-8")
 
@@ -258,6 +418,7 @@ def test_branch_live_mismatching_pid_file_is_kept_for_the_operator(tmp_path: Pat
     """
     other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
+        _wait_alive(other)
         pid_file = tmp_path / "recorder.pid"
         pid_file.write_text(f"{other.pid}\n", encoding="utf-8")
         lines, alive = ps.check_daemon("recorder", pid_file, tmp_path / "recorder.log")
@@ -861,6 +1022,7 @@ def test_daemons_status_reports_recycled_pid_without_touching_the_file(tmp_path:
     root = _sandbox(tmp_path)
     other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
+        _wait_alive(other)
         pid_file = root / "logs" / "recorder.pid"
         pid_file.write_text(f"{other.pid}\n", encoding="utf-8")
         done = _run_daemons_status(root)
