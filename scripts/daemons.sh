@@ -20,6 +20,10 @@ start_one() {  # nama, perintah...
 case "${1:-status}" in
   start)
     export RECORDER_MAX_SYMBOLS="${RECORDER_MAX_SYMBOLS:-20}" RECORDER_INTERVAL_S="${RECORDER_INTERVAL_S:-3600}"
+    # Salinan DB SEBELUM perekam menyala (TASKS 1.12). `||` disengaja: kehilangan satu jam
+    # snapshot (tidak bisa dibuat ulang) lebih buruk daripada tidak punya salinan hari ini,
+    # jadi backup yang gagal hanya memperingatkan dan TIDAK menghentikan start perekam.
+    python3 scripts/backup.py || echo "PERINGATAN: backup gagal (lihat pesan di atas) - perekam tetap dinyalakan, jalankan 'make backup' setelah ini"
     # Perekam asli dipakai begitu TASKS 0.5 selesai; sebelum itu perekam sementara
     # menjaga agar tidak ada lubang di data (outcome T+24j tidak bisa dibuat ulang).
     if [ -f core/recorder.py ]; then

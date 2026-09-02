@@ -1,4 +1,4 @@
-.PHONY: doctor test lint hooks record daemons skill agent-tick replay grade ui demo autopilot
+.PHONY: doctor test lint hooks record daemons backup skill agent-tick replay grade ui demo autopilot
 doctor:
 	@echo "python : $$(python3 --version 2>/dev/null || echo MISSING)  (harus 3.12.x, lihat docs/versions.md)"
 	@echo "uv     : $$(uv --version 2>/dev/null || echo MISSING)"
@@ -15,6 +15,8 @@ hooks:             ## aktifkan git hook commit-msg (Conventional Commits)
 	git config core.hooksPath .githooks && echo "hooks aktif: .githooks/commit-msg"
 daemons:           ## make daemons ARGS=start|status|stop — perekam+agen lepas dari sesi
 	bash scripts/daemons.sh $${ARGS:-status}
+backup:            ## salinan online data/ryo.db -> data/backups/ryo-<UTC>.db, lalu integrity_check
+	python3 scripts/backup.py   # stdlib saja: harus jalan walau venv/paket aplikasi rusak
 skill:             ## make skill ARGS="preflight SOL"  |  ARGS="preflight SOL hold"
 	@uv run python -m core.skill_cli $(ARGS)   # @ : stdout harus JSON saja (spec §7 langkah 1)
 agent-tick:        ## satu siklus agen buku-ganda (SIMULASI)
