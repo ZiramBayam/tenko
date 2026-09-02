@@ -584,6 +584,19 @@ def _dotenv_value(raw: str) -> str:
 def load_dotenv(path: str | Path | None = None) -> None:
     """Isi variabel env dari berkas `.env` untuk yang BELUM diset (dipakai `make record`).
 
+    **Penting untuk uji "kredensial dicabut" (TASKS 4.5).** "Belum diset" berarti namanya
+    TIDAK ADA di `os.environ`. Konsekuensi yang harus disadari sebelum menulis tes chaos:
+
+    * ``RYO_MCP_KEY=`` (ada, tetapi kosong) -> TIDAK diisi ulang; perekam berhenti dengan
+      kredensial kosong, persis seperti yang diharapkan tes;
+    * ``unset RYO_MCP_KEY`` (namanya dihapus) -> **DIISI ULANG dari `.env`**, sehingga perekam
+      tetap memanggil RYO. Ini bukan cacat: daemon memang harus bisa hidup dari `.env`.
+      Tetapi artinya `unset` BUKAN cara mencabut kredensial. Pakai ``--no-dotenv``,
+      kosongkan nilainya, atau pindahkan berkas `.env`.
+
+    hackathon-judge menemukan ini dengan cara mahal: percobaan "cabut kredensial"-nya
+    ternyata tetap memanggil API sungguhan dan ikut menyumbang beberapa HTTP 429.
+
     Nilai tidak pernah dicetak/dilog. Variabel yang sudah ada di environment menang, jadi
     `scripts/daemons.sh` (yang sudah mem-`source` .env) tidak terpengaruh. Bila satu nama
     muncul dua kali, baris TERAKHIR menang — sama dengan `set -a; . ./.env`, supaya
@@ -711,6 +724,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default="live",
         help="live = tool RYO sungguhan; fixture = docs/samples (offline, tanpa kredensial)",
     )
+    parser.add_argument(
+        "--no-dotenv",
+        action="store_true",
+        help="jangan membaca .env; pakai environment apa adanya (uji 'kredensial dicabut')",
+    )
     parser.add_argument("--log-level", default=os.environ.get("LOG_LEVEL", "INFO"))
     return parser.parse_args(argv)
 
@@ -720,7 +738,8 @@ def main(argv: list[str] | None = None) -> int:
     2 = tidak bisa mulai (konfigurasi, kredensial, store, atau perekam lain sudah jalan)."""
     args = _parse_args(argv)
     _configure_logging(args.log_level)
-    load_dotenv()
+    if not args.no_dotenv:
+        load_dotenv()
 
     try:
         config = RecorderConfig.from_env()

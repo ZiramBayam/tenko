@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import socket
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -970,6 +971,59 @@ def test_load_dotenv_skips_malformed_names(tmp_path: Path, caplog: pytest.LogCap
 
 def test_load_dotenv_tolerates_missing_file(tmp_path: Path) -> None:
     load_dotenv(tmp_path / "tidak-ada")  # tidak boleh melempar
+
+
+# --- TASKS 1.10: "kredensial dicabut" harus bisa diuji ----------------------------------------
+def test_empty_credentials_are_not_refilled_from_dotenv(tmp_path: Path) -> None:
+    """Nama yang ADA tetapi kosong dihitung "sudah diset" — `.env` tidak boleh menimpanya.
+
+    Tanpa ini, tes chaos yang mengosongkan kredensial akan diam-diam memanggil RYO sungguhan.
+    """
+    written = tmp_path / "dotenv"
+    written.write_text("RYO_MCP_KEY=nilai-dari-berkas\n", encoding="utf-8")
+    os.environ["RYO_MCP_KEY"] = ""
+    try:
+        load_dotenv(written)
+        assert os.environ["RYO_MCP_KEY"] == ""
+    finally:
+        os.environ.pop("RYO_MCP_KEY", None)
+
+
+def test_removed_credentials_are_refilled_unless_no_dotenv(tmp_path: Path) -> None:
+    """Batas yang diakui: `unset` BUKAN cara mencabut kredensial — `.env` mengisinya lagi.
+
+    hackathon-judge menemukannya dengan cara mahal (percobaan "cabut kredensial"-nya tetap
+    memanggil API dan menyumbang HTTP 429). Tes ini mengunci kenyataan itu supaya siapa pun
+    yang menulis tes chaos berikutnya memakai `--no-dotenv` atau mengosongkan nilainya.
+    """
+    written = tmp_path / "dotenv"
+    written.write_text("RYO_MCP_KEY=nilai-dari-berkas\n", encoding="utf-8")
+    os.environ.pop("RYO_MCP_KEY", None)
+    try:
+        load_dotenv(written)
+        assert os.environ["RYO_MCP_KEY"] == "nilai-dari-berkas"
+    finally:
+        os.environ.pop("RYO_MCP_KEY", None)
+
+
+def test_revoked_credentials_stop_the_recorder_without_touching_the_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Kredensial kosong -> exit 2, dan NOL koneksi keluar (bukan sekadar exit != 0)."""
+    attempts: list[object] = []
+
+    def blocked(*args: object, **kwargs: object) -> None:
+        attempts.append(args)
+        raise AssertionError("perekam mencoba memanggil jaringan tanpa kredensial")
+
+    monkeypatch.setattr(socket.socket, "connect", blocked)
+    monkeypatch.setattr(socket, "create_connection", blocked)
+    monkeypatch.setenv("RYO_MCP_KEY", "")
+    monkeypatch.setenv("RYO_MCP_URL", "")
+    monkeypatch.setenv("RECORDER_LOCK_PATH", str(tmp_path / "lock"))
+
+    assert main(["--once", "--no-dotenv"]) == 2
+    assert attempts == []
 
 
 # --- jaring pengaman: DB hidup tidak boleh tersentuh -----------------------------------------
