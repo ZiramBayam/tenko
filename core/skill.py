@@ -106,9 +106,13 @@ def clean_text(text: str, limit: int) -> str:
     78, bukan 64). Ini disengaja: pemotongan harus terlihat oleh pembaca, dan penanda yang
     ikut terpotong tidak akan terbaca. Batasnya tetap konstan dan itulah yang diuji.
 
-    Fungsi ini kembar identik dengan ``preflight.items._clean``; ia ditaruh di sini karena
-    `core/` tidak boleh mengimpor lapisan di atasnya (ADR-002). Penyatuan keduanya diusulkan
-    terpisah supaya berkas TASKS 2.1 yang baru lolos review tidak diubah diam-diam.
+    **Satu-satunya sanitizer teks di repo (TASKS 1.5b).** Dua pemakai: `core/skill.py` sendiri
+    (`tool`, `headline`, `request`, `warnings`, `ItemResult.id`) dan `preflight/items.py`
+    (`_quote`/`_text_value`/`_key`). Ia tinggal di `core/` karena arah impor hanya boleh
+    `preflight` → `core` (ADR-002); **batas panjangnya tidak** — angka `TEXT_LIMIT`/
+    `QUOTE_LIMIT`/`KEY_LIMIT` milik kartu panggilan tetap di `preflight/params`-nya sendiri.
+    Menduplikasi fungsi ini lagi berarti satu sisi diperbaiki dan sisi lain tidak, tepat di
+    batas kepercayaan yang dipakai security review.
     """
     parts: list[str] = []
     length = 0

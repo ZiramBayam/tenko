@@ -40,8 +40,10 @@ Bentuk `reason` (dibaca manusia di kartu, ditulis kami sendiri — bukan teks RY
 
 **Batas kepercayaan teks RYO.** Setiap string dari envelope yang masuk ``value``, ``reason``,
 ``warnings``, atau ``ItemSource.field`` melewati :func:`_quote`, :func:`_text_value`, atau
-:func:`_key` — ketiganya memanggil :func:`_clean`, yang meng-escape karakter tak tercetak
-(kontrol, CR/LF, ANSI, kontrol arah teks, lone surrogate) dan memotong panjangnya. Termasuk
+:func:`_key` — ketiganya memanggil :func:`core.skill.clean_text`, SATU-SATUNYA sanitizer
+teks di repo (TASKS 1.5b; batasnya tetap di sini, lihat :data:`TEXT_LIMIT`), yang meng-escape
+karakter tak tercetak (kontrol, CR/LF, ANSI, kontrol arah teks, lone surrogate) dan memotong
+panjangnya. Termasuk
 teks yang dipakai sebagai **kunci** dict (simbol token di item 10) dan jumlah entri/warning
 per item (:data:`MAX_ENTRIES`, :data:`MAX_WARNINGS`), supaya envelope 1 MB tidak menjadi
 kartu 3 MB. Yang TIDAK dijanjikan di sini: teks bersih tetap teks pihak lain. ``<``/``>``,
@@ -65,7 +67,7 @@ from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Any, Literal
 
-from core.skill import ENVELOPE_STATUSES, ItemResult, ItemSource
+from core.skill import ENVELOPE_STATUSES, ItemResult, ItemSource, clean_text
 from core.store import DECISIONS
 from preflight.params import (
     ABSTAIN,
@@ -147,39 +149,11 @@ def _dig(obj: Any, *path: str) -> Any:
     return current
 
 
-def _clean(text: str, limit: int) -> str:
-    """Escape setiap karakter tak tercetak lalu potong ke `limit`.
-
-    Yang di-escape (menjadi ``\\uXXXX`` yang terlihat, bukan dibuang diam-diam): kontrol
-    C0/C1 termasuk CR/LF/TAB dan escape ANSI, kontrol arah teks (U+202E dkk.), pemisah baris
-    Unicode, dan **lone surrogate**. Tiga alasan, semuanya nyata:
-
-    * `ItemResult.model_dump(mode="json")` melempar ``UnicodeEncodeError`` untuk lone
-      surrogate — satu string aneh dari satu simbol akan menggagalkan perakitan SELURUH
-      envelope, mode kegagalan yang sama dengan NaN dan ditutup dengan cara yang sama;
-    * `reason`/`warnings` adalah kalimat KAMI: teks RYO tidak boleh menyisipkan baris baru,
-      penutup tag, atau pembalik arah teks ke dalamnya (bahan prompt TASKS 2.3, kartu 3.2);
-    * panjangnya dibatasi supaya satu envelope 1 MB tidak menjadi keputusan 3 MB.
-
-    Ini BUKAN pengganti batas kepercayaan di 2.3/3.2: teks yang sudah bersih tetap teks dari
-    pihak lain, dan prompt LLM tetap wajib membungkusnya sebagai data, bukan instruksi.
-    """
-    parts: list[str] = []
-    length = 0
-    for char in text:
-        piece = char if char.isprintable() else f"\\u{ord(char):04x}"
-        if length + len(piece) > limit:
-            return "".join(parts) + "...(truncated)"
-        parts.append(piece)
-        length += len(piece)
-    return "".join(parts)
-
-
 def _quote(value: Any, limit: int = QUOTE_LIMIT) -> str:
-    """Nilai mentah RYO untuk pesan: `repr` lalu :func:`_clean` (escape + potong)."""
+    """Nilai mentah RYO untuk pesan: `repr` lalu :func:`~core.skill.clean_text`."""
     if value is _MISSING:
         return "<absent>"
-    return _clean(repr(value), limit)
+    return clean_text(repr(value), limit)
 
 
 def _text_value(value: Any, limit: int = TEXT_LIMIT) -> str | None:
@@ -190,7 +164,7 @@ def _text_value(value: Any, limit: int = TEXT_LIMIT) -> str | None:
     """
     if type(value) is not str:
         return None
-    return _clean(value, limit)
+    return clean_text(value, limit)
 
 
 def _key(value: Any, limit: int = KEY_LIMIT) -> str:

@@ -15,6 +15,7 @@ Tes ini TIDAK pernah menyentuh `data/ryo.db`: yang ditulis hanya store di `tmp_p
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import math
 from pathlib import Path
@@ -23,8 +24,9 @@ from typing import Any
 import pytest
 
 from core.replay import decision_hash, freeze
-from core.skill import ItemResult, SkillResult
+from core.skill import ItemResult, SkillResult, clean_text
 from core.store import Store
+from preflight import items as items_module
 from preflight import params as P
 from preflight.items import (
     ITEM_ORDER,
@@ -975,6 +977,21 @@ def test_item10_caps_the_number_of_entries_and_warnings() -> None:
     assert outcome.result.value["momentum_scores_total"] == 200
     assert len(outcome.warnings) <= 5
     assert any("more warnings of the same kind" in warning for warning in outcome.warnings)
+
+
+def test_sanitizer_has_exactly_one_definition_in_the_repo() -> None:
+    """Satu sanitizer, bukan dua kembar (TASKS 1.5b).
+
+    `preflight/items.py` pernah punya salinan sendiri (`_clean`). Duplikat kode keamanan
+    melenceng: satu sisi menambah kelas karakter, sisi lain tidak — tepat di batas
+    kepercayaan yang dipakai security review. Tes ini gagal kalau salinan itu kembali,
+    dan sengaja TIDAK mengunci angka batasnya: `TEXT_LIMIT`/`QUOTE_LIMIT`/`KEY_LIMIT`
+    tetap keputusan kartu panggilan di `preflight/`.
+    """
+    assert items_module.clean_text is clean_text
+    assert not hasattr(items_module, "_clean")
+    sources = inspect.getsource(items_module)
+    assert "isprintable" not in sources
 
 
 @pytest.mark.parametrize(
