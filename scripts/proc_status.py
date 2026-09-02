@@ -23,10 +23,10 @@ Tiga aturan yang mengikat berkas ini, semuanya punya tes di `tests/test_daemons_
 * **`logs/recorder.lock` TIDAK PERNAH dihapus, dibuat, atau ditulisi.** `flock` itu advisory
   pada *inode*: menghapus berkas kunci selagi pemegangnya hidup membuat instance berikutnya
   membuka inode baru dan mendapat kuncinya sendiri — dua perekam atas satu kunci API =
-  2×60 panggilan/menit, persis yang dicegah `acquire_single_instance_lock`. Uji basi di sini
-  non-destruktif: coba `flock(LOCK_EX|LOCK_NB)` lalu **segera lepas**; berhasil = tidak ada
-  pemegang, dan itu saja yang dilaporkan. Yang dihapus HANYA `logs/<name>.pid` yang pid-nya
-  tidak hidup.
+  2×60 panggilan/menit, persis yang dicegah `core/livelock.py::acquire_single_instance_lock`.
+  Uji basi di sini non-destruktif: coba `flock(LOCK_EX|LOCK_NB)` lalu **segera lepas**;
+  berhasil = tidak ada pemegang, dan itu saja yang dilaporkan. Yang dihapus HANYA
+  `logs/<name>.pid` yang pid-nya tidak hidup.
 * **Semua teks asal-luar di-escape** lewat :func:`safe_text` sebelum dicetak — baris log,
   `cmdline`, isi pid file. Alat yang dibuat supaya kebohongan terlihat tidak boleh bisa
   dibungkam oleh satu urutan ANSI di dalam teks yang dilaporkannya.
@@ -334,7 +334,7 @@ def check_daemon(
     proses yang `cmdline`-nya tidak bisa dibaca karena beda pemilik/namespace) TIDAK akan
     dilaporkan JALAN. Laporan "tidak jalan" yang palsu memancing operator menyalakan perekam
     kedua — dan itu aman, karena yang menolak instance kedua adalah `flock` di
-    `core/recorder.py::acquire_single_instance_lock`, bukan pid file. Sebaliknya "JALAN" palsu
+    `core/livelock.py::acquire_single_instance_lock`, bukan pid file. Sebaliknya "JALAN" palsu
     membuat siapa pun berhenti memeriksa.
 
     **Penghapusan pid file HANYA untuk pid yang benar-benar tidak hidup** (atau isi berkas

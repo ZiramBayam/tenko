@@ -46,10 +46,10 @@ Sifat lain yang dijaga tes (``tests/test_recorder.py``):
   menurut ADR-006) membuat setiap tulisan gagal selamanya; berputar terus dalam keadaan itu
   berarti membakar kuota RYO dan membuang envelope-nya, sementara `daemons.sh status` tetap
   melaporkan "JALAN". Berisik lalu berhenti lebih jujur daripada pura-pura pulih.
-* **Satu instance per mesin.** ``main()`` memegang ``flock`` pada ``logs/recorder.lock``;
-  instance kedua keluar dengan kode ≠ 0. Dua perekam = dua token bucket atas satu kunci =
-  2×60 panggilan/menit, yaitu cara paling cepat menghabiskan kuota. (POSIX; repo ini
-  Linux/WSL, lihat docs/versions.md.)
+* **Satu instance per mesin.** ``main()`` memegang ``flock`` pada ``logs/recorder.lock`` lewat
+  :func:`core.livelock.acquire_single_instance_lock`; instance kedua keluar dengan kode ≠ 0.
+  Dua perekam = dua token bucket atas satu kunci = 2×60 panggilan/menit, yaitu cara paling
+  cepat menghabiskan kuota. (POSIX; repo ini Linux/WSL, lihat docs/versions.md.)
 * **Restart-safe.** Tidak ada state selain isi DB dan berkas kunci: daftar follow-up dihitung
   ulang dari tabel ``snapshots`` setiap siklus, jadi `kill -9` + start ulang tidak kehilangan
   apa pun selain sisa siklus yang sedang berjalan.
@@ -74,7 +74,6 @@ Pakai::
 from __future__ import annotations
 
 import argparse
-import fcntl
 import logging
 import os
 import re
@@ -85,8 +84,16 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Any
+from typing import Any
 
+# Kunci instance-tunggal hidup di `core.livelock` (TASKS 2.0a): jalur `flock` hanya ada di
+# satu berkas, dan pemanggil live lain memakai `try_acquire` dari modul yang sama. Ketiga nama
+# di-re-export di sini karena perekam dan tesnya adalah pengguna historisnya.
+from core.livelock import (  # noqa: F401 — ENV_LOCK_PATH di-re-export untuk kompatibilitas
+    ENV_LOCK_PATH,
+    RecorderLockError,
+    acquire_single_instance_lock,
+)
 from core.ryo_client import BaseRyoClient, FixtureClient, RyoClient, RyoError, RyoProtocolError
 from core.sources import SourcesError
 from core.store import Store, StoreError
@@ -103,7 +110,6 @@ ENV_MAX_SYMBOLS = "RECORDER_MAX_SYMBOLS"
 ENV_INTERVAL_S = "RECORDER_INTERVAL_S"
 ENV_MAX_FOLLOWUPS = "RECORDER_MAX_FOLLOWUPS"
 ENV_MAX_FAILED_CYCLES = "RECORDER_MAX_FAILED_CYCLES"
-ENV_LOCK_PATH = "RECORDER_LOCK_PATH"
 
 DEFAULT_MAX_SYMBOLS = 20
 DEFAULT_INTERVAL_S = 3600.0
@@ -144,10 +150,6 @@ _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 class RecorderConfigError(Exception):
     """Konfigurasi env tidak sah — perekam berhenti dengan pesan, bukan diam-diam menebak."""
-
-
-class RecorderLockError(Exception):
-    """Perekam lain sudah berjalan di mesin ini (lihat penjaga instance-tunggal di `main`)."""
 
 
 def _utc_now() -> datetime:
@@ -640,39 +642,6 @@ def load_dotenv(path: str | Path | None = None) -> None:
             os.environ[name] = value
         except (ValueError, OSError):
             log.warning("berkas env: %s tidak bisa dipasang ke environment", name)
-
-
-def acquire_single_instance_lock(path: str | Path | None = None) -> IO[str]:
-    """Kunci `flock` non-blocking; instance kedua → :class:`RecorderLockError`.
-
-    Dua perekam atas satu kunci API = dua token bucket = 2×60 panggilan/menit, yaitu cara
-    tercepat menghabiskan kuota (dan sumber 429 yang sudah terlihat di log). Berkas PID saja
-    tidak cukup: `scripts/daemons.sh` menyimpan pid pembungkus `uv run`, bukan pid proses
-    Python yang benar-benar memanggil RYO. Kunci dilepas otomatis saat proses berakhir.
-    """
-    raw = path if path is not None else os.environ.get(ENV_LOCK_PATH) or ROOT / "logs" / "recorder.lock"
-    lock_path = Path(raw)
-    try:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        handle = lock_path.open("a+", encoding="utf-8")
-    except OSError as exc:
-        raise RecorderLockError(f"tidak bisa membuka kunci {lock_path}: {exc}") from None
-    try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        handle.close()
-        raise RecorderLockError(
-            f"perekam lain sudah memegang {lock_path}; menjalankan dua perekam berarti "
-            "dua kali laju panggilan atas satu kunci API"
-        ) from None
-    try:
-        handle.seek(0)
-        handle.truncate()
-        handle.write(f"{os.getpid()}\n")
-        handle.flush()
-    except OSError:  # menulis pid hanya untuk kenyamanan; kuncinya sudah dipegang
-        log.warning("kunci %s tidak bisa ditulisi; kunci tetap dipegang", lock_path)
-    return handle
 
 
 def build_client(kind: str = "live") -> BaseRyoClient:
