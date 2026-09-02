@@ -18,10 +18,10 @@ import pytest
 
 from core import skill as skill_module
 from core import skill_cli
-from core.ryo_client import ENV_KEY, ENV_URL
-from core.skill import SkillResult, register_skill
+from core.ryo_client import ENV_KEY, ENV_URL, RyoError, RyoHTTPError, RyoNetworkError
+from core.skill import SkillError, SkillResult, register_skill
 from core.skill import _reset_registry as reset_registry
-from core.sources import ENV_SOURCES_PATH
+from core.sources import ENV_SOURCES_PATH, SourcesError
 from core.store import canonical_json
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -331,3 +331,178 @@ def test_run_itself_returns_a_revalidated_copy() -> None:
     # penambalan SETELAH validasi tidak ikut terbawa: yang dikembalikan adalah salinan
     holder[0].data["items"][0]["value"] = 1.8
     assert returned.data["items"][0]["value"] is None
+
+
+# --- TASKS 1.5(a): sebab kegagalan RYO adalah pesan KAMI ----------------------------------
+def test_ryo_failure_reason_reaches_the_user() -> None:
+    """`RyoError` masuk allowlist: pesannya kita tulis dan sudah lewat redaksi klien.
+
+    Tanpa ini pengguna hanya melihat "failed: RyoNetworkError" dan kehilangan satu-satunya
+    alasan gagal yang bisa ditindaklanjuti (host mati, 429, kredensial belum diset).
+    """
+
+    def dead(symbol: str) -> SkillResult:
+        raise RyoNetworkError("analyze_token: ConnectError: [Errno 111] Connection refused")
+
+    register_skill("dead", dead)
+    code, envelope = run_cli(["dead", "SOL"])
+    assert code == 0
+    assert envelope["status"] == "unavailable"
+    assert envelope["data"] is None
+    assert any("Connection refused" in warning for warning in envelope["warnings"])
+
+
+def test_ryo_http_failure_reason_reaches_the_user() -> None:
+    """429 adalah informasi operasional, bukan sekadar nama kelas."""
+
+    def throttled(symbol: str) -> SkillResult:
+        raise RyoHTTPError("analyze_token: HTTP 429 code=RATE_LIMITED", status_code=429, code="RATE_LIMITED")
+
+    register_skill("throttled", throttled)
+    code, envelope = run_cli(["throttled", "SOL"])
+    assert code == 0
+    assert any("HTTP 429" in warning for warning in envelope["warnings"])
+
+
+def test_unreachable_host_is_reported_as_a_network_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC 1.5(1): server uji mati → warnings memuat sebab jaringan, exit 0, satu baris JSON."""
+    monkeypatch.setenv(ENV_URL, BASE_URL)
+    monkeypatch.setenv(ENV_KEY, FAKE_KEY)
+    monkeypatch.delenv(ENV_SOURCES_PATH, raising=False)
+    monkeypatch.setitem(skill_module.SKILL_MODULES, "live", "tests.helpers_skill_live")
+
+    code, envelope = run_cli(["live", "SOL"])
+    assert code == 0
+    assert envelope["status"] == "unavailable"
+    assert envelope["tool"] == "live"
+    joined = " ".join(envelope["warnings"])
+    assert "analyze_token" in joined
+    assert "127.0.0.1:1" in joined or "Connect" in joined or "connect" in joined
+    assert FAKE_KEY not in json.dumps(envelope)
+
+
+def test_third_party_exception_message_is_still_hidden() -> None:
+    """Allowlist tetap SEMPIT: yang bukan RyoError/SkillError/SourcesError hanya kelasnya.
+
+    SDK pihak ketiga (mis. LLM di TASKS 2.3) tidak punya mesin redaksi seperti
+    `core/ryo_client.py`; melonggarkan allowlist menjadi `Exception` membuka jalur bocor.
+    """
+
+    class VendorError(Exception):
+        pass
+
+    def vendor(symbol: str) -> SkillResult:
+        raise VendorError(f"auth failed for {FAKE_KEY}")
+
+    register_skill("vendor", vendor)
+    code, envelope = run_cli(["vendor", "SOL"])
+    assert code == 0
+    assert FAKE_KEY not in json.dumps(envelope)
+    assert any("VendorError" in warning for warning in envelope["warnings"])
+
+
+# --- TASKS 1.5(c): argumen raksasa / bermuatan kontrol ------------------------------------
+def test_huge_argument_does_not_become_a_huge_envelope() -> None:
+    """AC 1.5(3): argumen 100 kB → envelope < 4 kB, satu baris, exit 0."""
+    proc = run_subprocess(["a" * 100_000])
+    assert proc.returncode == 0
+    assert b"Traceback" not in proc.stderr
+    assert proc.stdout.count(b"\n") == 1
+    assert len(proc.stdout) < 4096
+    envelope = json.loads(proc.stdout)
+    assert envelope["status"] == "unavailable"
+    assert envelope["data"] is None
+    assert len(envelope["tool"]) < 200
+    assert "truncated" in envelope["tool"]
+
+
+def test_many_arguments_do_not_become_a_huge_envelope() -> None:
+    """Banyak argumen pendek juga dibatasi; jumlah aslinya tetap disebut, tidak disembunyikan."""
+    code, envelope = run_cli(["nosuch", *[f"arg{i}" for i in range(500)]])
+    assert code == 0
+    assert len(envelope["request"]["args"]) <= 8
+    assert envelope["request"]["args_total"] == 500
+    assert len(canonical_json(envelope)) < 4096
+
+
+def test_control_characters_in_skill_name_never_reach_stdout_or_log(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC 1.5(3): kontrol/ANSI/RTL/lone surrogate di nama skill tidak muncul mentah.
+
+    Nama diarahkan ke modul yang tidak ada supaya jalur yang MENULIS LOG ikut teruji:
+    `scripts/daemons.sh` mengarahkan stderr ke `logs/*.log`, jadi baris log palsu dan
+    escape ANSI di sana sama berbahayanya dengan di stdout.
+    """
+    name = "pre\x1b[2Jflight\r\n‮SOL\ud800"
+    monkeypatch.setitem(skill_module.SKILL_MODULES, name, "tests.helpers_skill_missing")
+    with caplog.at_level("DEBUG", logger="core.skill_cli"):
+        code, envelope = run_cli([name])
+    assert code == 0
+    text = canonical_json(envelope)
+    logged = " ".join(record.getMessage() for record in caplog.records)
+    for raw in ("\x1b", "\r", "\n", "‮"):
+        assert raw not in text
+        assert raw not in logged
+    assert "\\u001b" in envelope["tool"]
+    assert "\\u202e" in envelope["tool"]
+
+
+def test_huge_skill_name_does_not_reach_the_load_error_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pesan `SkillError` dari `load_skill` memuat nama skill; namanya harus sudah dipotong."""
+    name = "b" * 100_000
+    monkeypatch.setitem(skill_module.SKILL_MODULES, name, "tests.helpers_skill_missing")
+    code, envelope = run_cli([name])
+    assert code == 0
+    assert len(canonical_json(envelope)) < 4096
+
+
+# --- kontrak allowlist pesan (TASKS 1.5, catatan security-reviewer) -----------------------
+def test_speakable_errors_is_an_explicit_closed_list() -> None:
+    """Menambah kelas ke `SPEAKABLE_ERRORS` = memberi hak cetak-ke-stdout kepadanya.
+
+    Daftar ini dikunci di tes supaya penambahan berikutnya adalah keputusan SADAR, bukan
+    efek samping. Syarat masuk: pesannya dibentuk oleh kode kita DAN melewati mesin redaksi
+    (untuk `RyoError`: `BaseRyoClient._safe` di kelima jalur teks server). Kelas tanpa
+    jaminan itu — mis. SDK LLM di TASKS 2.3 — hanya boleh dilaporkan nama kelasnya.
+    """
+    assert skill_cli.SPEAKABLE_ERRORS == (SkillError, SourcesError, RyoError)
+
+
+def test_envelope_from_a_skill_is_bounded_even_when_the_skill_is_careless() -> None:
+    """Batas hidup di MODEL: skill 2.2 merakit envelope sendiri dan melewati batas CLI.
+
+    Pola di bawah persis `tests/helpers_skill_live.py` (argumen mentah ke `request` dan
+    `warnings`); sebelum pembatasan model, ini menghasilkan envelope 300.289 byte.
+    """
+    payload = "z" * 100_000
+
+    def careless(symbol: str) -> SkillResult:
+        return SkillResult.unavailable(
+            "careless",
+            request={"symbol": symbol},
+            warnings=[f"gagal untuk {symbol}"],
+            availability={symbol: "unspoken"},
+        )
+
+    register_skill("careless", careless)
+    code, envelope = run_cli(["careless", payload])
+    assert code == 0
+    assert len(canonical_json(envelope)) < 4096
+    assert payload not in canonical_json(envelope)
+
+
+def test_rtl_override_from_a_skill_never_reaches_stdout() -> None:
+    """`canonical_json` memakai `ensure_ascii=False`; U+202E bukan kontrol JSON.
+
+    `json.dumps` meng-escape ESC/CR/LF tetapi TIDAK U+202E, jadi satu-satunya yang menutup
+    jalur ini adalah `clean_text` di model.
+    """
+
+    def flipped(symbol: str) -> SkillResult:
+        return SkillResult.unavailable("flipped", request={"symbol": symbol}, warnings=[symbol])
+
+    register_skill("flipped", flipped)
+    code, envelope = run_cli(["flipped", "GO‮OG"])
+    assert code == 0
+    assert "‮" not in canonical_json(envelope)

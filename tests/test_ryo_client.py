@@ -27,6 +27,7 @@ from core.ryo_client import (
     MAX_BODY_EXCERPT_CHARS,
     MAX_ERROR_CODE_CHARS,
     MAX_RESPONSE_BYTES,
+    MIN_SECRET_FRAGMENT,
     RATE_LIMIT_PER_MIN,
     TOOLS,
     BaseRyoClient,
@@ -40,6 +41,7 @@ from core.ryo_client import (
     TokenBucket,
     _reset_shared_buckets,
 )
+from core.sources import ENV_SOURCES_PATH, SourceNotApprovedError, SourcesError
 
 ROOT = Path(__file__).resolve().parent.parent
 SAMPLES = ROOT / "docs" / "samples"
@@ -622,7 +624,7 @@ def test_trace_id_cannot_be_used_to_smuggle_the_key(label: str, header: str) -> 
 
 
 def _echo_everywhere(payload: str) -> tuple[str | None, str | None, str]:
-    """Server memantulkan `payload` di KETIGA jalur: trace id, `code`, dan body error."""
+    """Server memantulkan `payload` di jalur HTTP: trace id, `code`, dan body error."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -636,6 +638,72 @@ def _echo_everywhere(payload: str) -> tuple[str | None, str | None, str]:
     return excinfo.value.trace_id, excinfo.value.code, str(excinfo.value)
 
 
+# --- LIMA jalur teks yang dikendalikan server --------------------------------------------
+# Daftar ini adalah kontrak, bukan kenyamanan: setiap teks dari server yang kita simpan atau
+# cetak WAJIB muncul di sini. Dua jalur terakhir (`result.status`, `result.tool`) dulu tidak
+# diredaksi sama sekali — `_check_envelope` adalah fungsi tingkat modul tanpa akses ke kunci
+# — dan membocorkan 31 karakter pertama kunci ke stdout lewat HTTP 200 (temuan
+# security-reviewer TASKS 1.5). Menambah jalur server-controlled baru tanpa menambahkannya
+# ke daftar ini berarti tes ini tidak menjaganya; itulah kegagalan yang harus dihindari.
+def _echo_in_trace_id(payload: str) -> list[str]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"code": "E"}, headers={"x-trace-id": payload})
+
+    with make_client(handler) as client, pytest.raises(RyoHTTPError) as excinfo:
+        client.analyze_token("SOL")
+    return [str(excinfo.value), excinfo.value.trace_id or ""]
+
+
+def _echo_in_error_code(payload: str) -> list[str]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"code": payload, "message": "x"})
+
+    with make_client(handler) as client, pytest.raises(RyoHTTPError) as excinfo:
+        client.analyze_token("SOL")
+    return [str(excinfo.value), excinfo.value.code or ""]
+
+
+def _echo_in_body(payload: str) -> list[str]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"code": "E", "message": payload})
+
+    with make_client(handler) as client, pytest.raises(RyoHTTPError) as excinfo:
+        client.analyze_token("SOL")
+    return [str(excinfo.value)]
+
+
+def _echo_in_envelope_status(payload: str) -> list[str]:
+    """HTTP **200** + `result.status` di luar enum: tidak ada respons error sama sekali."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": {"status": payload, "tool": "analyze_token"}})
+
+    with make_client(handler) as client, pytest.raises(RyoProtocolError) as excinfo:
+        client.analyze_token("SOL")
+    return [str(excinfo.value)]
+
+
+def _echo_in_envelope_tool(payload: str) -> list[str]:
+    """HTTP **200** + `result.tool` yang tidak cocok."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": {"status": "ok", "tool": payload}})
+
+    with make_client(handler) as client, pytest.raises(RyoProtocolError) as excinfo:
+        client.analyze_token("SOL")
+    return [str(excinfo.value)]
+
+
+SERVER_TEXT_PATHS: dict[str, Any] = {
+    "x-trace-id": _echo_in_trace_id,
+    "error_code": _echo_in_error_code,
+    "body_excerpt": _echo_in_body,
+    "envelope_status": _echo_in_envelope_status,
+    "envelope_tool": _echo_in_envelope_tool,
+}
+
+
+@pytest.mark.parametrize("path", sorted(SERVER_TEXT_PATHS))
 @pytest.mark.parametrize(
     ("label", "encode"),
     [
@@ -647,10 +715,55 @@ def _echo_everywhere(payload: str) -> tuple[str | None, str | None, str]:
         ("b64_urlsafe", lambda k: base64.urlsafe_b64encode(k.encode()).decode()),
     ],
 )
-def test_encoded_key_is_redacted_on_all_three_server_text_paths(label: str, encode: Any) -> None:
-    """Satu tambalan di `_redact` harus berlaku untuk trace id, `code`, DAN cuplikan body.
+def test_key_is_redacted_on_all_five_server_text_paths(path: str, label: str, encode: Any) -> None:
+    """Satu tambalan di `_redact` harus berlaku untuk KELIMA jalur, bukan tiga."""
+    payload = encode(LOUD_KEY)
+    for text in SERVER_TEXT_PATHS[path](payload):
+        assert LOUD_KEY not in text, (path, label)
+        assert payload.lower() not in text.lower(), (path, label)
+        try:
+            decoded = bytes.fromhex(text).decode("utf-8", "replace")
+        except ValueError:
+            decoded = ""
+        assert LOUD_KEY not in decoded, (path, label)
 
-    `x-trace-id: KEY.encode().hex()` dulu cocok pola hex dan lolos utuh.
+
+@pytest.mark.parametrize("path", sorted(SERVER_TEXT_PATHS))
+def test_control_characters_from_server_never_reach_the_message(path: str) -> None:
+    """Escape ANSI/CR/LF dari server tidak boleh membuat baris palsu di `logs/*.log`."""
+    for text in SERVER_TEXT_PATHS[path]("\x1b[2Kfake\r\nWARNING palsu"):
+        assert "\x1b" not in text
+        assert "\r" not in text
+        assert "\n" not in text
+
+
+def test_every_client_must_declare_a_redaction_policy() -> None:
+    """`_safe` abstrak: klien baru tidak bisa lupa meredaksi teks dari server.
+
+    Inilah yang menggantikan fungsi tingkat modul `_check_envelope` yang dulu secara
+    STRUKTURAL tidak bisa meredaksi (tidak punya akses ke kunci).
+    """
+    assert "_safe" in BaseRyoClient.__abstractmethods__
+    for cls in (RyoClient, FixtureClient):
+        assert not cls.__abstractmethods__, cls.__name__
+
+
+@pytest.mark.parametrize(
+    ("label", "encode"),
+    [
+        ("verbatim", lambda k: k),
+        ("hex", lambda k: k.encode().hex()),
+        ("hex_upper", lambda k: k.encode().hex().upper()),
+        ("b64", lambda k: base64.b64encode(k.encode()).decode()),
+        ("b64_tanpa_padding", lambda k: base64.b64encode(k.encode()).decode().rstrip("=")),
+        ("b64_urlsafe", lambda k: base64.urlsafe_b64encode(k.encode()).decode()),
+    ],
+)
+def test_encoded_key_is_redacted_on_the_http_error_paths(label: str, encode: Any) -> None:
+    """Ketiga jalur HTTP sekaligus dalam SATU respons (`x-trace-id` + `code` + body).
+
+    `x-trace-id: KEY.encode().hex()` dulu cocok pola hex dan lolos utuh. Jalur envelope
+    HTTP 200 diuji terpisah di `test_key_is_redacted_on_all_five_server_text_paths`.
     """
     payload = encode(LOUD_KEY)
     trace_id, code, message = _echo_everywhere(payload)
@@ -1118,3 +1231,122 @@ def test_clients_share_the_same_surface() -> None:
         assert issubclass(cls, BaseRyoClient)
         for name in surface:
             assert callable(getattr(cls, name)), (cls.__name__, name)
+
+
+# --- TASKS 1.5(b): gate ADR-005 berdiri SEBELUM cek kredensial ---------------------------
+def _registry(tmp_path: Path, approved: str) -> str:
+    path = tmp_path / "sources.yaml"
+    path.write_text(
+        f"sources:\n  ryo_tools:\n    enabled: true\n    approved: {approved}\n", encoding="utf-8"
+    )
+    return str(path)
+
+
+def test_source_gate_runs_before_the_credential_check(tmp_path: Path) -> None:
+    """AC 1.5(2): sumber belum approved DAN kredensial kosong → alasan yang BENAR.
+
+    Sebelum perbaikan ini urutannya terbalik, sehingga gate ADR-005 tidak pernah terjangkau
+    pada mesin tanpa kredensial: pengguna melihat "belum diset" padahal masalah sebenarnya
+    adalah sumber yang belum disetujui.
+    """
+    with pytest.raises(SourceNotApprovedError) as excinfo:
+        RyoClient.from_env({ENV_SOURCES_PATH: _registry(tmp_path, "false")})
+    assert "ryo_tools" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("approved", ["false", "null", '"true"'])
+def test_source_gate_wins_over_missing_credentials(tmp_path: Path, approved: str) -> None:
+    for env in ({}, {ENV_URL: BASE_URL}, {ENV_KEY: LOUD_KEY}):
+        full = {**env, ENV_SOURCES_PATH: _registry(tmp_path, approved)}
+        with pytest.raises(SourceNotApprovedError):
+            RyoClient.from_env(full)
+
+
+def test_approved_source_still_reports_missing_credentials(tmp_path: Path) -> None:
+    """Gate lolos → keluhan kredensial tetap muncul, dan tetap tanpa nilai kunci."""
+    with pytest.raises(RyoError) as excinfo:
+        RyoClient.from_env({ENV_SOURCES_PATH: _registry(tmp_path, "true")})
+    assert not isinstance(excinfo.value, SourcesError)
+    assert ENV_URL in str(excinfo.value)
+    assert LOUD_KEY not in str(excinfo.value)
+
+
+def test_bucket_injection_is_still_refused_before_anything_else(tmp_path: Path) -> None:
+    """`bucket=` adalah kesalahan program, bukan kondisi lingkungan: ia tetap didahulukan."""
+    with pytest.raises(RyoError) as excinfo:
+        RyoClient.from_env({ENV_SOURCES_PATH: _registry(tmp_path, "false")}, bucket=TokenBucket(60))
+    assert "bucket" in str(excinfo.value)
+
+
+def test_fixture_client_never_passes_through_the_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR-005: jalur fixture tetap boleh meski sumber tidak approved."""
+    monkeypatch.setenv(ENV_SOURCES_PATH, _registry(tmp_path, "false"))
+    envelope = FixtureClient().call("analyze_token", {"symbol": "SOL"})
+    assert envelope["status"] in {"ok", "partial", "unavailable"}
+
+
+# --- koreksi 1.5 ronde 2: klaim "urutan ditulis satu kali" harus benar --------------------
+def test_no_client_method_reorders_the_redaction_chain() -> None:
+    """Setiap pengutipan teks server lewat `_server_text`, bukan `_printable` inline.
+
+    Urutan redaksi→printable→potong tidak boleh ditulis ulang per jalur: memotong LEBIH DULU
+    memecah bentuk kunci menjadi pecahan yang tidak lagi cocok pola, lalu mencetaknya. Tes
+    ini menjaga klaim struktural di docstring modul supaya jalur ke-6 tidak bisa menyalin
+    urutan sendiri; `_check_tool` (fungsi tingkat modul, argumen DARI KITA, bukan dari
+    server) sengaja berada di luar kelas dan di luar cakupan tes ini.
+    """
+    for cls in (RyoClient, FixtureClient, BaseRyoClient):
+        source = inspect.getsource(cls)
+        body = source.replace(inspect.getsource(BaseRyoClient._server_text), "")
+        assert "_printable(" not in body, cls.__name__
+
+
+# --- koreksi 1.5 ronde 2: prefiks/substring kunci ----------------------------------------
+@pytest.mark.parametrize("length", [12, 16, 20, len(LOUD_KEY)])
+def test_key_fragment_echoed_by_the_server_is_redacted(length: int) -> None:
+    """Evasi termurah: server memantulkan POTONGAN kunci, tanpa encoding apa pun.
+
+    Terbukti sebelum perbaikan: `{"message": "<20 char pertama kunci>"}` mendarat utuh di
+    pesan `RyoHTTPError`, yang `speakable` (`core/skill_cli.py`) sehingga ikut ke
+    `warnings[]` envelope publik dan ke `logs/*.log`.
+    """
+    fragment = LOUD_KEY[:length]
+    for path in sorted(SERVER_TEXT_PATHS):
+        for text in SERVER_TEXT_PATHS[path](fragment):
+            assert fragment not in text, (path, length)
+
+
+def test_key_fragment_from_the_middle_is_redacted() -> None:
+    """Bukan hanya prefiks: potongan dari tengah kunci pun bukan diagnostik yang sah."""
+    fragment = LOUD_KEY[5:22]
+    assert len(fragment) >= MIN_SECRET_FRAGMENT
+    for text in _echo_in_body(fragment):
+        assert fragment not in text
+
+
+def test_fragment_redaction_keeps_the_rest_of_the_message_readable() -> None:
+    """Redaksi harus menelan potongan kuncinya saja, bukan seluruh pesan diagnostik."""
+    (text,) = _echo_in_body(f"upstream rejected {LOUD_KEY[:20]} at edge-7")
+    assert "upstream rejected" in text
+    assert "at edge-7" in text
+    assert LOUD_KEY[:12] not in text
+
+
+def test_short_key_fragments_still_pass_through() -> None:
+    """BATAS YANG DIAKUI, dikunci di tes supaya docstring tetap didukung bukti.
+
+    Potongan lebih pendek dari :data:`MIN_SECRET_FRAGMENT` tidak diredaksi: ambang itu
+    ada supaya pesan diagnostik biasa tidak hancur oleh kecocokan kebetulan.
+    """
+    fragment = LOUD_KEY[: MIN_SECRET_FRAGMENT - 1]
+    (text,) = _echo_in_body(fragment)
+    assert fragment in text
+
+
+def test_fragment_redaction_does_not_eat_ordinary_diagnostics() -> None:
+    """Nol false positive untuk pesan galat yang wajar (tidak memuat bahan kunci)."""
+    message = "upstream timeout while calling analyze_token for SOL on solana (edge-7, 12345)"
+    (text,) = _echo_in_body(message)
+    assert message in text

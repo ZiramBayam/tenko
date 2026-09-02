@@ -52,6 +52,26 @@ ItemStatus = Literal["green", "red", "unspoken"]
 SkillStatus = Literal["ok", "partial", "unavailable"]
 DataMode = Literal["live", "mixed", "simulated", "unknown"]
 
+# --- batas teks yang IKUT KE ENVELOPE (temuan juri fase 1 no. 6) -------------------------
+# Argumen CLI 100 kB pernah masuk utuh ke `tool` dan `summary.headline`, lalu ke stdout, ke
+# log, dan ke kartu panggilan. Angka di bawah sejalan dengan `preflight/items.py`
+# (KEY_LIMIT=32, TEXT_LIMIT=240) supaya repo punya satu gaya sanitasi; `tool` diberi ruang
+# lebih dari KEY_LIMIT karena nama skill majemuk (mis. "preflight_compare") masih wajar.
+TOOL_LIMIT = 64
+HEADLINE_LIMIT = 240
+# `KEY_LIMIT` juga dipakai untuk `ItemResult.id`: id dan kunci `availability` HARUS dipotong
+# dengan batas yang sama, kalau tidak invarian dua arah (`availability[item.id]`) pecah untuk
+# id panjang. 64 (bukan 32 seperti `preflight.items.KEY_LIMIT`) karena id terpanjang yang
+# nyata adalah "04_sentiment_shift" dan skill 2.2 boleh memakai kunci majemuk.
+KEY_LIMIT = 64
+TEXT_LIMIT = 240
+WARNING_LIMIT = 400
+# Kedalaman `request`/`summary` yang ditelusuri. Di luar itu nilainya dibiarkan apa adanya —
+# BATAS YANG DIAKUI, bukan klaim kekebalan; `request` nyata (argumen CLI ternormalisasi) dan
+# `summary` ({headline, key_points}) tidak pernah sedalam itu.
+MAX_CLEAN_DEPTH = 4
+TRUNCATED_MARK = "...(truncated)"
+
 UNSPOKEN = "unspoken"
 AVAILABLE = "available"
 OK = "ok"
@@ -66,6 +86,65 @@ DATA_MODES: frozenset[str] = frozenset({"live", "mixed", "simulated", "unknown"}
 
 class SkillError(Exception):
     """Kegagalan kontrak skill yang bukan kesalahan validasi pydantic."""
+
+
+def clean_text(text: str, limit: int) -> str:
+    """Escape setiap karakter tak tercetak lalu potong ke `limit`.
+
+    Yang di-escape (menjadi ``\\uXXXX`` yang TERLIHAT, bukan dibuang diam-diam): kontrol
+    C0/C1 termasuk CR/LF/TAB dan escape ANSI, kontrol arah teks (U+202E dkk.), pemisah baris
+    Unicode, dan **lone surrogate**. Alasannya sama untuk ketiganya:
+
+    * ``model_dump(mode="json")`` melempar ``UnicodeEncodeError`` untuk lone surrogate —
+      satu nama skill aneh menggagalkan perakitan SELURUH envelope;
+    * `tool`/`headline` ikut ke stdout, ke `logs/*.log` (`scripts/daemons.sh`), dan ke kartu
+      panggilan: teks dari luar tidak boleh menyisipkan baris palsu atau membalik arah teks;
+    * panjangnya dibatasi supaya argumen 100 kB tidak menjadi envelope 100 kB.
+
+    **`limit` bukan batas keras.** Saat teks dipotong, :data:`TRUNCATED_MARK` DITAMBAHKAN di
+    belakang, jadi panjang maksimum sebenarnya ``limit + len(TRUNCATED_MARK)`` (mis. `tool`
+    78, bukan 64). Ini disengaja: pemotongan harus terlihat oleh pembaca, dan penanda yang
+    ikut terpotong tidak akan terbaca. Batasnya tetap konstan dan itulah yang diuji.
+
+    Fungsi ini kembar identik dengan ``preflight.items._clean``; ia ditaruh di sini karena
+    `core/` tidak boleh mengimpor lapisan di atasnya (ADR-002). Penyatuan keduanya diusulkan
+    terpisah supaya berkas TASKS 2.1 yang baru lolos review tidak diubah diam-diam.
+    """
+    parts: list[str] = []
+    length = 0
+    for char in text:
+        piece = char if char.isprintable() else f"\\u{ord(char):04x}"
+        if length + len(piece) > limit:
+            return "".join(parts) + TRUNCATED_MARK
+        parts.append(piece)
+        length += len(piece)
+    return "".join(parts)
+
+
+def _clean_tree(value: Any, limit: int, depth: int = 0) -> Any:
+    """Bersihkan teks di dalam struktur JSON kecil (`request`, `summary`).
+
+    Hanya `str` yang disentuh — kunci dict memakai :data:`KEY_LIMIT`, nilai teks memakai
+    `limit`. Angka/boolean/None dibiarkan: mengubahnya menjadi teks adalah kebohongan
+    tersendiri (aturan yang sama dengan `_text_value` di `preflight/items.py`).
+
+    Jumlah entri TIDAK dibatasi dengan sengaja: membuang satu argumen atau satu warning
+    adalah bentuk penghilangan bukti yang justru dilarang spec §3. Yang dibatasi adalah
+    panjang tiap teks, dan pemanggil (mis. `core/skill_cli.py`) yang menyebutkan berapa
+    banyak yang tidak ia cetak.
+    """
+    if depth > MAX_CLEAN_DEPTH:
+        return value
+    if isinstance(value, str):
+        return clean_text(value, limit)
+    if isinstance(value, dict):
+        return {
+            (clean_text(key, KEY_LIMIT) if isinstance(key, str) else key): _clean_tree(item, limit, depth + 1)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_clean_tree(item, limit, depth + 1) for item in value]
+    return value
 
 
 def _to_utc(value: datetime) -> datetime:
@@ -138,6 +217,18 @@ class ItemResult(BaseModel):
     value: Any = None
     source: ItemSource | None = None
     reason: str = ""
+
+    @field_validator("id")
+    @classmethod
+    def _bounded_id(cls, value: str) -> str:
+        """Dipotong dengan batas yang SAMA seperti kunci `availability` (lihat KEY_LIMIT)."""
+        return clean_text(value, KEY_LIMIT)
+
+    @field_validator("reason")
+    @classmethod
+    def _bounded_reason(cls, value: str) -> str:
+        """`reason` ikut ke kartu panggilan; teks RYO tidak boleh menyisipkan baris palsu."""
+        return clean_text(value, TEXT_LIMIT)
 
     @model_validator(mode="after")
     def _unspoken_carries_no_value(self) -> ItemResult:
@@ -236,6 +327,45 @@ class SkillResult(BaseModel):
     def _aware(cls, value: datetime | None) -> datetime | None:
         return None if value is None else _to_utc(value)
 
+    @field_validator("tool")
+    @classmethod
+    def _bounded_tool(cls, value: str) -> str:
+        """`tool` datang dari argumen CLI: dibatasi panjang & charset, bukan dipercaya."""
+        return clean_text(value, TOOL_LIMIT)
+
+    @field_validator("request")
+    @classmethod
+    def _bounded_request(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Argumen ternormalisasi datang dari shell/agen: dibatasi, bukan dipercaya."""
+        return _clean_tree(value, TEXT_LIMIT)
+
+    @field_validator("summary")
+    @classmethod
+    def _bounded_summary(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Kalimat yang dibaca manusia di kartu & stdout (`headline` + `key_points`).
+
+        Nilai bukan-str dibiarkan apa adanya dengan sengaja: mengonversi angka/objek menjadi
+        teks di sini adalah kebohongan tersendiri (aturan yang sama dengan `_text_value`
+        di `preflight/items.py`).
+        """
+        cleaned = _clean_tree(value, TEXT_LIMIT)
+        headline = cleaned.get("headline")
+        if isinstance(headline, str):
+            cleaned["headline"] = clean_text(headline, HEADLINE_LIMIT)
+        return cleaned
+
+    @field_validator("availability")
+    @classmethod
+    def _bounded_availability(cls, value: dict[str, str]) -> dict[str, str]:
+        """Kunci = id item (batas sama dengan `ItemResult.id`), nilai = kosakata status."""
+        return {clean_text(key, KEY_LIMIT): clean_text(marker, KEY_LIMIT) for key, marker in value.items()}
+
+    @field_validator("warnings")
+    @classmethod
+    def _bounded_warnings(cls, value: list[str]) -> list[str]:
+        """Tiap warning dipotong; JUMLAHNYA tidak — membuang warning = menyembunyikan gagal."""
+        return [clean_text(text, WARNING_LIMIT) for text in value]
+
     @field_serializer("as_of")
     def _dump_as_of(self, value: datetime | None) -> str | None:
         return _iso_z(value)
@@ -254,6 +384,12 @@ class SkillResult(BaseModel):
         items = self._parsed_items()
         if items is None:
             return self
+        # Yang TERSIMPAN di `data` disamakan dengan yang DIVALIDASI. Tanpa ini, item yang
+        # dirakit tangan (dict biasa, bukan ItemResult) menyimpan bentuk mentahnya di `data`
+        # sementara hanya salinan terurainya yang dibersihkan — id 100 kB tetap ikut ke
+        # stdout. `self.data` adalah dict hasil validasi pydantic, bukan objek pemanggil,
+        # jadi penulisan ini tidak menyentuh milik siapa pun di luar model.
+        self.data["items"] = [item.model_dump(mode="json") for item in items]
         seen: set[str] = set()
         for item in items:
             if item.id in seen:

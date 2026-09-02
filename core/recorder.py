@@ -330,7 +330,10 @@ class Recorder:
             )
             return None
         except RyoError as exc:
-            # Pesan RyoError sudah diredaksi di core/ryo_client.py (tes regresi di sana).
+            # Pesan RyoError dibentuk core/ryo_client.py dan melewati redaksi di KELIMA jalur
+            # teks yang dikendalikan server (tes regresi di sana, diparametrisasi per jalur).
+            # Klaim ini pernah SALAH: `result.status`/`result.tool` dulu tidak diredaksi dan
+            # bocor ke berkas log ini lewat HTTP 200 (security-reviewer, TASKS 1.5).
             report.note_failure(tool)
             log.warning("%s: panggilan gagal — %s: %s", label, type(exc).__name__, exc)
             return None

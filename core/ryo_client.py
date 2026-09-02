@@ -28,17 +28,44 @@ Kredensial (klaim di bawah ini punya tes regresi di ``tests/test_ryo_client.py``
 * kunci hanya masuk lewat parameter/``from_env``; disimpan sebagai :class:`Secret` yang
   ``repr``/``str``-nya ``***`` → aman di ``repr(vars(client))``, ``pprint``, dan
   ``--showlocals``;
-* semua teks yang kita bentuk lewat :func:`_redact` lalu :func:`_printable` lalu dipotong;
-* nilai yang dikendalikan server (``x-trace-id``, ``code``, cuplikan body error)
-  diperlakukan sebagai input tidak tepercaya. Tiga jalur itu melewati :func:`_redact` yang
-  menghapus bentuk verbatim, hex, dan base64 dari kunci; body/`code` juga mengganti
-  karakter non-printable dengan spasi, dan ``x-trace-id`` harus COCOK pola bentuk
-  (allowlist) sehingga pantulan verbatim maupun perakitan ulang karakter tidak lolos.
-  **Batas yang diakui:** kunci yang di-encode ulang dengan cara yang TIDAK kita enumerasi
-  (rot13, gzip, sisipan yang tidak bisa dirakit ulang) tetap bisa lolos di ketiga jalur —
-  server memang menerima kunci lewat header ``Authorization`` dan bisa memantulkannya
-  dalam bentuk apa pun. Menutup kelas itu sepenuhnya menuntut "jangan simpan teks dari
-  server sama sekali" (kehilangan diagnostik) dan BELUM dilakukan;
+* semua teks yang kita bentuk lewat :func:`_redact` lalu :func:`_printable` lalu dipotong
+  (urutan itu ditulis satu kali di :meth:`BaseRyoClient._server_text`);
+* ada **LIMA** jalur teks yang dikendalikan server, dan kelimanya diperlakukan sebagai input
+  tidak tepercaya (daftar ini adalah kontrak; tesnya `test_key_is_redacted_on_all_five_
+  server_text_paths` memparametrisasi kelimanya):
+
+  1. header ``x-trace-id`` — selain diredaksi, harus COCOK pola bentuk (allowlist), sehingga
+     pantulan verbatim maupun perakitan ulang karakter tidak lolos;
+  2. ``code`` dari body error;
+  3. cuplikan body error (``_body_excerpt``);
+  4. ``result.status`` yang di luar enum api-facts §A — **HTTP 200**;
+  5. ``result.tool`` yang tidak cocok dengan tool yang diminta — **HTTP 200**.
+
+  Dua yang terakhir dulu TIDAK diredaksi sama sekali: ``_check_envelope`` adalah fungsi
+  tingkat modul, jadi ia tidak punya akses ke kunci dan secara struktural tidak bisa
+  meredaksi; ia membocorkan 31 karakter pertama kunci ke stdout dan ke ``logs/*.log``
+  (temuan security-reviewer TASKS 1.5). Sekarang ia method, dan :meth:`BaseRyoClient._safe`
+  dibuat **abstrak** supaya klien baru tidak bisa diam-diam tidak meredaksi.
+  Selain bentuk PERSIS, :func:`_redact_fragments` juga menelan **potongan** berurutan
+  ≥ :data:`MIN_SECRET_FRAGMENT` (12) karakter dari tiap bentuk — server yang memantulkan
+  "20 karakter pertama kunci" tanpa encoding apa pun adalah evasi termurah, dan pesan itu
+  ikut ke ``warnings[]`` publik lewat `core/skill_cli.py`.
+  **Batas yang diakui** (tiga, semuanya punya tes yang mengunci kenyataannya):
+
+  1. kunci yang di-encode ulang dengan cara yang TIDAK kita enumerasi (rot13, gzip, sisipan
+     yang tidak bisa dirakit ulang) tetap lolos di kelima jalur — server memang menerima
+     kunci lewat ``Authorization`` dan bisa memantulkannya dalam bentuk apa pun;
+  2. potongan yang lebih PENDEK dari 12 karakter tidak diredaksi. Ambang itu ada supaya
+     kecocokan kebetulan tidak memakan teks diagnostik yang sah; konsekuensinya, 11 karakter
+     pertama kunci bisa tercetak. Potongan dari bentuk hex/base64 ikut dicakup karena
+     `_redact_fragments` dijalankan atas SETIAP bentuk, bukan hanya bentuk verbatim;
+  3. :func:`_secret_forms` MEMBUANG bentuk yang lebih pendek dari 8 karakter, jadi kunci 7
+     karakter tidak diredaksi verbatim dan kunci ≤3 karakter tidak punya bentuk sama sekali
+     (base64-nya pun < 8). Kunci RYO nyata jauh lebih panjang (34 karakter di
+     `.env.example`), tetapi ambang itu asumsi, bukan jaminan.
+
+  Menutup kelas ini sepenuhnya menuntut "jangan simpan teks dari server sama sekali"
+  (kehilangan diagnostik) dan BELUM dilakukan;
 * ``base_url`` wajib ``https`` — Bearer key tidak pernah dikirim tanpa TLS;
 * :class:`Secret` menolak pickle (blob pickle menyimpan nilai polos);
 * exception httpx tidak pernah lolos: dibungkus ulang DAN dilempar di luar blok ``except``
@@ -93,6 +120,10 @@ MAX_BACKOFF_S = 60.0
 MAX_BODY_EXCERPT_CHARS = 200
 MAX_ERROR_MESSAGE_CHARS = 300
 MAX_ERROR_CODE_CHARS = 64
+# Panjang minimum POTONGAN kunci yang diredaksi (lihat `_redact_fragments`). 12 karakter
+# dari kunci acak = entropi jauh di atas apa pun yang muncul kebetulan di pesan galat, jadi
+# ambang ini menutup evasi tanpa memakan teks diagnostik yang sah.
+MIN_SECRET_FRAGMENT = 12
 MAX_BODY_READ_BYTES = 4 * 1024  # cukup untuk cuplikan 200 char; hindari salinan body raksasa
 # Batas 8 MiB menolak SETELAH body ada di memori (httpx membacanya lebih dulu); gunanya
 # mencegah parse+simpan payload absurd, bukan mencegah alokasinya.
@@ -191,8 +222,47 @@ def _secret_forms(secret: str) -> tuple[str, ...]:
         base64.urlsafe_b64encode(raw).decode("ascii").rstrip("="),
     }
     # terpanjang dulu supaya bentuk tanpa padding tidak memotong bentuk berpadding;
-    # bentuk < 8 karakter dibuang agar pola tidak terlalu longgar
+    # bentuk < 8 karakter dibuang agar pola tidak terlalu longgar.
+    # AMBANG YANG DIAKUI (docstring modul, "Batas yang diakui"): kunci 7 karakter tidak
+    # diredaksi verbatim, kunci <= 3 karakter tidak punya bentuk sama sekali. Ini asumsi
+    # tentang panjang kunci RYO (34 karakter), bukan jaminan — dan keluaran jalur ini
+    # sekarang publik (masuk `warnings[]` lewat core/skill_cli.py).
     return tuple(sorted((form for form in forms if len(form) >= 8), key=len, reverse=True))
+
+
+def _redact_fragments(text: str, secret: str, min_len: int) -> str:
+    """Ganti setiap POTONGAN berurutan >= `min_len` karakter dari `secret`.
+
+    Menutup evasi termurah yang tidak butuh encoding apa pun: server memantulkan sebagian
+    kunci yang ia terima lewat header ``Authorization`` (mis. 20 karakter pertama di
+    ``{"message": ...}``). Pencocokan bentuk PERSIS tidak menangkapnya, dan pesan itu
+    `speakable` (`core/skill_cli.py`) sehingga mendarat di ``warnings[]`` publik dan
+    ``logs/*.log``.
+
+    Rakus-terpanjang, bukan n-gram tetap: mengganti n-gram 12 karakter yang tidak tumpang
+    tindih akan menyisakan ekor 8 karakter dari pantulan 20 karakter. Case-insensitive,
+    sama seperti :func:`_redact`, karena proxy pernah terlihat memantulkan header dalam
+    bentuk yang sudah di-lowercase.
+    """
+    if len(secret) < min_len or len(text) < min_len:
+        return text
+    haystack = secret.lower()
+    lowered = text.lower()
+    out: list[str] = []
+    i = 0
+    while i < len(text):
+        best = 0
+        span = min_len
+        while i + span <= len(text) and lowered[i : i + span] in haystack:
+            best = span
+            span += 1
+        if best:
+            out.append("***")
+            i += best
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
 
 
 def _redact(text: str, secret: str | None) -> str:
@@ -206,6 +276,8 @@ def _redact(text: str, secret: str | None) -> str:
         return text
     for form in _secret_forms(secret):
         text = re.sub(re.escape(form), "***", text, flags=re.IGNORECASE)
+        # Ronde kedua: potongan bentuk itu, untuk pantulan SEBAGIAN (prefiks/substring).
+        text = _redact_fragments(text, form, MIN_SECRET_FRAGMENT)
     return text
 
 
@@ -406,6 +478,63 @@ class BaseRyoClient(ABC):
     """Enam metode tool + health/whoami/catalog; dipakai RyoClient maupun FixtureClient."""
 
     @abstractmethod
+    def _safe(self, text: str) -> str:
+        """Redaksi kredensial dari teks yang DIKENDALIKAN SERVER.
+
+        Sengaja abstrak, bukan default "kembalikan apa adanya": klien baru harus MENYATAKAN
+        kebijakan redaksinya. Default yang aman-terlihat adalah cara temuan ini lahir —
+        `_check_envelope` dulu fungsi tingkat modul tanpa akses ke kunci, sehingga dua jalur
+        (`result.status`, `result.tool`) secara STRUKTURAL tidak bisa diredaksi dan
+        membocorkan kunci lewat respons HTTP 200 (security-reviewer, TASKS 1.5).
+        """
+
+    def _server_text(self, value: Any, limit: int) -> str:
+        """Teks dari server untuk pesan: redaksi → whitelist printable → potong.
+
+        Urutannya MENGIKAT. Semua jalur yang MENGUTIP teks server ke dalam pesan memanggil
+        method ini — `_message`, `_body_excerpt`, `_error_code`, dan kedua cek di
+        `_check_envelope` — sehingga tidak ada yang menyalin urutannya sendiri; potong-lalu-
+        redaksi akan memotong bentuk kunci menjadi pecahan yang tidak lagi cocok pola, lalu
+        mencetaknya. Dijaga `test_no_client_method_reorders_the_redaction_chain`.
+
+        Jalur kelima, ``x-trace-id``, sengaja TIDAK lewat sini: ia tidak pernah dikutip apa
+        adanya melainkan harus COCOK pola bentuk (`_clean_trace_id`) — allowlist yang lebih
+        ketat, bukan pengecualian yang lebih longgar.
+        """
+        return _printable(self._safe(str(value)))[:limit]
+
+    def _check_envelope(self, tool: str, body: Any) -> dict[str, Any]:
+        """Validasi BENTUK envelope; isinya tidak disentuh sama sekali (ADR-004).
+
+        Yang divalidasi hanya yang tertulis di api-facts §A: ada `result` berupa objek,
+        `status` ∈ {ok, partial, unavailable}, dan `tool` cocok dengan yang diminta (envelope
+        dengan atribusi tool salah akan tersimpan sebagai snapshot yang salah). Envelope yang
+        sah dikembalikan sebagai objek yang sama persis — tanpa normalisasi/penambahan default.
+
+        Method, bukan fungsi tingkat modul: `status`/`tool` yang dikutip di pesan galat
+        adalah teks dari server, jadi ia WAJIB bisa memanggil `self._safe`.
+        """
+        if not isinstance(body, dict) or "result" not in body:
+            raise RyoProtocolError(f"{tool}: respons tanpa kunci 'result'")
+        envelope = body["result"]
+        if not isinstance(envelope, dict):
+            raise RyoProtocolError(f"{tool}: 'result' bukan objek envelope")
+        if "status" not in envelope:
+            raise RyoProtocolError(f"{tool}: envelope tanpa kunci 'status'")
+        status = envelope["status"]
+        if status not in ENVELOPE_STATUSES:
+            raise RyoProtocolError(
+                f"{tool}: status di luar enum api-facts §A: {self._server_text(status, 32)!r}"
+            )
+        reported = envelope.get("tool")
+        if reported != tool:
+            raise RyoProtocolError(f"{tool}: envelope mengaku tool {self._server_text(reported, 32)!r}")
+        if envelope.get("isError"):
+            # api-facts §A: "kegagalan tool di `result.isError`" (bisa HTTP 200 + isError true)
+            raise RyoProtocolError(f"{tool}: envelope menandai isError")
+        return envelope
+
+    @abstractmethod
     def call(self, tool: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         """Panggil satu tool, kembalikan envelope apa adanya. Gagal → RyoError."""
 
@@ -471,33 +600,6 @@ def _check_tool(tool: str) -> str:
     return tool
 
 
-def _check_envelope(tool: str, body: Any) -> dict[str, Any]:
-    """Validasi BENTUK envelope; isinya tidak disentuh sama sekali (ADR-004).
-
-    Yang divalidasi hanya yang tertulis di api-facts §A: ada `result` berupa objek,
-    `status` ∈ {ok, partial, unavailable}, dan `tool` cocok dengan yang diminta (envelope
-    dengan atribusi tool salah akan tersimpan sebagai snapshot yang salah). Envelope yang
-    sah dikembalikan sebagai objek yang sama persis — tanpa normalisasi/penambahan default.
-    """
-    if not isinstance(body, dict) or "result" not in body:
-        raise RyoProtocolError(f"{tool}: respons tanpa kunci 'result'")
-    envelope = body["result"]
-    if not isinstance(envelope, dict):
-        raise RyoProtocolError(f"{tool}: 'result' bukan objek envelope")
-    if "status" not in envelope:
-        raise RyoProtocolError(f"{tool}: envelope tanpa kunci 'status'")
-    status = envelope["status"]
-    if status not in ENVELOPE_STATUSES:
-        raise RyoProtocolError(f"{tool}: status di luar enum api-facts §A: {_printable(str(status))[:32]!r}")
-    reported = envelope.get("tool")
-    if reported != tool:
-        raise RyoProtocolError(f"{tool}: envelope mengaku tool {_printable(str(reported))[:32]!r}")
-    if envelope.get("isError"):
-        # api-facts §A: "kegagalan tool di `result.isError`" (bisa HTTP 200 + isError true)
-        raise RyoProtocolError(f"{tool}: envelope menandai isError")
-    return envelope
-
-
 # --- klien nyata -------------------------------------------------------------------------
 class RyoClient(BaseRyoClient):
     """Klien HTTP untuk endpoint RYO. Kunci hanya dari parameter/env, tidak pernah dicetak."""
@@ -550,12 +652,12 @@ class RyoClient(BaseRyoClient):
     def from_env(cls, env: dict[str, str] | None = None, **kwargs: Any) -> RyoClient:
         """Baca RYO_MCP_URL/RYO_MCP_KEY dari environment (satu-satunya sumber kredensial).
 
-        Gate ADR-005 berdiri di sini: `sources.yaml` harus menyatakan `ryo_tools` `enabled`
-        DAN `approved: true` SEBELUM klien terbentuk — sumber yang belum disetujui tidak
-        boleh menerima satu request pun. `FixtureClient` sengaja tidak lewat sini (ADR-005:
-        fixture tetap boleh). Penolakan berupa :class:`core.sources.SourceNotApprovedError`;
-        batas produk (`core/skill_cli.py`) yang mengubahnya jadi
-        `SkillResult{status:"unavailable"}`.
+        Gate ADR-005 berdiri di sini, SEBELUM kredensial dibaca: `sources.yaml` harus
+        menyatakan `ryo_tools` `enabled` DAN `approved: true` sebelum klien terbentuk —
+        sumber yang belum disetujui tidak boleh menerima satu request pun. `FixtureClient`
+        sengaja tidak lewat sini (ADR-005: fixture tetap boleh). Penolakan berupa
+        :class:`core.sources.SourceNotApprovedError`; batas produk (`core/skill_cli.py`)
+        yang mengubahnya jadi `SkillResult{status:"unavailable"}`.
 
         **Cakupan:** sejak TASKS 0.5 (1 Sep 2026) ini benar-benar jalur produksi satu-satunya
         di repo — `scripts/bootstrap_recorder.py`, yang dulu memanggil RYO dengan `httpx`
@@ -565,13 +667,18 @@ class RyoClient(BaseRyoClient):
         yang sama.
         """
         if "bucket" in kwargs:
+            # kesalahan program, bukan kondisi lingkungan: tetap didahulukan
             raise RyoError("parameter 'bucket' hanya untuk tes; jalur produksi memakai bucket per-key")
+        # Gate DULU, kredensial belakangan. Urutan sebaliknya membuat gate tidak pernah
+        # terjangkau di mesin tanpa kredensial: pengguna diberi tahu "belum diset" padahal
+        # sebab sebenarnya bisa jadi sumber yang belum disetujui, dan AC 1.3(5) hanya lolos
+        # karena kredensial kebetulan ada (temuan security-reviewer fase 1).
+        require_source(RYO_TOOLS, env=None if env is None else dict(env))
         source = os.environ if env is None else env
         base_url = source.get(ENV_URL, "")
         api_key = source.get(ENV_KEY, "")
         if not base_url or not api_key:
             raise RyoError(f"{ENV_URL}/{ENV_KEY} belum diset (lihat .env.example)")
-        require_source(RYO_TOOLS, env=None if env is None else dict(env))
         return cls(base_url, api_key, **kwargs)
 
     # -- housekeeping --
@@ -595,6 +702,7 @@ class RyoClient(BaseRyoClient):
         return {"Authorization": f"Bearer {self._key.reveal()}", "Content-Type": "application/json"}
 
     def _safe(self, text: str) -> str:
+        """Kebijakan redaksi klien live: setiap bentuk kunci yang dienumerasi `_secret_forms`."""
         return _redact(text, self._key.reveal())
 
     def _backoff(self, attempt: int) -> float:
@@ -615,8 +723,8 @@ class RyoClient(BaseRyoClient):
         self.last_rate_limit = RateLimitInfo.from_headers(response.headers)
 
     def _message(self, label: str, exc: BaseException) -> str:
-        """Pesan kegagalan: redaksi kunci → whitelist printable → potong."""
-        return _printable(self._safe(f"{label}: {type(exc).__name__}: {exc}"))[:MAX_ERROR_MESSAGE_CHARS]
+        """Pesan kegagalan. Teks exception bisa berasal dari server → lewat `_server_text`."""
+        return self._server_text(f"{label}: {type(exc).__name__}: {exc}", MAX_ERROR_MESSAGE_CHARS)
 
     def _unexpected(self, label: str, exc: BaseException) -> RyoError:
         """Kegagalan di luar dugaan tetap menjadi RyoError.
@@ -698,11 +806,11 @@ class RyoClient(BaseRyoClient):
         return raw.decode(response.encoding or "utf-8", errors="replace")
 
     def _body_excerpt(self, response: httpx.Response) -> str:
-        """Cuplikan body error: redaksi → whitelist printable → potong (urutan mengikat)."""
+        """Cuplikan body error; urutannya milik `_server_text`, bukan disalin ke sini."""
         head = self._body_head(response)
         if not head:
             return ""
-        return _printable(self._safe(head))[:MAX_BODY_EXCERPT_CHARS]
+        return self._server_text(head, MAX_BODY_EXCERPT_CHARS)
 
     def _error_code(self, response: httpx.Response) -> str | None:
         """`code` UPPER_SNAKE dari body error `{code, message, details, trace_id}` (api-facts §A).
@@ -721,7 +829,7 @@ class RyoClient(BaseRyoClient):
         code = body.get("code")
         if not isinstance(code, str):
             return None
-        return _printable(self._safe(code))[:MAX_ERROR_CODE_CHARS].strip() or None
+        return self._server_text(code, MAX_ERROR_CODE_CHARS).strip() or None
 
     def _raise_for_status(self, label: str, response: httpx.Response) -> None:
         if response.status_code < 400:
@@ -819,7 +927,7 @@ class RyoClient(BaseRyoClient):
             try:
                 # 4xx selain 429 (argumen invalid) berhenti di sini — tidak diretry.
                 self._raise_for_status(tool, response)
-                envelope = _check_envelope(tool, self._parse_json(tool, response))
+                envelope = self._check_envelope(tool, self._parse_json(tool, response))
             except RyoError as exc:
                 failure = exc
             except Exception as exc:  # noqa: BLE001
@@ -867,6 +975,11 @@ class FixtureClient(BaseRyoClient):
     def __repr__(self) -> str:
         return f"FixtureClient(samples_dir={str(self.samples_dir)!r}, calls={len(self.calls)})"
 
+    def _safe(self, text: str) -> str:
+        """Tidak memegang kredensial: tidak ada yang bisa diredaksi, dan tidak ada yang
+        perlu. Ditulis eksplisit (bukan diwarisi) supaya kebijakan tiap klien terbaca."""
+        return text
+
     def _read_json(self, name: str) -> Any:
         path = self.samples_dir / f"{name}.json"
         try:
@@ -896,7 +1009,7 @@ class FixtureClient(BaseRyoClient):
         payload = _drop_none(dict(args or {}))
         self.calls.append((tool, payload))
         self._read_rate_limit(tool)
-        return _check_envelope(tool, self._read_json(tool))
+        return self._check_envelope(tool, self._read_json(tool))
 
     def health(self) -> dict[str, Any]:
         body = self._read_json("health")

@@ -18,11 +18,18 @@ from pydantic import ValidationError
 
 from core import skill as skill_module
 from core.skill import (
+    HEADLINE_LIMIT,
+    KEY_LIMIT,
     SCHEMA_VERSION,
+    TEXT_LIMIT,
+    TOOL_LIMIT,
+    TRUNCATED_MARK,
+    WARNING_LIMIT,
     ItemResult,
     ItemSource,
     SkillError,
     SkillResult,
+    clean_text,
     derive_data_mode,
     derive_status,
     load_skill,
@@ -516,3 +523,166 @@ def test_sample_as_of_round_trips_unchanged() -> None:
         raw = envelope(tool)["as_of"]
         result = SkillResult(tool="preflight", status="unavailable", as_of=raw)
         assert result.model_dump(mode="json")["as_of"] == raw
+
+
+# --- TASKS 1.5(c): panjang & charset teks yang ikut ke envelope --------------------------
+def test_tool_is_truncated_to_a_reportable_length() -> None:
+    """Argumen 100 kB tidak boleh menjadi field `tool` 100 kB (temuan juri fase 1 no. 6)."""
+    result = SkillResult(tool="a" * 100_000, status="unavailable")
+    assert len(result.tool) <= TOOL_LIMIT + len("...(truncated)")
+    assert result.tool.endswith("...(truncated)")
+    assert len(json.dumps(result.model_dump(mode="json"))) < 4096
+
+
+def test_headline_is_truncated_to_a_reportable_length() -> None:
+    result = SkillResult(
+        tool="preflight",
+        status="unavailable",
+        summary={"headline": "h" * 100_000, "key_points": []},
+    )
+    assert len(result.summary["headline"]) <= HEADLINE_LIMIT + len("...(truncated)")
+
+
+def test_unavailable_constructor_truncates_both_tool_and_headline() -> None:
+    """Jalur yang dipakai CLI: headline dirakit DARI `tool`, jadi keduanya harus dipotong."""
+    result = SkillResult.unavailable("a" * 100_000)
+    assert len(result.tool) <= TOOL_LIMIT + len("...(truncated)")
+    assert len(result.summary["headline"]) <= HEADLINE_LIMIT + len("...(truncated)")
+
+
+@pytest.mark.parametrize(
+    ("raw", "escaped"),
+    [
+        ("pre\x1b[2Jflight", "\\u001b"),
+        ("pre\r\nflight", "\\u000d"),
+        ("pre‮flight", "\\u202e"),
+        ("pre\ud800flight", "\\ud800"),
+    ],
+)
+def test_control_characters_in_tool_are_escaped_not_dropped(raw: str, escaped: str) -> None:
+    """Escape yang TERLIHAT, bukan penghapusan diam-diam: pembaca berhak tahu ada yang aneh.
+
+    Lone surrogate ikut karena `model_dump(mode="json")` melemparkan `UnicodeEncodeError`
+    untuk itu — satu nama skill aneh akan menggagalkan perakitan SELURUH envelope.
+    """
+    result = SkillResult(tool=raw, status="unavailable")
+    assert escaped in result.tool
+    assert raw[3] not in result.tool
+    json.dumps(result.model_dump(mode="json"))
+
+
+def test_control_characters_in_headline_are_escaped() -> None:
+    result = SkillResult(
+        tool="preflight",
+        status="unavailable",
+        summary={"headline": "GO\x1b[31m‮", "key_points": []},
+    )
+    assert "\x1b" not in result.summary["headline"]
+    assert "\\u202e" in result.summary["headline"]
+
+
+def test_non_string_headline_is_left_alone() -> None:
+    """Hanya teks yang dibersihkan; bentuk lain bukan urusan sanitasi ini."""
+    result = SkillResult(tool="preflight", status="unavailable", summary={"headline": None})
+    assert result.summary["headline"] is None
+
+
+def test_clean_text_is_idempotent() -> None:
+    """Dipanggil dua kali (CLI lalu validator) tidak boleh mengubah hasil."""
+    once = clean_text("pre\x1b[2Jflight" + "z" * 500, TOOL_LIMIT)
+    assert clean_text(once, TOOL_LIMIT) == once
+
+
+# --- TASKS 1.5(c) ronde 2: batas berlaku di MODEL, bukan hanya di CLI --------------------
+# Temuan security-reviewer: `clean_text` semula hanya dipasang di `tool`/`summary.headline`,
+# sedangkan `request`/`warnings`/`availability` dibiarkan. Skill 2.2 merakit envelope-nya
+# SENDIRI, jadi pembatasan sisi CLI dibuang begitu skill mengembalikan envelope — envelope
+# stdout terukur 300.289 byte dengan pola `tests/helpers_skill_live.py`.
+def test_request_values_are_bounded_at_the_model() -> None:
+    result = SkillResult.unavailable("preflight", request={"symbol": "a" * 100_000})
+    assert len(result.request["symbol"]) <= TEXT_LIMIT + len(TRUNCATED_MARK)
+
+
+def test_request_keys_are_bounded_at_the_model() -> None:
+    result = SkillResult.unavailable("preflight", request={"k" * 100_000: "SOL"})
+    assert max(len(key) for key in result.request) <= KEY_LIMIT + len(TRUNCATED_MARK)
+
+
+def test_nested_request_values_are_bounded() -> None:
+    """`request` skill bisa bersarang (mis. daftar simbol); satu level saja tidak cukup."""
+    result = SkillResult.unavailable(
+        "preflight", request={"peers": ["b" * 100_000], "opts": {"note": "c" * 100_000}}
+    )
+    assert len(result.request["peers"][0]) <= TEXT_LIMIT + len(TRUNCATED_MARK)
+    assert len(result.request["opts"]["note"]) <= TEXT_LIMIT + len(TRUNCATED_MARK)
+
+
+def test_warnings_are_bounded_at_the_model() -> None:
+    result = SkillResult.unavailable("preflight", warnings=["d" * 100_000])
+    assert len(result.warnings[0]) <= WARNING_LIMIT + len(TRUNCATED_MARK)
+
+
+def test_summary_key_points_are_bounded() -> None:
+    result = SkillResult.unavailable("preflight")
+    patched = SkillResult.model_validate(
+        {**result.model_dump(), "summary": {"headline": "h", "key_points": ["e" * 100_000]}}
+    )
+    assert len(patched.summary["key_points"][0]) <= TEXT_LIMIT + len(TRUNCATED_MARK)
+
+
+def test_availability_keys_are_bounded_and_still_match_item_ids() -> None:
+    """Kunci `availability` dan `ItemResult.id` dibersihkan dengan batas yang SAMA.
+
+    Kalau tidak, invarian dua arah (`availability[item.id]`) akan pecah untuk id panjang.
+    """
+    long_id = "f" * 100_000
+    item = ItemResult(id=long_id, status="unspoken")
+    assert len(item.id) <= KEY_LIMIT + len(TRUNCATED_MARK)
+    result = SkillResult.from_items(
+        tool="preflight",
+        request={},
+        items=[item],
+        envelopes=[{"status": "ok", "data_mode": "live", "as_of": "2026-09-01T00:00:00Z"}],
+    )
+    assert list(result.availability) == [item.id]
+    assert result.data["items"][0]["id"] == item.id
+    assert len(json.dumps(result.model_dump(mode="json"))) < 4096
+
+
+def test_hand_built_items_are_normalised_to_the_validated_form() -> None:
+    """`data['items']` yang dirakit tangan pun tersimpan dalam bentuk yang SUDAH divalidasi.
+
+    Tanpa ini, id 100 kB tetap duduk di `data` walaupun salinan terurainya sudah dipotong.
+    """
+    long_id = "g" * 100_000
+    result = SkillResult(
+        tool="preflight",
+        status="partial",
+        data={"items": [{"id": long_id, "status": "unspoken", "value": None}]},
+        availability={long_id: "unspoken"},
+    )
+    assert len(result.data["items"][0]["id"]) <= KEY_LIMIT + len(TRUNCATED_MARK)
+    assert len(json.dumps(result.model_dump(mode="json"))) < 4096
+
+
+def test_item_reason_is_bounded() -> None:
+    item = ItemResult(id="rr", status="unspoken", reason="h" * 100_000)
+    assert len(item.reason) <= TEXT_LIMIT + len(TRUNCATED_MARK)
+
+
+@pytest.mark.parametrize("field", ["request", "warnings", "availability", "summary"])
+def test_rtl_override_cannot_reach_the_envelope(field: str) -> None:
+    """`canonical_json` memakai `ensure_ascii=False`, dan U+202E BUKAN kontrol JSON.
+
+    Artinya `json.dumps` tidak akan meng-escape-nya: satu-satunya yang menutup jalur ini
+    adalah `clean_text` di model.
+    """
+    rtl = "GO‮OG"
+    payloads = {
+        "request": {"symbol": rtl},
+        "warnings": [rtl],
+        "availability": {rtl: "unspoken"},
+        "summary": {"headline": rtl, "key_points": [rtl]},
+    }
+    result = SkillResult(tool="preflight", status="unavailable", **{field: payloads[field]})
+    assert "‮" not in json.dumps(result.model_dump(mode="json"), ensure_ascii=False)

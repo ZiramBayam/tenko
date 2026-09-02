@@ -125,6 +125,11 @@ class RecordingClient(BaseRyoClient):
     def catalog(self) -> list[dict[str, Any]]:
         return self._inner.catalog()
 
+    def _safe(self, text: str) -> str:
+        """Double ini tidak memegang kredensial; kebijakannya ditulis eksplisit karena
+        `BaseRyoClient._safe` abstrak (klien baru tidak boleh diam-diam tidak meredaksi)."""
+        return text
+
     def tools_called(self, tool: str) -> list[dict[str, Any]]:
         return [args for name, args in self.calls if name == tool]
 
