@@ -36,7 +36,7 @@ grep '^name = ' uv.lock          # 33 baris = 32 dependency + paket "tenko" send
 | httpx | 0.28.1 | BSD-3-Clause | klien HTTP ke tool RYO — dipakai di `core/ryo_client.py` |
 | pydantic | 2.13.5 | MIT | kontrak & validasi `SkillResult` — dipakai di `core/skill.py` |
 | pyyaml | 6.0.3 | MIT | baca `sources.yaml` — dipakai di `core/sources.py` |
-| anthropic | 1.2.0 | MIT | narasi kartu (di luar jalur keputusan, ADR-003) — **terkunci di lock, BELUM dipakai kode** (TASKS 2.3 belum dikerjakan) |
+| anthropic | 1.2.0 | MIT | narasi kartu (di luar jalur keputusan, ADR-003) — **dipakai kode sejak TASKS 2.3**: hanya di `preflight/narrate.py`, satu panggilan `messages.create` per kartu, model `claude-opus-5`, setelah keputusan final; kredensial hanya dari env, tanpa kredensial tidak ada request sama sekali |
 | fastapi | 0.141.1 | MIT | route JSON UI — **terkunci di lock, BELUM dipakai kode** (TASKS 3.1 belum dikerjakan) |
 | uvicorn | 0.52.4 | BSD-3-Clause | server `make ui` — **terkunci di lock, BELUM dipakai kode** (TASKS 3.1 belum dikerjakan) |
 | pytest | 9.1.1 | MIT | dev — menjalankan `make test` |
