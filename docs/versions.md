@@ -22,7 +22,7 @@ Aturan: pin persis. Jangan upgrade/downgrade tanpa ADR. "BELUM DIVERIFIKASI" →
 | pyyaml | **6.0.3** | MIT (`License :: OSI Approved :: MIT License`), `requires_python >=3.8`, classifier 3.12 ✓, rilis 2025-09-25, TIDAK yanked (73 file, termasuk wheel `cp312` manylinux/macos), TANPA requires-dist. Sama dengan pyproject.toml + uv.lock (`specifier ==6.0.3`) dan yang terpasang di `.venv` (`yaml.__version__ == '6.0.3'`). Dipakai di jalur produksi sejak TASKS 1.3: `core/sources.py` (`yaml.safe_load` untuk `sources.yaml`). Diverifikasi https://pypi.org/pypi/pyyaml/json + https://pypi.org/pypi/pyyaml/6.0.3/json, 1 Sep 2026. Baris DISCLOSURE.md sudah ada (pyyaml 6.0.3 MIT) — tidak perlu baris baru |
 | numpy | BELUM DIVERIFIKASI | hanya bila validate/CI butuh; Wilson CI bisa tanpa numpy — pertimbangkan tidak memakai |
 | mcp (python SDK) | BELUM DIVERIFIKASI | hanya bila transport MCP wajib; REST sudah cukup (api-facts §A) → tidak dipakai |
-| anthropic | **1.2.0** | MIT, py>=3.10; diverifikasi pypi.org 1 Sep 2026. Hanya untuk narasi kartu (ADR-003/011), tidak pernah menyentuh keputusan |
+| anthropic | **1.2.0** | MIT, py>=3.10; diverifikasi pypi.org 1 Sep 2026. Hanya untuk narasi kartu (ADR-003/011), tidak pernah menyentuh keputusan. DIPAKAI KODE sejak TASKS 2.3 (`preflight/narrate.py`) — bentuk request diverifikasi 4 Sep 2026, lihat "Bentuk request narasi" di bawah. Transitifnya di `uv.lock`: anyio, docstring-parser, **httpx2 2.12.0**, jiter, pydantic, sniffio, typing-extensions — semuanya sudah ada di DISCLOSURE.md; pemakaian `httpx2` di `tests/test_narrate.py` TIDAK menambah dependency baru |
 
 ### Catatan verifikasi fastapi/uvicorn (api-verifier, 1 Sep 2026)
 - **TestClient tidak butuh paket tambahan yang dipin.** `fastapi.testclient.TestClient` = re-export `starlette.testclient.TestClient`; starlette 1.6.0 mencoba `import httpx2`, jatuh ke `httpx`, dan `RuntimeError` bila keduanya tidak ada. Di env proyek `httpx2==2.12.0` SUDAH ada sebagai transitif `anthropic==1.2.0` → TestClient memakai httpx2, nol warning. Dengan httpx 0.28.1 saja tetap jalan tapi memicu `StarletteDeprecationWarning` ("Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead"). Tidak ada `filterwarnings=error` di pyproject → tidak memblokir tes.
@@ -30,6 +30,26 @@ Aturan: pin persis. Jangan upgrade/downgrade tanpa ADR. "BELUM DIVERIFIKASI" →
 - **Paket baru yang masuk env** (butuh baris DISCLOSURE.md): fastapi 0.141.1 (MIT), uvicorn 0.52.4 (BSD-3-Clause), starlette 1.6.0 (BSD-3-Clause, transitif), click 8.5.0 (BSD-3-Clause, transitif), annotated-doc 0.0.5 (MIT, transitif). `h11` & `typing-inspection` sudah ada sebelumnya.
 
 Model LLM: `claude-opus-5` (id tanpa akhiran tanggal), `output_config.effort="low"` — tugas narasi sederhana dari data terstruktur.
+
+### Bentuk request narasi (anthropic 1.2.0, `preflight/narrate.py`) — DIVERIFIKASI api-verifier 4 Sep 2026
+Semua di bawah dibaca dari SDK yang TERPASANG di `.venv` (bukan ingatan) + dokumentasi resmi. Reproduksi:
+`.venv/bin/python -c "import inspect;from anthropic.resources.messages import Messages;print(inspect.signature(Messages.create))"`,
+`cat .venv/lib/python3.12/site-packages/anthropic/types/{output_config_param,json_output_format_param,refusal_stop_details}.py`,
+`grep -n "stop_details\|content:" .venv/lib/python3.12/site-packages/anthropic/types/message.py`.
+
+- `Messages.create` menerima `output_config`, `thinking`, `system`, `max_tokens`, dan `timeout` (kwarg per-request). `effort` TIDAK ada di top-level — ia field di dalam `OutputConfigParam`.
+- `OutputConfigParam` = `{effort: Optional[Literal["low","medium","high","xhigh","max"]], format: Optional[JSONOutputFormatParam]}`. `"low"` sah.
+- `JSONOutputFormatParam` = `{schema: Required[Dict[str, object]], type: Required[Literal["json_schema"]]}`. Jadi `{"type":"json_schema","schema":{…}}` adalah bentuk yang BENAR, dan structured outputs sudah **GA tanpa beta header**: `messages.create` non-beta sendiri menerimanya, dan dokumentasi resmi menyatakan "The `output_format` parameter has moved to `output_config.format`, and beta headers are no longer required" (https://platform.claude.com/docs/en/build-with-claude/structured-outputs, diambil 4 Sep 2026). `claude-opus-5` terdaftar sebagai model yang didukung di halaman itu.
+- `Message.stop_reason: Optional[StopReason]`, dan `StopReason` memuat `"refusal"`; `Message.stop_details: Optional[RefusalStopDetails]`; `RefusalStopDetails` = `{category: Optional[Literal["cyber","bio","frontier_llm","reasoning_extraction","general_harms"]], explanation: Optional[str], type: Literal["refusal"]}`; `Message.content: List[ContentBlock]` (blok ber-`type`).
+- `anthropic.Anthropic(max_retries=0, timeout=...)` sah; argumen kredensial opsional (SDK membaca variabel environment kredensial sendiri — namanya ada di `ENV_CREDENTIAL`, `preflight/narrate.py`). Semua kelas error yang ditangkap `narrate.py` (`APITimeoutError`, `APIConnectionError`, `RateLimitError`, `AuthenticationError`, `PermissionDeniedError`, `NotFoundError`, `BadRequestError`, `APIStatusError`, `AnthropicError`) ada di namespace `anthropic`.
+- `"claude-opus-5"` ada di literal `anthropic/types/model.py`.
+
+**Batas skema JSON — ini yang bisa mematikan narasi, bukan bentuk `output_config`.** Dokumentasi structured outputs (diambil 4 Sep 2026) menyebut constraint string (`minLength`/`maxLength`), constraint numerik (`minimum`/`maximum`/`multipleOf`), dan constraint array selain `minItems` ∈ {0,1} sebagai **tidak didukung**, serta: "If you use an unsupported feature, you'll receive a 400 error with details". SDK mengonfirmasi daftar yang sama di `anthropic/lib/_parse/_transform.py` (`transform_schema` memindahkan `maxLength`/`maxItems` ke `description`, memaksa `additionalProperties: False` di tiap objek, mempertahankan `required` dan `enum`, dan hanya menerima `minItems` 0/1).
+**`transform_schema` HANYA dipakai untuk `output_format=<type>`/`.parse()`. Skema dict mentah yang dikirim lewat `output_config={"format": {...}}` diteruskan APA ADANYA** (`anthropic/resources/messages/messages.py`, cabang `is_given(output_format)`). Skema tulis-tangan karena itu wajib sudah memenuhi batas di atas sendiri.
+- WAJIB: `additionalProperties: false` di setiap objek + `required` yang mendaftar propertinya. `enum` string didukung.
+- DILARANG: `maxLength`, `minLength`, `maxItems`, `minimum`/`maximum`, `additionalProperties` selain `false`, skema rekursif, `$ref` eksternal.
+
+Kesimpulan: tidak perlu panggilan API untuk memastikan bentuk `output_config.format` — tipe SDK terpasang + dokumen resmi sudah menjawabnya. Yang butuh koreksi kode adalah isi `schema`-nya.
 Tanpa: pandas, sklearn, plotting lib. Chart untuk UI: canvas/SVG inline, atau library JS yang **di-vendor lokal** (lihat "Aset frontend JS" di bawah) — CDN saat runtime sudah gugur karena `make demo` wajib offline; putuskan di 4.2 dengan ADR. Chart.js sendiri BELUM DIVERIFIKASI dan belum dipin.
 
 ## Aset frontend JS (di-vendor lokal, TANPA CDN, TANPA npm) — diverifikasi api-verifier 1 Sep 2026
