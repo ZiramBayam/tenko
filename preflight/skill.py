@@ -137,10 +137,15 @@ serangan yang benar-benar dijalankan (3 Sep 2026), dan semuanya LOLOS lantai ini
 
 Alasannya scope, bukan kemalasan: penjangkaran ber-bukti menuntut pembandingan ulang tiap item
 terhadap ``payload_json`` di dalam bundle, dan satu-satunya lapisan yang MEMEGANG bundle adalah
-pemanggil yang membekukannya — TASKS **2.4c** (``check_against_evidence(result, bundle)``).
-Dua serangan di atas punya tes yang **MENGHARAPKANNYA LOLOS**
-(``test_acknowledged_gap_*``), mengikuti pola TASKS 2.2a dan 1.6: kalau 2.4c kelak menutupnya,
-tes itulah yang memberi tahu — celah ini tidak boleh berubah diam-diam ke arah mana pun.
+pemanggil yang membekukannya. **Lapisan itu sekarang ADA:**
+:func:`agent.anchor.check_against_evidence` (TASKS 2.4c-min) menilai ulang kesepuluh item dari
+payload beku dan MENOLAK kedua serangan di atas, menyebut id item + ``snapshot_id``. Agen
+memanggilnya sebelum menulis baris ``decisions`` dan sebelum menakar posisi dari ``plan``
+(``agent/main.py``). **Yang TIDAK berubah adalah batas fungsi di modul ini**: ia tetap
+meloloskan kedua serangan, karena pertanyaannya memang lain — dan justru itu yang di-assert
+kedua arah oleh ``tests/test_preflight_skill.py`` (dulu ``test_acknowledged_gap_*``, dibalik di
+commit TASKS 2.4; pola 2.2a dan 1.6) serta ``tests/test_agent_anchor.py``. Siapa pun yang
+memakai envelope ini tanpa penjangkaran tetap memikul celah itu utuh.
 
 Kontrak keluaran untuk TASKS 2.3 (narasi) dan 2.4 (agen)
 --------------------------------------------------------

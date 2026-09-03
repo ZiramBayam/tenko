@@ -984,13 +984,22 @@ def test_early_refusal_names_its_reason_on_the_card(args: tuple[str, str], needl
     assert needle in result.summary["key_points"][0]
 
 
-# --- pengakuan yang DIEKSEKUSI: batas kepercayaan berpindah ke data["items"] ---------------
-# Pola TASKS 2.2a (`test_acknowledged_gap_ok_without_items_key_...`) dan 1.6 (`REPLACE INTO`):
-# celah yang diakui docstring wajib punya tes yang MENGHARAPKANNYA LOLOS, supaya ia tidak
-# pernah berubah diam-diam ke arah mana pun. Penutupnya adalah TASKS 2.4c
-# (`check_against_evidence(result, bundle)`), satu-satunya lapisan yang memegang bundle.
-def test_acknowledged_gap_flipped_item_statuses_pass_the_floor(tmp_path: Path) -> None:
-    """Serangan 6/7: membalik status item membalik keputusan, dan lantai ini ikut patuh."""
+# --- pengakuan yang DIEKSEKUSI, lalu DITUTUP: batas kepercayaan data["items"] --------------
+# Sampai TASKS 2.4c-min, dua tes di bawah ini bernama `test_acknowledged_gap_*` dan
+# MENGHARAPKAN serangan 6 & 8 LOLOS (pola 2.2a `test_acknowledged_gap_ok_without_items_key_...`
+# dan 1.6 `REPLACE INTO`). Celahnya kini DITUTUP oleh `agent.anchor.check_against_evidence`,
+# jadi tesnya dibalik di commit yang sama — pembalikannya harus terlihat, bukan senyap.
+#
+# Pembagian kerjanya tetap seperti yang ditulis docstring `preflight/skill.py`: lantai di modul
+# ini menjawab "envelope konsisten dengan itemnya sendiri" dan karena itu MASIH meloloskan
+# kedua serangan; yang menjawab "item ini adalah apa yang dikatakan bukti beku" adalah
+# penjangkaran di `agent/`, satu-satunya lapisan yang memegang bundle. Kedua sisi itu
+# di-assert di sini supaya batasnya tidak bisa bergeser diam-diam ke arah mana pun.
+# Tes penyerang lengkapnya: `tests/test_agent_anchor.py`.
+def test_flipped_item_statuses_pass_the_floor_but_are_rejected_by_the_anchor(
+    tmp_path: Path,
+) -> None:
+    """Serangan 6/7: lantai ini ikut patuh; penjangkaran bukti menolaknya."""
     store = build_store(
         tmp_path,
         mutate=lambda tool, envelope: (
@@ -1017,15 +1026,16 @@ def test_acknowledged_gap_flipped_item_statuses_pass_the_floor(tmp_path: Path) -
     data[DATA_BLOCKING] = []
     result.summary.update({DATA_DECISION: "GO", DATA_BLOCKING: [], "headline": "SOL GO: 10 of 10"})
 
-    # LOLOS — inilah celahnya, dan inilah yang 2.4c harus tutup.
+    # LOLOS di lantai ini — batasnya memang "konsisten dengan itemnya sendiri".
     check_aggregate_floor(result)
     # Bukti beku di store TIDAK ikut berubah: kebohongan hanya ada di envelope.
+    bundle = freeze(store, data["snapshot_ids"])
     frozen = store.get_snapshots(data["snapshot_ids"])
     assert any(json.loads(row.payload_json)["data"].get("regime") == "risk_off" for row in frozen)
-    # Serangan 7: `decision_hash` dihitung dari bundle ASLI + item_status PALSU → tetap cocok,
-    # jadi replay (TASKS 2.4/2.4a) akan melaporkan IDENTICAL untuk keputusan yang dibalik.
+    # Serangan 7: `decision_hash` dihitung dari bundle ASLI + item_status PALSU tetap SAH
+    # menurut `core/replay.py` — itulah yang membuat serangan ini berbahaya.
     forged = decision_hash(
-        freeze(store, data["snapshot_ids"]),
+        bundle,
         DEFAULT_PARAMS.as_dict(),
         {
             "decision": "GO",
@@ -1036,10 +1046,24 @@ def test_acknowledged_gap_flipped_item_statuses_pass_the_floor(tmp_path: Path) -
     assert len(forged) == 64
     assert forged != data["decision_hash"]  # beda dari hash jujur, tetapi sama-sama sah
 
+    # DITUTUP (TASKS 2.4c-min): penjangkaran menilai ulang item dari `payload_json` beku dan
+    # menolak envelope ini, menyebut id item DAN snapshot_id-nya. Impor lokal — ADR-002
+    # melarang `preflight/` mengimpor `agent/`; tes boleh, kodenya tidak.
+    from agent.anchor import EvidenceMismatchError, check_against_evidence
 
-def test_acknowledged_gap_plan_falsified_on_both_sides_passes_the_floor(tmp_path: Path) -> None:
-    """Serangan 8/12: `plan` == passthrough tidak menolong bila ITEM-nya ikut dipalsukan."""
-    result = run(build_store(tmp_path))
+    with pytest.raises(EvidenceMismatchError) as excinfo:
+        check_against_evidence(result, bundle, DEFAULT_PARAMS)
+    assert ITEM_REGIME in str(excinfo.value) and "snapshot_id=" in str(excinfo.value)
+
+
+def test_plan_falsified_on_both_sides_passes_the_floor_but_not_the_anchor(tmp_path: Path) -> None:
+    """Serangan 8/12: `plan` == passthrough tidak menolong bila ITEM-nya ikut dipalsukan.
+
+    Lantai ini tetap lolos (kedua sisi berasal dari item palsu yang sama); penjangkaran ke
+    bukti beku menolaknya (TASKS 2.4c-min).
+    """
+    store = build_store(tmp_path)
+    result = run(store)
     assert result.data is not None
     forged_value = {
         **items_by_id(result)[ITEM_PLAN].value,
@@ -1055,6 +1079,13 @@ def test_acknowledged_gap_plan_falsified_on_both_sides_passes_the_floor(tmp_path
 
     check_aggregate_floor(result)  # LOLOS: kedua sisi perbandingan berasal dari item yang sama
     assert result.data[DATA_PLAN]["value"]["entry"] == 1.0
+
+    # DITUTUP (TASKS 2.4c-min): angka plan dibandingkan dengan `deep_analysis.data.trade_plan`
+    # di dalam bundle, bukan dengan salinan dirinya sendiri.
+    from agent.anchor import EvidenceMismatchError, check_against_evidence
+
+    with pytest.raises(EvidenceMismatchError, match=ITEM_PLAN):
+        check_against_evidence(result, freeze(store, result.data["snapshot_ids"]), DEFAULT_PARAMS)
 
 
 # --- SEDANG/RENDAH ronde kedua: pembukuan intra-envelope ------------------------------------

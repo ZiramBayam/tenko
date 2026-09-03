@@ -34,11 +34,18 @@ case "${1:-status}" in
     else
       echo "recorder: tidak ada implementasi yang bisa dijalankan"
     fi
-    if [ -f agent/main.py ]; then
-      start_one agent uv run python -m agent.main --client live --interval "${AGENT_INTERVAL_S:-3600}" \
+    # Agen SENGAJA tidak dinyalakan otomatis sampai TASKS 5.0 membekukan `params_hash`.
+    # `decision_hash` memuat `params_hash`; baris `decisions` yang ditulis sebelum pembekuan
+    # akan MISMATCH saat di-replay begitu 2.1c (ADR-017) mendarat - tepat di naskah §7
+    # langkah 3. Nyalakan sadar dengan AGENT_AUTOSTART=1 setelah 5.0 selesai.
+    if [ -f agent/main.py ] && [ "${AGENT_AUTOSTART:-0}" = "1" ]; then
+      # `--client live` DICABUT (TASKS 2.0b-lite, usul ADR-018 menunggu persetujuan manusia):
+      # agen store-first murni tidak pernah memanggil tool RYO, jadi tidak ada klien untuk
+      # dipilih. `agent/main.py` menolak opsi itu terang-terangan, bukan mengabaikannya.
+      start_one agent uv run python -m agent.main --interval "${AGENT_INTERVAL_S:-3600}" \
         --symbols "${WATCHLIST:-SOL,BTC,ETH,BNB}"
     else
-      echo "agent: belum dibangun (TASKS 2.4), dilewati"
+      echo "agent: tidak di-autostart (AGENT_AUTOSTART!=1; menunggu TASKS 5.0 membekukan params) - jalankan manual dengan 'make agent-tick'"
     fi
     ;;
   stop)

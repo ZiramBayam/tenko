@@ -220,3 +220,43 @@ Konsekuensi: NO_GO datang dari item yang benar-benar berbicara (verdict abstain 
 confluence MIXED 43%, kesegaran, kelengkapan, rr, relatif), bukan dari mayoritas yang diam. Bila RYO kelak
 menerbitkan enum resmi yang menyatakan `neutral` bermakna bearish, ADR ini dicabut, `params_hash` berubah,
 dan keputusan lama tetap bisa di-replay dengan params lamanya.
+
+## ADR-018 (USULAN 3 Sep 2026, ditulis 4 Sep 2026) Agen store-first murni: fallback live DICABUT
+**Status: USULAN — menunggu keputusan manusia.** Jangan dibaca sebagai DITERIMA. Kode yang
+mengandalkannya (`agent/main.py`, `scripts/daemons.sh`) menyebut status ini apa adanya dan
+dipatok tes (`tests/test_agent.py::test_main_docstring_states_the_deviation_and_points_at_adr_018`).
+
+Konteks: `docs/spec.md` §5 menulis "**Sumber snapshot: store dulu** … live hanya bila tidak ada yang
+segar", dan TASKS 2.0b semula meminta agen menjadi pemanggil live kedua di belakang
+`core/livelock.py`. Tiga fakta menggeser perhitungannya, semuanya muncul SESUDAH spec ditulis:
+1. Kunci API RYO punya **satu** token bucket 60 panggilan/menit (docs/api-facts.md §A) yang dibagi
+   seluruh proses di mesin ini; perekam sudah memakainya terus-menerus, dan 429 sudah pernah terlihat
+   di log perekam.
+2. Satu preflight yang semuanya live ≈ **60 detik** (api-facts §A "Latensi terukur": `deep_analysis`
+   17–34 dtk, `compare_tokens` ≈40 dtk) — di depan juri itu bukan demo, itu jeda.
+3. TASKS 2.2 sudah menjadikan `preflight` **store-first murni** dan naskah demo §7 berbasis fixture
+   offline, sehingga kemampuan live agen tidak dipakai satu langkah demo pun.
+Ditambah temuan security-reviewer 2.0a (2 Sep 2026): resolusi path kunci berbeda antara perekam
+(`load_dotenv`) dan agen (tidak), sehingga `RECORDER_LOCK_PATH` di `.env` membuat **kedua** pemanggil
+menang atas kunci yang sama — dua pemanggil live atas satu kuota, persis kegagalan yang kunci itu ada
+untuk mencegahnya.
+
+Keputusan (usulan product-manager, dilaksanakan di TASKS 2.0b-lite + 2.4):
+1. `agent/` **tidak pernah** mengonstruksi klien live dan tidak mengimpor `core.ryo_client`. Bukti yang
+   tidak cukup segar menjadi item `unspoken` → `NO_GO` ber-`reason` yang menyebut **store** ("no snapshot
+   within N min in the store"), **bukan** "kuota dipegang perekam": tidak ada yang memegang apa pun,
+   karena tidak ada pemanggil kedua. Bila tidak ada satu pun snapshot beku, agen **tidak menulis baris
+   `decisions` sama sekali** (lihat `agent.main.InsufficientEvidence`).
+2. Opsi CLI `--client live` **dicabut** dan ditolak terang-terangan (exit ≠ 0), bukan diabaikan diam-diam.
+3. `core.livelock.try_acquire` **tetap ada tanpa pemanggil produksi**. Itu disengaja dan ditulis di
+   docstring modulnya: ia adalah pengaman yang siap dipakai bila ADR ini ditolak, bukan kode mati.
+4. AC lama 2.0b (1)(3)(5)(6) — yang mengukur agen sebagai pemanggil live — **gugur bersama kemampuannya**;
+   penggantinya AC 2.0b-lite (nol panggilan live dibuktikan dengan `socket.connect` diblokir).
+
+Konsekuensi: satu-satunya sumber bukti agen adalah perekam, sehingga **uptime perekam menjadi jalur
+kritis produk** — celah rekaman langsung menjadi "tidak tersebut" di kartu (terukur: harga tersedia
+≤120 mnt hanya 51,8–57,5 % waktu, docs/api-facts.md §A "Harga …"). Itu ditanggung sadar: lebih baik
+kartu yang jujur berkata "tidak tahu" daripada demo yang berhenti 60 detik atau kena 429. Bila ADR ini
+DITOLAK manusia, yang dikembalikan bukan hanya `--client live` melainkan juga: satu resolusi path kunci
+yang dibagikan agen+perekam, log path kunci di kedua proses, dan `reason` yang membedakan "dipegang
+perekam" dari "kunci tidak bisa dibuka" (AC 2.0b lama (5)(6)).

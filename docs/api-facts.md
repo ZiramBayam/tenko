@@ -245,6 +245,43 @@ String `symbols` yang benar-benar terekam, disapu pada `id <= 1278` (18 baris, s
 berlaku untuk DB apa pun yang berhenti pada `id <= 1259`. `_record(` di `core/recorder.py` dicek ulang 3 Sep 2026 — kini enam
 tool: scan_market, market_overview, monitor_market_sentiment_shift, analyze_token, deep_analysis, **compare_tokens**.
 
+#### Harga — `analyze_token.data.market.price_usd` — DIVERIFIKASI 4 Sep 2026 (TASKS 2.4)
+Field ADA dan bertipe `float`: `docs/samples/analyze_token.json` → `["result"]["data"]["market"]["price_usd"]` = `103.89572922101242`
+(`market` = `{price_usd, market_cap_usd, fully_diluted_value_usd, volume_24h_usd}`, `availability.market_data: "available"`),
+sesuai baris `analyze_token` tabel "Field nyata" di atas.
+
+**Cakupan pada DB hidup, `id <= 1727`** (ts ≤ 2026-09-03T20:32:21Z; `sqlite3.connect("file:data/ryo.db?mode=ro", uri=True)`):
+* `analyze_token`: **929/929** baris punya `data.market.price_usd` numerik **> 0** — 0 null, 0 hilang, 0 non-numerik;
+  `availability.market_data` = `available` di **929/929**; himpunan kunci `data.market` identik di 929/929.
+  9 baris `status: partial` TIDAK menyentuh harga: yang `partial` adalah `technical_analysis` (semuanya simbol `DGAI`),
+  `market_data` tetap `available` dan `price_usd` terisi.
+* `deep_analysis.data.market.price_usd`: **653/653** numerik > 0, `market_data` `available` 653/653.
+* `compare_tokens.data.tokens[].price_usd` 124/124 dan `scan_market.data.candidates[].price_usd` 536/536 juga non-null —
+  **null harga belum pernah teramati di keempat path**, jadi "harga null" bukan mode kegagalan yang pernah kami lihat.
+Ulangi: `python3 -c 'import sqlite3,json,collections;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);r=list(c.execute("SELECT id,tool,payload_json FROM snapshots ORDER BY id"));print("max id",r[-1][0]);k=collections.Counter();[k.update([(t,isinstance((json.loads(p).get("data") or {}).get("market",{}).get("price_usd"),(int,float)))]) for i,t,p in r if t in ("analyze_token","deep_analysis")];print(k)'`
+
+**Yang benar-benar membuat harga tidak ada BUKAN field null, melainkan KESEGARAN.** `agent/trade.py:latest_price` memakai
+`Store.latest_fresh(..., max_age_min=120)`; harga "tidak ada" bila perekam tidak menulis baris `analyze_token` untuk simbol itu
+dalam 120 menit terakhir. Sapuan `id <= 1727` atas 4 simbol inti (jendela 2026-09-01T03:51Z–2026-09-03T20:32Z, ≈64,7 jam):
+| simbol | n baris analyze_token | jarak antar-baris median | jarak maksimum | jarak > 120 mnt | % waktu ada harga ≤ 120 mnt |
+|---|---|---|---|---|---|
+| SOL | 36 | 62 mnt | **1194 mnt (19,9 j)** | 7 | 57,5 % |
+| BTC | 36 | 63 mnt | 1193 mnt | 7 | 57,5 % |
+| ETH | 33 | 63 mnt | **1455 mnt (24,3 j)** | 6 | 54,5 % |
+| BNB | 31 | 63 mnt | 1455 mnt | 5 | 51,8 % |
+Artinya: pada DB ini, sebuah posisi terbuka menghadapi harga "tidak diketahui" kira-kira **42–48 % waktu**, dan pernah menghadapinya
+**24 jam berturut-turut** — sama panjang dengan `DEFAULT_TIMEOUT_MIN` agen, sehingga `timeout` pun (yang wajib punya harga) bisa
+gagal tercatat tepat saat ia jatuh tempo. Penyebabnya perekam kami (proses berhenti/macet, mis. macet ~3 jam 3 Sep 2026), BUKAN RYO.
+Ulangi: `python3 -c 'import sqlite3,json,collections,datetime;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);r=list(c.execute("SELECT id,args_json,ts_utc FROM snapshots WHERE tool=\'analyze_token\' ORDER BY id"));print("max id",r[-1][0]);d=collections.defaultdict(list);[d[json.loads(a)["symbol"]].append(datetime.datetime.fromisoformat(t)) for _,a,t in r];print({s:(len(v),round(max((v[k+1]-v[k]).total_seconds()/60 for k in range(len(v)-1)))) for s,v in d.items() if s in ("SOL","BTC","ETH","BNB")})'`
+
+**Tidak ada field harga yang lebih baik di envelope** (dicek 4 Sep 2026, `id <= 1727`):
+`deep_analysis.data.market.price_usd` sama-sama 100 % terisi tetapi barisnya LEBIH SEDIKIT (653 vs 929) dan ditulis pada siklus
+yang sama, jadi tidak pernah lebih segar; pada 648 pasang analyze/deep dalam siklus yang sama selisih harganya **median 0,0000 %,
+p90 0,0000 %, maksimum 0,6057 %** (OP, id 380/381, jeda 492 dtk) → keduanya harga yang sama. `scan_market.data.candidates[].symbol`
+**tidak pernah** memuat SOL/BTC/ETH/BNB (0 dari 536 kandidat, 63 simbol berbeda) → tidak bisa dipakai untuk watchlist inti.
+`compare_tokens.data.tokens[].price_usd` hanya ada bila simbolnya kebetulan dibandingkan (ETH 46 · BNB 35 · SOL 22 · BTC 21 entri).
+**Simpulan: `analyze_token.data.market.price_usd` adalah pilihan yang benar; yang perlu diperbaiki adalah uptime perekam, bukan pilihan field.**
+
 ### Tipe & kosakata envelope (10 field) — DIVERIFIKASI 1 Sep 2026 (TASKS 1.3, verifikasi `core/skill.py` = cermin envelope, ADR-013/015)
 Sumber: keenam `docs/samples/*.json` (`response["result"]`) + **470 envelope perekam** di `data/ryo.db` (dibuka read-only,
 `sqlite3.connect("file:data/ryo.db?mode=ro", uri=True)`, hitung 1 Sep 2026; DB tidak di-commit, ulangi dengan `make record`).
