@@ -43,15 +43,19 @@ Batas yang diakui (baca sebelum memakai modul ini; gaya `core/replay.py`)
     `args_hash` dan `payload_hash` saja; satu `UPDATE snapshots SET ts_utc=…` (payload utuh)
     mengubah keputusan dari `unavailable`/NO_GO menjadi `partial`/GO dan `verify_bundle` TETAP
     LOLOS. Dibuktikan reviewer, bukan diduga.
-  - `latest_fresh` hanya membuang baris `ts < cutoff` — **tanpa batas atas**, lalu
-    `ORDER BY ts_utc DESC`. Baris bertanggal masa depan (jam perekam melompat maju sekali,
-    tanpa penyerang sama sekali) MENANG selamanya, nol warning.
+  - `latest_fresh` memilih dengan `ORDER BY ts_utc DESC`. Sisi MASA DEPAN sudah **ditutup
+    TASKS 2.0d**: baris lebih dari `core.store.FUTURE_SKEW_TOLERANCE_S` (120) detik di depan
+    `now` dibuang dan dicatat ber-`snapshot_id`, jadi jam perekam yang melompat maju tidak lagi
+    menang selamanya tanpa jejak. Sisi MUNDUR tetap terbuka sampai TASKS 2.2b: `ts_utc` yang
+    digeser ke belakang, ke dalam jendela, membuat bukti tua tampak baru tanpa satu keberatan
+    pun dari lapisan mana pun.
   - Item 1 **bukan** lapisan kedua: ia mengukur jarak antar-bukti dengan jam internal bundle
     (modul ini sengaja tidak menyuntikkan `reference_as_of`, `preflight/items.py` aturan 5),
     jadi bukti bertanggal +10 tahun tetap hijau. Konsekuensi lain dari desain yang sama: pada
     jalur store-first item 1 praktis tidak pernah bisa merah karena basi — yang basi tidak ikut
     terbaca, dan yang muncul adalah item `unspoken` karena tool-nya tidak punya envelope.
-  - **Yang berbohong adalah docstring ini sebelum 3 Sep 2026, BUKAN kartunya.** `reason` item 1
+  - **Yang pernah berbohong adalah docstring ini, BUKAN kartunya** (klaim palsu itu dihapus
+    3 Sep 2026; batas atas kesegarannya sendiri menyusul di 2.0d). `reason` item 1
     sudah menyebut batasnya sendiri dengan kalimat lengkap ("... within the limit OF EACH OTHER;
     the clock is the newest as_of in this bundle …, not the wall clock, so this says nothing
     about how old the bundle itself is", `preflight/items.py`). Yang salah adalah klaim di sini

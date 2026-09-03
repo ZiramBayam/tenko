@@ -66,6 +66,21 @@ security-reviewer, 1 Sep 2026; bukan cacat yang belum diperbaiki, melainkan scop
   berkunci maupun jangkar eksternal di sini, dan tidak ada ADR yang menuntutnya. Alasan
   konstruksinya tetap berguna: penulisan parsial (satu kolom, satu tabel, satu baris) jauh
   lebih mungkin terjadi daripada penulisan konsisten menyeluruh.
+* **Kasus bernama yang TIDAK dideteksi sama sekali:** ``UPDATE snapshots SET ts_utc``. Kolom
+  ``ts_utc`` tidak masuk ke ``args_hash`` maupun ``payload_hash``, jadi :func:`_check_entry`
+  yang hanya menghitung ULANG kedua hash itu **LOLOS**, dan :func:`verify_bundle` — yang
+  memeriksa entri terhadap dirinya sendiri lalu ``bundle_hash`` terhadap entrinya — juga
+  **LOLOS**, meski ``ts_utc`` ikut masuk ke material bundle. Sebabnya: material dihitung dari
+  kolom yang SUDAH digeser, bukan dari nilai yang dijaga hash tersimpan. Akibatnya baris
+  berumur 3 hari bisa dibuat tampak berumur 3 menit; :meth:`core.store.Store.latest_fresh`
+  memilihnya sebagai bukti segar (``unavailable/NO_GO`` bisa menjadi ``partial/GO``), dan
+  ``freeze`` membekukan versi yang sudah digeser itu tanpa keberatan. Satu-satunya tempat
+  pergeseran itu muncul adalah perbandingan dengan ``decisions.decision_hash`` **yang sudah
+  tersimpan** (MISMATCH saat replay keputusan lama) — yaitu **sesudah** kartu dicetak dan
+  keputusannya dipakai, bukan sebelum. Dua penutup parsial yang ada/direncanakan berada di
+  luar modul ini: batas atas kesegaran :data:`core.store.FUTURE_SKEW_TOLERANCE_S` (TASKS 2.0d,
+  hanya menangkap pergeseran ke MASA DEPAN) dan ambang skew ``ts_utc`` vs ``as_of`` — ``as_of``
+  ada di dalam ``payload_json`` dan karenanya DIJAGA ``payload_hash`` — pada TASKS 2.2b.
 * Nilai kolom yang bertipe BLOB dibaca :class:`core.store.Snapshot` sebagai teks hasil
   ``str(bytes)``, sehingga baris BLOB dan baris TEXT yang isinya sama bisa ber-hash sama.
   Membedakannya menuntut ``typeof()`` — SQL sendiri di dalam modul ini — dan karenanya

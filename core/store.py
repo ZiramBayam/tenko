@@ -70,6 +70,39 @@ Sifat modul ini (setiap klaim di bawah punya tes di ``tests/test_store.py``):
   ``mode=ro``: pembacaan tetap jalan, jalur tulis ditolak :class:`StoreReadOnlyError` DAN
   oleh SQLite sendiri. Dipakai UI, yang memang tidak pernah menulis apa pun.
 
+* **Kesegaran punya batas atas, dan itu kewarasan JAM — bukan integritas** (TASKS 2.0d, atas
+  temuan TINGGI-2 security-reviewer 2 Sep 2026). Kolom ``ts_utc`` **tidak dijaga hash
+  tersimpan mana pun**: ``snapshots.args_hash`` menutupi ``args_json`` dan
+  ``snapshots.payload_hash`` menutupi ``payload_json``, sementara ``ts_utc`` berdiri sendiri —
+  ``core.replay._check_entry`` hanya menghitung ulang kedua hash itu. Karena itu
+  :meth:`Store.latest_fresh` **mengurutkan kolom yang tidak terjaga** (``ORDER BY ts_utc
+  DESC``), dan sebelum 2.0d satu baris bertanggal +10 tahun cukup untuk membalik keputusan
+  preflight (``NO_GO`` → ``GO``, ``snapshot_ids`` berpindah seluruhnya) tanpa satu pun warning.
+
+  :data:`FUTURE_SKEW_TOLERANCE_S` menutup pintu itu, tetapi harus dibaca apa adanya:
+
+  - Yang dijawabnya adalah "jam penulis baris ini masuk akal atau tidak", BUKAN "baris ini
+    tidak diubah". Penulis mentah yang menggeser ``ts_utc`` **mundur** ke dalam jendela, atau
+    yang menggeser bukti tua menjadi tampak baru tanpa melewati batas masa depan, tetap lolos.
+  - Ambang yang menjawab pertengkaran ``ts_utc`` vs ``as_of`` pada baris yang sama (``as_of``
+    ADA di dalam ``payload_json`` dan karenanya DIJAGA ``payload_hash``) adalah TASKS 2.2b,
+    bukan modul ini. Sampai itu ada, penulisan mentah yang menggeser SATU kolom ``ts_utc``
+    mundur (bukti tua dibuat tampak baru) tetap terbuka; kasus itu dieja lengkap di blok
+    "Batas" ``core/replay.py``.
+  - :data:`FRESH_SCAN_LIMIT` membatasi pemindaian pada 64 baris teratas menurut ``ts_utc``:
+    lebih dari 64 baris masa depan untuk satu (tool, args_hash) akan mendorong baris sah ke
+    luar pemindaian, sehingga hasilnya ``None`` (jujur "tidak ada yang segar", bukan bukti
+    palsu) disertai 64 warning. **Durasinya tergantung sejauh apa lompatannya, dan itu bagian
+    terburuknya:** lompatan +1 hari sembuh sendiri begitu baris sah yang lebih baru menumpuk
+    (terukur: ~5100 baris sah), tetapi baris **+10 tahun TIDAK PERNAH sembuh** — ``ORDER BY
+    ts_utc`` membandingkan teks, jadi baris sah tidak akan pernah naik lagi ke 64 teratas
+    sampai berkasnya disentuh dari luar aplikasi.
+  - PM secara eksplisit MENOLAK menambahkan hash atas ``ts_utc``: itu perubahan skema atas
+    ``data/ryo.db`` yang berisi 1500+ snapshot yang tidak bisa dikumpulkan ulang (ADR-006).
+
+  :meth:`Store.recent_args` SENGAJA tidak memakai batas ini sebagai filter (hanya sebagai
+  warning); alasannya ada di docstring metodenya.
+
 Yang SENGAJA tidak ada di sini: agregasi, pembersihan, migrasi, dan cache. Membuang data
 hanya lewat penghapusan berkas DB dari luar aplikasi (ADR-006).
 """
@@ -105,6 +138,38 @@ DECISIONS: frozenset[str] = frozenset({"GO", "NO_GO"})
 #: perbandingan teks `ts_utc`; itu benar untuk ISO-8601 UTC yang ditulis modul ini dan oleh
 #: perekam, dan batas ini menjaga biayanya tetap kecil meski satu (tool, args) punya ribuan baris.
 FRESH_SCAN_LIMIT = 64
+
+#: Toleransi JAM (detik) untuk `ts_utc` yang berada di DEPAN `now` pada `latest_fresh` —
+#: **bukan** kelonggaran kesegaran. `max_age_min` menjawab "seberapa tua boleh"; konstanta ini
+#: menjawab pertanyaan yang berbeda: "sejauh mana jam penulis boleh meleset ke depan sebelum
+#: barisnya berhenti dianggap bukti". Baris yang lebih jauh dari ini di masa depan DILEWATI,
+#: karena `latest_fresh` memilih dengan `ORDER BY ts_utc DESC`: satu baris bertanggal +10 tahun
+#: (jam perekam melompat maju sekali, atau penulis mentah) akan menang SELAMANYA atas setiap
+#: baris sah berikutnya, tanpa jejak.
+#:
+#: Kenapa 120 detik, dari data dan bukan dari selera:
+#:
+#: * Skew nyata `as_of - ts_utc` di `data/ryo.db` (1521 baris, 3 Sep 2026; 1206 baris saat
+#:   pengukuran security-reviewer 2 Sep): p50 -0,44 dtk (-0,6 dtk pada n=1206), p05 -2,8 dtk,
+#:   p95 +1,1 dtk, ekor min -71,0 dtk / maks +2,3 dtk. Jarak terjauh `ts_utc` mendahului
+#:   `as_of` adalah 71 dtk, masih di bawah 120.
+#: * **0 dari 1521** baris nyata punya `ts_utc > now` (0/1206 pada pengukuran sebelumnya),
+#:   jadi guard ini no-op atas seluruh data yang sudah terkumpul: `decision_hash` hari ini
+#:   tidak bergeser karenanya.
+#: * Kecil dibanding jendela kesegaran: terhadap `preflight.params.DEFAULT_PARAMS.max_age_min`
+#:   hari ini (15 menit = 900 dtk) rasionya **7,5x**, dan menjadi >=50x hanya BILA TASKS 2.2b
+#:   memilih >=120 menit lewat aturan "≥ 2x interval perekam" — itu belum diputuskan, jadi
+#:   jangan bersandar padanya.
+#: * Yang membuat guard ini tidak bisa dipakai menyelundupkan baris basi sebagai segar adalah
+#:   sifat STRUKTURALNYA, bukan rasio itu: guard hanya menambahkan satu `continue` yang
+#:   MEMBUANG baris, sehingga himpunan yang diterima `latest_fresh` adalah **subset ketat**
+#:   dari himpunan sebelum 2.0d, untuk `max_age_min` berapa pun. Batas bawah kesegaran tetap
+#:   sepenuhnya milik `max_age_min`; konstanta ini tidak pernah memperlebarnya.
+#:
+#: Sengaja BUKAN env var: nilainya properti jam mesin, bukan tombol kebijakan, dan env var yang
+#: bisa dinaikkan ke tak hingga membatalkan gunanya. Ambang yang berbeda — skew `ts_utc` vs
+#: `as_of` pada bukti yang sama — adalah TASKS 2.2b dan tidak dikerjakan di sini.
+FUTURE_SKEW_TOLERANCE_S = 120
 
 #: Batas baris yang dibaca `recent_args` (lihat metodenya). Perekam memanggil satu
 #: `analyze_token` per simbol per siklus, jadi 8192 baris menutup jendela 26 jam bahkan pada
@@ -717,11 +782,20 @@ class Store:
         *,
         now: datetime | None = None,
     ) -> Snapshot | None:
-        """Snapshot terbaru untuk (tool, args_hash) yang umurnya ≤ `max_age_min` menit.
+        """Snapshot terbaru untuk (tool, args_hash) yang umurnya di dalam
+        `[-FUTURE_SKEW_TOLERANCE_S detik, max_age_min menit]`.
 
         Tidak ada yang cukup segar → None. Pemanggil (preflight, spec §5 "store dulu") yang
         memutuskan memanggil live; store tidak pernah mengembalikan baris basi seolah baru.
         Baris dengan `ts_utc` yang tidak terbaca dilewati (dan dicatat), bukan dianggap segar.
+
+        Jendelanya punya batas ATAS juga: baris ber-`ts_utc` lebih dari
+        :data:`FUTURE_SKEW_TOLERANCE_S` detik di depan `now` DILEWATI dan dicatat satu
+        `log.warning` ber-`snapshot_id` beserta selisihnya. Alasannya khusus untuk metode ini:
+        pemilihan memakai `ORDER BY ts_utc DESC`, jadi satu baris bertanggal jauh di depan
+        (jam perekam melompat maju sekali) akan menang atas setiap baris sah berikutnya
+        selamanya. Ini **toleransi JAM, bukan kelonggaran kesegaran** — lihat docstring
+        konstantanya.
         """
         if "snapshots" not in self.tables:
             return None
@@ -732,6 +806,9 @@ class Store:
             moment = moment.replace(tzinfo=UTC)
         try:
             cutoff = moment - timedelta(minutes=float(max_age_min))
+            # Di DALAM try: `now` dalam 120 dtk dari datetime.max harus jadi StoreError, bukan
+            # OverflowError mentah (klaim "hanya StoreError" di docstring modul).
+            horizon = moment + timedelta(seconds=FUTURE_SKEW_TOLERANCE_S)
         except (TypeError, ValueError, OverflowError):
             raise StoreError(f"max_age_min tidak sah: {type(max_age_min).__name__}") from None
         rows = self._select(
@@ -746,6 +823,15 @@ class Store:
             ts = snapshot.ts
             if ts is None:
                 log.warning("snapshot %d: ts_utc tidak terbaca, dilewati", snapshot.id)
+                continue
+            if ts > horizon:
+                log.warning(
+                    "snapshot_id=%d dilewati: ts_utc %s ada %.0f dtk di depan now (toleransi %d dtk)",
+                    snapshot.id,
+                    ts.isoformat(),  # nilai TERURAI: kolom mentah bisa memuat newline
+                    (ts - moment).total_seconds(),
+                    FUTURE_SKEW_TOLERANCE_S,
+                )
                 continue
             if ts < cutoff:
                 continue
@@ -772,7 +858,31 @@ class Store:
         (payload tidak ikut) supaya pemanggilan per siklus tetap murah.
 
         `min_age_min=0` berarti tanpa batas atas kesegaran: baris ber-`ts_utc` di masa depan
-        (jam mesin mundur) tetap ikut, bukan hilang diam-diam.
+        (jam mesin melompat) tetap ikut, bukan hilang diam-diam; yang ditambahkan TASKS 2.0d
+        hanyalah satu `log.warning` per baris yang lebih dari
+        :data:`FUTURE_SKEW_TOLERANCE_S` detik di depan `now`. Perilakunya TIDAK berubah.
+
+        **Kompromi ini merugikan salah satu dari dua pemakainya, dan itu harus dibaca apa
+        adanya** (dibuktikan security-reviewer 3 Sep 2026 dengan menjalankan tiga kebijakan
+        atas dua sub-kasus; klaim sebelumnya — "membuang baris itu hanya memindahkan efeknya" —
+        TERBANTAH). Kedua pemakai menginginkan perlakuan yang BERLAWANAN atas baris masa depan:
+
+        ==========================================  ================  ==============  ==============
+        kasus                                       ikut semua (kini) buang di `fresh` buang di semua
+        ==========================================  ================  ==============  ==============
+        A: baris 25 j + baris masa depan            ``[]`` (rugi)     ``['SOL']``     ``['SOL']``
+        B: hanya baris masa depan                   ``['SOL']``       ``['SOL']``     ``[]`` (rugi)
+        ==========================================  ================  ==============  ==============
+
+        Kebijakan ketiga — membuang baris masa depan HANYA dari himpunan `fresh` yang dipakai
+        uji pensiun ``fresh & settled`` (``core/recorder.py``), bukan dari jendela `in_window` —
+        menang di KEDUA sub-kasus, dan tidak dipilih di sini semata karena AC(4) TASKS 2.0d
+        mengunci "perilaku tidak berubah". Kerugian nyatanya bukan hipotetis: satu lompatan jam
+        maju menaruh baris SOL masa depan di `fresh` sementara baris SOL berumur 25 jam masuk
+        `settled`, sehingga SOL dianggap selesai dan **pensiun dari follow-up** — pasangan
+        outcome T+24 jam tidak pernah lengkap, untuk data berstempel waktu yang tidak bisa
+        dikumpulkan ulang. Penyaringan `fresh`-saja itu adalah **TASKS 2.0f**. Sampai itu ada,
+        yang dimiliki jalur ini hanyalah jejak log — dan jejak saja diakui TIDAK cukup.
 
         Baris dengan `ts_utc` tidak terbaca atau `args_json` yang bukan objek JSON DILEWATI
         dan dicatat — bukan dianggap segar, dan bukan pula mematikan siklus.
@@ -788,6 +898,7 @@ class Store:
             cutoff = moment - timedelta(minutes=float(max_age_min))
             floor = float(min_age_min)
             newest = moment - timedelta(minutes=floor)
+            horizon = moment + timedelta(seconds=FUTURE_SKEW_TOLERANCE_S)  # lihat latest_fresh
         except (TypeError, ValueError, OverflowError):
             raise StoreError(
                 f"batas umur tidak sah: {type(max_age_min).__name__}/{type(min_age_min).__name__}"
@@ -811,7 +922,19 @@ class Store:
         out: list[dict[str, Any]] = []
         for args_json, ts_utc in rows:
             ts = _parse_ts(ts_utc)
-            if ts is None or ts < cutoff:
+            if ts is None:
+                continue
+            if ts > horizon:
+                # Tetap dipakai — lihat docstring. Yang wajib adalah jejaknya, bukan pembuangannya.
+                log.warning(
+                    "%s: ts_utc %s ada %.0f dtk di depan now (toleransi %d dtk); baris tetap dihitung"
+                    " sebagai sudah-direkam",
+                    tool,
+                    ts.isoformat(),  # nilai TERURAI: kolom mentah bisa memuat newline
+                    (ts - moment).total_seconds(),
+                    FUTURE_SKEW_TOLERANCE_S,
+                )
+            if ts < cutoff:
                 continue
             if floor > 0 and ts > newest:
                 continue

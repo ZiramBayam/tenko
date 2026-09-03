@@ -22,6 +22,8 @@ import pytest
 
 from core.store import (
     EXPECTED_SCHEMA,
+    FRESH_SCAN_LIMIT,
+    FUTURE_SKEW_TOLERANCE_S,
     SQL_INSERT_SNAPSHOT,
     Snapshot,
     Store,
@@ -340,6 +342,117 @@ def test_latest_fresh_labels_bad_arguments(store: Store, bad: object) -> None:
         store.latest_fresh("analyze_token", sha256_hex(ARGS), bad)  # type: ignore[arg-type]
 
 
+# --- TASKS 2.0d: batas ATAS kesegaran (toleransi jam) ---------------------------------------
+def test_latest_fresh_ignores_a_row_dated_ten_years_ahead(
+    store: Store, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Baris +10 tahun tidak boleh menang `ORDER BY ts_utc DESC` atas baris sah."""
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    legit = store.insert_snapshot(
+        "analyze_token", ARGS, ENVELOPE, ts_utc=(now - timedelta(minutes=5)).isoformat()
+    )
+    ahead = store.insert_snapshot(
+        "analyze_token", ARGS, ENVELOPE, ts_utc=(now + timedelta(days=3653)).isoformat()
+    )
+    with caplog.at_level(logging.WARNING, logger="core.store"):
+        fresh = store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now)
+    assert fresh is not None
+    assert fresh.id == legit
+    warnings = [r for r in caplog.records if f"snapshot_id={ahead}" in r.getMessage()]
+    assert len(warnings) == 1, caplog.text
+    assert "di depan now" in warnings[0].getMessage()
+    assert "315" in warnings[0].getMessage()  # selisih ~3,156e8 dtk ikut disebut
+
+
+def test_latest_fresh_returns_none_when_the_only_row_is_in_the_future(store: Store) -> None:
+    """Tidak ada bukti sah → None yang jujur, bukan baris masa depan."""
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    store.insert_snapshot(
+        "analyze_token", ARGS, ENVELOPE, ts_utc=(now + timedelta(days=3653)).isoformat()
+    )
+    assert store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now) is None
+
+
+@pytest.mark.parametrize(("ahead_s", "accepted"), [(119, True), (121, False)])
+def test_latest_fresh_pins_the_future_skew_tolerance(
+    store: Store, ahead_s: int, accepted: bool
+) -> None:
+    """Toleransi JAM, bukan kelonggaran kesegaran: 119 dtk lolos, 121 dtk ditolak."""
+    assert FUTURE_SKEW_TOLERANCE_S == 120
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    made = store.insert_snapshot(
+        "analyze_token", ARGS, ENVELOPE, ts_utc=(now + timedelta(seconds=ahead_s)).isoformat()
+    )
+    fresh = store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now)
+    assert (fresh is not None and fresh.id == made) is accepted
+
+
+def test_acknowledged_limit_future_rows_can_push_a_valid_row_out_of_the_scan(
+    store: Store, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Batas yang diakui: >`FRESH_SCAN_LIMIT` baris masa depan menyembunyikan baris sah.
+
+    Hasilnya tetap JUJUR (`None` = "tidak ada yang segar", bukan bukti palsu) dan berisik
+    (satu warning per baris yang dilewati), tetapi baris sahnya memang tidak terlihat.
+    """
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    legit = store.insert_snapshot(
+        "analyze_token", ARGS, ENVELOPE, ts_utc=(now - timedelta(minutes=5)).isoformat()
+    )
+    for i in range(FRESH_SCAN_LIMIT + 1):
+        store.insert_snapshot(
+            "analyze_token", ARGS, ENVELOPE, ts_utc=(now + timedelta(days=3653 + i)).isoformat()
+        )
+    with caplog.at_level(logging.WARNING, logger="core.store"):
+        assert store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now) is None
+    assert len([r for r in caplog.records if "di depan now" in r.getMessage()]) == FRESH_SCAN_LIMIT
+    assert store.get_snapshots([legit])[0].id == legit  # barisnya ada, hanya tidak terpindai
+
+
+def test_latest_fresh_future_guard_needs_no_env_var() -> None:
+    """Nilainya properti jam mesin, bukan tombol kebijakan (2.0d: tanpa env var baru).
+
+    Konstantanya harus literal di sumber: env var yang bisa dinaikkan ke tak hingga akan
+    membatalkan guardnya justru pada mesin yang jamnya rusak.
+    """
+    tree = ast.parse((ROOT / "core" / "store.py").read_text(encoding="utf-8"))
+    assigned = [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(t, ast.Name) and t.id == "FUTURE_SKEW_TOLERANCE_S" for t in node.targets
+        )
+    ]
+    assert len(assigned) == 1
+    assert isinstance(assigned[0], ast.Constant) and assigned[0].value == 120
+
+    # Satu-satunya nama env di modul ini tetap DB_PATH (0.4); tidak ada tombol skew baru.
+    env_consts = sorted(
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name) and target.id.startswith("ENV_")
+    )
+    assert env_consts == ["ENV_DB_PATH"]
+
+
+def test_latest_fresh_future_guard_is_a_noop_for_the_live_database() -> None:
+    """0 baris `ts_utc > now` di data/ryo.db → guard tidak menggeser keputusan hari ini."""
+    if not LIVE_DB.exists():
+        pytest.skip("data/ryo.db tidak ada")
+    conn = sqlite3.connect(f"file:{LIVE_DB.as_posix()}?mode=ro", uri=True)
+    try:
+        horizon = (datetime.now(UTC) + timedelta(seconds=FUTURE_SKEW_TOLERANCE_S)).isoformat()
+        (ahead,) = conn.execute(
+            "SELECT count(*) FROM snapshots WHERE ts_utc > ?", (horizon,)
+        ).fetchone()
+    finally:
+        conn.close()
+    assert ahead == 0
+
+
 # --- recent_args (prasyarat follow-up perekam, TASKS 0.5) -----------------------------------
 def _seed_ages(store: Store, ages_h: dict[str, float]) -> None:
     """Satu baris analyze_token per simbol dengan umur tertentu."""
@@ -409,6 +522,105 @@ def test_recent_args_keeps_future_timestamps_when_min_age_is_zero(store: Store) 
     assert store.recent_args("analyze_token", 26 * 60, now=datetime(2026, 9, 1, 12, 0, tzinfo=UTC)) == [
         {"symbol": "AHEAD"}
     ]
+
+
+def test_recent_args_warns_but_keeps_a_far_future_row(
+    store: Store, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Pilihan yang dikunci 2.0d: di sini baris masa depan TETAP ikut, tapi tidak diam.
+
+    Membuangnya di sini justru berbahaya: `recent_args` memberi tahu perekam simbol mana yang
+    SUDAH direkam, jadi baris masa depan menghentikan perekaman simbol itu. Jam yang melompat
+    tidak boleh membungkam pengumpulan data tanpa jejak.
+    """
+    _seed_ages(store, {"AHEAD": -24.0, "NOW": 1.0})
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    with caplog.at_level(logging.WARNING, logger="core.store"):
+        got = store.recent_args("analyze_token", 26 * 60, now=now)
+    assert [a["symbol"] for a in got] == ["AHEAD", "NOW"]  # perilaku TIDAK berubah
+    ahead = [r for r in caplog.records if "di depan now" in r.getMessage()]
+    assert len(ahead) == 1, caplog.text
+    assert "tetap dihitung" in ahead[0].getMessage()
+
+
+def test_recent_args_stays_quiet_inside_the_clock_tolerance(
+    store: Store, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Skew jam biasa (p95 nyata ~1 dtk) tidak boleh membanjiri log."""
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    store.insert_snapshot(
+        "analyze_token",
+        {"symbol": "SOL"},
+        ENVELOPE,
+        ts_utc=(now + timedelta(seconds=FUTURE_SKEW_TOLERANCE_S - 1)).isoformat(),
+    )
+    with caplog.at_level(logging.WARNING, logger="core.store"):
+        assert store.recent_args("analyze_token", 26 * 60, now=now) == [{"symbol": "SOL"}]
+    assert "di depan now" not in caplog.text
+
+
+def test_acknowledged_limit_a_future_row_can_retire_a_symbol_from_follow_up(store: Store) -> None:
+    """Kerugian yang diakui 2.0d dan diperbaiki 2.0f: baris masa depan mempensiunkan simbol.
+
+    Sub-kasus A reviewer: satu baris SOL berumur 25 jam (`settled`) + satu baris SOL masa depan
+    (`fresh`) → `fresh & settled == {SOL}`, jadi perekam menganggap follow-up SOL selesai dan
+    berhenti mengejarnya. Tes ini MENGHARAPKAN kondisi itu, supaya penyaringan `fresh`-saja di
+    TASKS 2.0f memerahkannya alih-alih lolos diam-diam.
+    """
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    _seed_ages(store, {"SOL": 25.0})
+    store.insert_snapshot(
+        "analyze_token", {"symbol": "SOL"}, ENVELOPE, ts_utc=(now + timedelta(hours=3)).isoformat()
+    )
+    fresh = {a["symbol"] for a in store.recent_args("analyze_token", 26 * 60, now=now)}
+    settled = {
+        a["symbol"]
+        for a in store.recent_args("analyze_token", 26 * 60, min_age_min=24 * 60, now=now)
+    }
+    assert fresh & settled == {"SOL"}  # <- kerugiannya; 2.0f harus membuat ini kosong
+
+
+def test_recent_args_logs_a_parsed_timestamp_not_the_raw_column(
+    store: Store, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`_parse_ts` melakukan strip(), jadi kolom mentah bisa menyuntik newline ke log."""
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    store.insert_snapshot(
+        "analyze_token",
+        {"symbol": "SOL"},
+        ENVELOPE,
+        ts_utc="\n\n" + (now + timedelta(hours=3)).isoformat() + "\n\n",
+    )
+    with caplog.at_level(logging.WARNING, logger="core.store"):
+        store.recent_args("analyze_token", 26 * 60, now=now)
+    ahead = [r for r in caplog.records if "di depan now" in r.getMessage()]
+    assert len(ahead) == 1
+    assert "\n" not in ahead[0].getMessage()
+
+
+def test_latest_fresh_logs_a_parsed_timestamp_not_the_raw_column(
+    store: Store, caplog: pytest.LogCaptureFixture
+) -> None:
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    store.insert_snapshot(
+        "analyze_token", ARGS, ENVELOPE, ts_utc="\n\n" + (now + timedelta(days=3653)).isoformat()
+    )
+    with caplog.at_level(logging.WARNING, logger="core.store"):
+        assert store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now) is None
+    ahead = [r for r in caplog.records if "di depan now" in r.getMessage()]
+    assert len(ahead) == 1
+    assert "\n" not in ahead[0].getMessage()
+
+
+@pytest.mark.parametrize("method", ["latest_fresh", "recent_args"])
+def test_future_horizon_overflow_stays_a_store_error(store: Store, method: str) -> None:
+    """`now` dekat datetime.max: klaim modul "hanya StoreError" berlaku juga untuk horizon."""
+    brink = datetime.max.replace(tzinfo=UTC) - timedelta(seconds=1)
+    with pytest.raises(StoreError):
+        if method == "latest_fresh":
+            store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=brink)
+        else:
+            store.recent_args("analyze_token", 26 * 60, now=brink)
 
 
 def test_recent_args_rejects_negative_min_age(store: Store) -> None:
