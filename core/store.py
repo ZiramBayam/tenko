@@ -100,8 +100,9 @@ Sifat modul ini (setiap klaim di bawah punya tes di ``tests/test_store.py``):
   - PM secara eksplisit MENOLAK menambahkan hash atas ``ts_utc``: itu perubahan skema atas
     ``data/ryo.db`` yang berisi 1500+ snapshot yang tidak bisa dikumpulkan ulang (ADR-006).
 
-  :meth:`Store.recent_args` SENGAJA tidak memakai batas ini sebagai filter (hanya sebagai
-  warning); alasannya ada di docstring metodenya.
+  :meth:`Store.recent_args` memakai batas yang sama, tetapi sebagai filter OPSIONAL
+  (`drop_future`) karena kedua pemakainya menginginkan perlakuan berlawanan; tabel keputusannya
+  ada di docstring metodenya.
 
 Yang SENGAJA tidak ada di sini: agregasi, pembersihan, migrasi, dan cache. Membuang data
 hanya lewat penghapusan berkas DB dari luar aplikasi (ADR-006).
@@ -847,6 +848,7 @@ class Store:
         min_age_min: float = 0.0,
         now: datetime | None = None,
         limit: int = RECENT_ARGS_LIMIT,
+        drop_future: bool = False,
     ) -> list[dict[str, Any]]:
         """Argumen UNIK untuk `tool` dengan pembacaan berumur `[min_age_min, max_age_min]`
         menit, terbaru dulu.
@@ -857,32 +859,32 @@ class Store:
         yang kewajiban follow-up-nya selesai). Hanya kolom `args_json`/`ts_utc` yang dibaca
         (payload tidak ikut) supaya pemanggilan per siklus tetap murah.
 
-        `min_age_min=0` berarti tanpa batas atas kesegaran: baris ber-`ts_utc` di masa depan
-        (jam mesin melompat) tetap ikut, bukan hilang diam-diam; yang ditambahkan TASKS 2.0d
-        hanyalah satu `log.warning` per baris yang lebih dari
-        :data:`FUTURE_SKEW_TOLERANCE_S` detik di depan `now`. Perilakunya TIDAK berubah.
+        **`drop_future` adalah pilihan yang dibuat per PEMANGGIL, karena kedua pemakainya
+        menginginkan perlakuan yang BERLAWANAN atas baris masa depan: perekam menyaringnya dari
+        himpunan `fresh` yang dipakai uji pensiun `fresh & settled` (`core/recorder.py`), TIDAK
+        dari jendela `in_window`.** Default `False` = baris masa depan tetap ikut; `True` =
+        baris yang lebih dari :data:`FUTURE_SKEW_TOLERANCE_S` detik di depan `now` dibuang.
+        Apa pun pilihannya, tiap baris seperti itu mencatat satu `log.warning` (TASKS 2.0d):
+        jam yang melompat tidak boleh membungkam pengumpulan data tanpa jejak.
 
-        **Kompromi ini merugikan salah satu dari dua pemakainya, dan itu harus dibaca apa
-        adanya** (dibuktikan security-reviewer 3 Sep 2026 dengan menjalankan tiga kebijakan
-        atas dua sub-kasus; klaim sebelumnya — "membuang baris itu hanya memindahkan efeknya" —
-        TERBANTAH). Kedua pemakai menginginkan perlakuan yang BERLAWANAN atas baris masa depan:
+        Alasannya terukur (security-reviewer, 3 Sep 2026, tiga kebijakan x dua sub-kasus;
+        klaim 2.0d "membuang baris itu hanya memindahkan efeknya" — TERBANTAH, dan kutipannya
+        disimpan supaya kesimpulan salah yang sama tidak diambil lagi). Kebijakan ketiga menang
+        di KEDUA sub-kasus; itulah yang dipakai sejak TASKS 2.0f:
 
-        ==========================================  ================  ==============  ==============
-        kasus                                       ikut semua (kini) buang di `fresh` buang di semua
-        ==========================================  ================  ==============  ==============
-        A: baris 25 j + baris masa depan            ``[]`` (rugi)     ``['SOL']``     ``['SOL']``
-        B: hanya baris masa depan                   ``['SOL']``       ``['SOL']``     ``[]`` (rugi)
-        ==========================================  ================  ==============  ==============
+        ==================================  =================  ================  ================
+        kasus                               ikut semua         buang di `fresh`  buang di semua
+        ==================================  =================  ================  ================
+        A: baris 25 j + baris masa depan    ``[]`` (rugi)      ``['SOL']``       ``['SOL']``
+        B: hanya baris masa depan           ``['SOL']``        ``['SOL']``       ``[]`` (rugi)
+        ==================================  =================  ================  ================
 
-        Kebijakan ketiga — membuang baris masa depan HANYA dari himpunan `fresh` yang dipakai
-        uji pensiun ``fresh & settled`` (``core/recorder.py``), bukan dari jendela `in_window` —
-        menang di KEDUA sub-kasus, dan tidak dipilih di sini semata karena AC(4) TASKS 2.0d
-        mengunci "perilaku tidak berubah". Kerugian nyatanya bukan hipotetis: satu lompatan jam
-        maju menaruh baris SOL masa depan di `fresh` sementara baris SOL berumur 25 jam masuk
-        `settled`, sehingga SOL dianggap selesai dan **pensiun dari follow-up** — pasangan
-        outcome T+24 jam tidak pernah lengkap, untuk data berstempel waktu yang tidak bisa
-        dikumpulkan ulang. Penyaringan `fresh`-saja itu adalah **TASKS 2.0f**. Sampai itu ada,
-        yang dimiliki jalur ini hanyalah jejak log — dan jejak saja diakui TIDAK cukup.
+        Kerugian kolom pertama bukan hipotetis: satu lompatan jam maju menaruh baris SOL masa
+        depan di `fresh` sementara baris SOL berumur 25 jam masuk `settled`, sehingga SOL
+        dianggap selesai dan pensiun dari follow-up — pasangan outcome T+24 jam tidak pernah
+        lengkap, untuk data berstempel waktu yang tidak bisa dikumpulkan ulang. Kolom ketiga
+        rugi di arah lain: simbol yang HANYA punya baris masa depan lenyap dari jendela dan
+        tidak pernah direkam lagi.
 
         Baris dengan `ts_utc` tidak terbaca atau `args_json` yang bukan objek JSON DILEWATI
         dan dicatat — bukan dianggap segar, dan bukan pula mematikan siklus.
@@ -925,15 +927,17 @@ class Store:
             if ts is None:
                 continue
             if ts > horizon:
-                # Tetap dipakai — lihat docstring. Yang wajib adalah jejaknya, bukan pembuangannya.
+                # Dibuang atau tidak, jejaknya wajib ada — lihat docstring.
                 log.warning(
-                    "%s: ts_utc %s ada %.0f dtk di depan now (toleransi %d dtk); baris tetap dihitung"
-                    " sebagai sudah-direkam",
+                    "%s: ts_utc %s ada %.0f dtk di depan now (toleransi %d dtk); baris %s",
                     tool,
                     ts.isoformat(),  # nilai TERURAI: kolom mentah bisa memuat newline
                     (ts - moment).total_seconds(),
                     FUTURE_SKEW_TOLERANCE_S,
+                    "dilewati" if drop_future else "tetap dihitung sebagai sudah-direkam",
                 )
+                if drop_future:
+                    continue
             if ts < cutoff:
                 continue
             if floor > 0 and ts > newest:

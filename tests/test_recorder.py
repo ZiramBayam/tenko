@@ -522,6 +522,27 @@ def test_followup_keeps_a_lone_25h_reading(store: Store) -> None:
     assert report.followups == ("OLD25",)
 
 
+def test_followup_survives_a_forward_clock_jump(store: Store) -> None:
+    """TASKS 2.0f: lompatan jam +3 jam tidak boleh mempensiunkan simbol ber-baris 25 jam.
+
+    Satu baris `+3 jam` (jam mesin melompat sekali) dulu masuk `fresh` sementara baris 25 jam
+    masuk `settled`, jadi `fresh & settled == {SOL}` dan SOL berhenti dikejar — pasangan
+    outcome T+24 jam tidak pernah lengkap, untuk data berstempel waktu yang tidak bisa
+    dikumpulkan ulang. Kini baris masa depan disaring dari `fresh` saja.
+    """
+    seed_analyze(store, "OLD25", 25.0)
+    seed_analyze(store, "OLD25", -3.0)  # ts_utc di masa depan: jam melompat maju sekali
+    report = make_recorder(store, RecordingClient(), watchlist=("SOL",), max_symbols=1).run_cycle()
+    assert report.followups == ("OLD25",)
+
+
+def test_followup_still_retires_a_symbol_covered_by_a_future_row_only(store: Store) -> None:
+    """Sub-kasus B: baris masa depan tetap terlihat di jendela 26 jam, jadi simbolnya tidak hilang."""
+    seed_analyze(store, "AHEAD", -3.0)
+    report = make_recorder(store, RecordingClient(), watchlist=("SOL",), max_symbols=1).run_cycle()
+    assert report.followups == ("AHEAD",)
+
+
 def test_followup_budget_keeps_the_most_urgent(store: Store) -> None:
     for hours in (25.0, 20.0, 15.0, 5.0):
         seed_analyze(store, f"S{hours:.0f}", hours)

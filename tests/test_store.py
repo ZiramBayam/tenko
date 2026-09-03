@@ -559,25 +559,117 @@ def test_recent_args_stays_quiet_inside_the_clock_tolerance(
     assert "di depan now" not in caplog.text
 
 
-def test_acknowledged_limit_a_future_row_can_retire_a_symbol_from_follow_up(store: Store) -> None:
-    """Kerugian yang diakui 2.0d dan diperbaiki 2.0f: baris masa depan mempensiunkan simbol.
+def _followup_like(
+    store: Store, now: datetime, *, drop_future_in_window: bool, drop_future_fresh: bool
+) -> list[str]:
+    """Uji pensiun perekam (`core/recorder.py::_followup_symbols`) dalam bentuk minimal.
 
-    Sub-kasus A reviewer: satu baris SOL berumur 25 jam (`settled`) + satu baris SOL masa depan
-    (`fresh`) → `fresh & settled == {SOL}`, jadi perekam menganggap follow-up SOL selesai dan
-    berhenti mengejarnya. Tes ini MENGHARAPKAN kondisi itu, supaya penyaringan `fresh`-saja di
-    TASKS 2.0f memerahkannya alih-alih lolos diam-diam.
+    Dipakai untuk menjalankan TIGA kebijakan atas baris masa depan pada data yang sama; itulah
+    yang membuat tabel A/B TASKS 2.0f bisa dipaku sel per sel di satu tempat.
+    """
+    in_window = store.recent_args(
+        "analyze_token", 26 * 60, now=now, drop_future=drop_future_in_window
+    )
+    fresh = store.recent_args("analyze_token", 24 * 60, now=now, drop_future=drop_future_fresh)
+    settled = store.recent_args("analyze_token", 26 * 60, min_age_min=24 * 60, now=now)
+    done = {a["symbol"] for a in fresh} & {a["symbol"] for a in settled}
+    return [a["symbol"] for a in in_window if a["symbol"] not in done]
+
+
+#: Tiga kebijakan tabel TASKS 2.0f → (drop_future_in_window, drop_future_fresh).
+_POLICIES = {
+    "ikut semua": (False, False),
+    "buang di fresh": (False, True),
+    "buang di semua": (True, True),
+}
+
+
+@pytest.mark.parametrize(
+    ("case", "policy", "expected"),
+    [
+        # A: baris 25 j (`settled`) + baris masa depan (`fresh`)
+        ("A", "ikut semua", []),  # <- data follow-up HILANG: SOL pensiun sebelum waktunya
+        ("A", "buang di fresh", ["SOL"]),
+        ("A", "buang di semua", ["SOL"]),
+        # B: HANYA baris masa depan
+        ("B", "ikut semua", ["SOL"]),
+        ("B", "buang di fresh", ["SOL"]),
+        ("B", "buang di semua", []),  # <- rugi: simbolnya lenyap dari jendela follow-up
+    ],
+)
+def test_recent_args_future_row_policy_table(
+    store: Store, case: str, policy: str, expected: list[str]
+) -> None:
+    """Tabel reviewer TASKS 2.0f, keenam selnya dipaku: "buang di `fresh`" menang di A DAN B.
+
+    Menggantikan pengakuan 2.0d `..._a_future_row_can_retire_a_symbol_from_follow_up`, yang
+    MENGHARAPKAN `fresh & settled == {"SOL"}` (baris "A / ikut semua" di bawah, kini dipaku
+    sebagai kerugian sebuah kebijakan yang TIDAK lagi dipakai perekam).
+    """
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    if case == "A":
+        _seed_ages(store, {"SOL": 25.0})
+    store.insert_snapshot(
+        "analyze_token", {"symbol": "SOL"}, ENVELOPE, ts_utc=(now + timedelta(hours=3)).isoformat()
+    )
+    in_window_flag, fresh_flag = _POLICIES[policy]
+    got = _followup_like(
+        store, now, drop_future_in_window=in_window_flag, drop_future_fresh=fresh_flag
+    )
+    assert got == expected
+
+
+def test_recent_args_drop_future_empties_the_retirement_set(store: Store) -> None:
+    """Kebalikan langsung dari pengakuan 2.0d: irisan pensiun kini KOSONG (TASKS 2.0f).
+
+    Sub-kasus A reviewer: satu baris SOL berumur 25 jam (`settled`) + satu baris SOL masa depan.
+    Dengan `drop_future=True` baris masa depan tidak lagi masuk `fresh`, jadi SOL tidak pensiun
+    dan pasangan outcome T+24 jam masih bisa dilengkapi.
     """
     now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
     _seed_ages(store, {"SOL": 25.0})
     store.insert_snapshot(
         "analyze_token", {"symbol": "SOL"}, ENVELOPE, ts_utc=(now + timedelta(hours=3)).isoformat()
     )
-    fresh = {a["symbol"] for a in store.recent_args("analyze_token", 26 * 60, now=now)}
+    fresh = {
+        a["symbol"]
+        for a in store.recent_args("analyze_token", 24 * 60, now=now, drop_future=True)
+    }
     settled = {
         a["symbol"]
         for a in store.recent_args("analyze_token", 26 * 60, min_age_min=24 * 60, now=now)
     }
-    assert fresh & settled == {"SOL"}  # <- kerugiannya; 2.0f harus membuat ini kosong
+    assert fresh & settled == set()
+
+
+def test_recent_args_drop_future_keeps_rows_inside_the_tolerance(store: Store) -> None:
+    """Yang dibuang hanya yang melewati toleransi JAM, bukan setiap `ts_utc > now`."""
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    store.insert_snapshot(
+        "analyze_token",
+        {"symbol": "SOL"},
+        ENVELOPE,
+        ts_utc=(now + timedelta(seconds=FUTURE_SKEW_TOLERANCE_S - 1)).isoformat(),
+    )
+    got = store.recent_args("analyze_token", 26 * 60, now=now, drop_future=True)
+    assert got == [{"symbol": "SOL"}]
+
+
+def test_recent_args_drop_future_still_warns_once(
+    store: Store, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Membuang baris tidak boleh menghilangkan jejaknya: satu warning per baris, tetap ada."""
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    _seed_ages(store, {"NOW": 1.0})
+    store.insert_snapshot(
+        "analyze_token", {"symbol": "AHEAD"}, ENVELOPE, ts_utc=(now + timedelta(hours=3)).isoformat()
+    )
+    with caplog.at_level(logging.WARNING, logger="core.store"):
+        got = store.recent_args("analyze_token", 26 * 60, now=now, drop_future=True)
+    assert [a["symbol"] for a in got] == ["NOW"]
+    ahead = [r for r in caplog.records if "di depan now" in r.getMessage()]
+    assert len(ahead) == 1, caplog.text
+    assert "dilewati" in ahead[0].getMessage()
 
 
 def test_recent_args_logs_a_parsed_timestamp_not_the_raw_column(

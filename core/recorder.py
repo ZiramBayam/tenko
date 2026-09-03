@@ -491,6 +491,9 @@ class Recorder:
            (≥24 j). Simbol yang memenuhi keduanya sudah bisa dinilai T+24 jam, jadi pensiun.
            Irisan — bukan sekadar "punya pembacaan ≥24 j" — karena simbol yang HANYA punya
            satu baris berumur 25 jam justru yang paling butuh pembacaan kedua sekarang.
+           Sisi "pembacaan BARU" dibaca dengan `drop_future=True` (TASKS 2.0f): baris
+           ber-`ts_utc` masa depan tidak boleh mempensiunkan simbol, sedangkan jendela
+           `in_window` tetap memuatnya.
            Tanpa saringan ini himpunan follow-up hanya bisa membesar (lihat docstring modul).
 
         Urutannya "yang pembacaan terakhirnya paling lama, duluan": simbol yang hampir keluar
@@ -499,10 +502,20 @@ class Recorder:
         now = self._now_fn()
         done_after_min = self.config.followup_done_after_h * 60.0
         try:
+            # `drop_future=False` DITULIS EKSPLISIT: tabel A/B memutuskan KEDUA call-site,
+            # jadi keduanya harus terbaca sebagai pilihan. Di sini baris masa depan sengaja
+            # IKUT supaya simbolnya tidak lenyap dari jendela (security-reviewer 2.0f).
             in_window = self._store.recent_args(
-                "analyze_token", self.config.followup_max_age_h * 60.0, now=now
+                "analyze_token",
+                self.config.followup_max_age_h * 60.0,
+                now=now,
+                drop_future=False,
             )
-            fresh = self._store.recent_args("analyze_token", done_after_min, now=now)
+            # `drop_future=True` HANYA di sini: baris ber-`ts_utc` masa depan (jam melompat)
+            # tidak boleh dihitung sebagai "pembacaan baru" yang mempensiunkan simbol dari
+            # follow-up; di `in_window` baris itu tetap ikut supaya simbolnya tidak lenyap
+            # (tabel A/B di docstring `Store.recent_args`, TASKS 2.0f).
+            fresh = self._store.recent_args("analyze_token", done_after_min, now=now, drop_future=True)
             settled = self._store.recent_args(
                 "analyze_token",
                 FOLLOWUP_DONE_LOOKBACK_H * 60.0,
