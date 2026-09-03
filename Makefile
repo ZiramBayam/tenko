@@ -17,7 +17,7 @@ daemons:           ## make daemons ARGS=start|status|stop — perekam+agen lepas
 	bash scripts/daemons.sh $${ARGS:-status}
 backup:            ## salinan online data/ryo.db -> data/backups/ryo-<UTC>.db, lalu integrity_check
 	python3 scripts/backup.py   # stdlib saja: harus jalan walau venv/paket aplikasi rusak
-skill:             ## make skill ARGS="preflight SOL"  |  ARGS="preflight SOL hold"
+skill:             ## make skill ARGS="preflight SOL"  |  ARGS="preflight SOL swing"
 	@uv run python -m core.skill_cli $(ARGS)   # @ : stdout harus JSON saja (spec §7 langkah 1)
 agent-tick:        ## satu siklus agen buku-ganda (SIMULASI)
 	uv run python -m agent.main --once

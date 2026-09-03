@@ -1,9 +1,10 @@
 """`python -m core.skill_cli <skill> [args...]` — satu envelope JSON ke stdout, exit 0.
 
 Dipakai `make skill ARGS="preflight SOL"` dan naskah demo (docs/spec.md §7 langkah 1).
-Kerangka TASKS 1.3: registry masih kosong, jadi `preflight` menghasilkan envelope
-``unavailable`` yang JUJUR ("skill 'preflight' not registered") — bukan GO palsu dan bukan
-traceback. TASKS 2.2 yang mengisinya lewat :data:`core.skill.SKILL_MODULES`.
+Skill ditemukan lewat :func:`core.skill.load_skill`, yang mengimpor modul pemiliknya secara
+malas dari :data:`core.skill.SKILL_MODULES` (TASKS 2.2 mendaftarkan `preflight` di sana).
+Nama yang tidak ada di peta itu menghasilkan envelope ``unavailable`` yang JUJUR ("skill
+'x' not registered") — bukan GO palsu dan bukan traceback.
 
 Sifat yang dijaga ``tests/test_skill_cli.py``:
 

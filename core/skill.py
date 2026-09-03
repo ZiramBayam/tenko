@@ -532,11 +532,12 @@ class SkillResult(BaseModel):
 # --- registry skill ----------------------------------------------------------------------
 SkillFn = Callable[..., SkillResult]
 
-# Diisi oleh paket pemilik skill (TASKS 2.2), BUKAN oleh core yang mengimpor preflight:
-# core/ tidak boleh bergantung pada lapisan di atasnya (ADR-002, tests/test_scaffold.py).
-# Nama modul di sini diimpor secara malas oleh `load_skill`, dan modulnya memanggil
-# `register_skill` saat diimpor.
-SKILL_MODULES: dict[str, str] = {}
+# Peta nama skill -> nama modul pemiliknya, sebagai STRING dan bukan `import`: core/ tidak
+# boleh bergantung pada lapisan di atasnya (ADR-002, tests/test_scaffold.py memindai impor).
+# `load_skill` mengimpor modulnya secara malas saat namanya diminta, dan modul itulah yang
+# memanggil `register_skill`. Tanpa entri di sini, proses polos (`python -m core.skill_cli
+# preflight SOL`) tidak punya cara menemukan skill yang paketnya belum diimpor siapa pun.
+SKILL_MODULES: dict[str, str] = {"preflight": "preflight.skill"}
 
 _REGISTRY: dict[str, SkillFn] = {}
 

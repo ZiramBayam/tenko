@@ -416,7 +416,9 @@ def test_registry_round_trip() -> None:
     register_skill("fake", fake)
     assert skill_names() == ("fake",)
     assert load_skill("fake") is fake
-    assert load_skill("preflight") is None
+    # Nama yang tidak ada di registry MAUPUN `SKILL_MODULES`: sejak TASKS 2.2 "preflight"
+    # terdaftar lewat impor malas, jadi memakainya di sini hanya akan menguji urutan impor.
+    assert load_skill("no_such_skill") is None
 
 
 def test_registry_refuses_duplicate_names() -> None:

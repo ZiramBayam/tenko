@@ -1,9 +1,10 @@
 """Tes TASKS 1.3 — `core/skill_cli.py`: satu envelope JSON ke stdout, exit 0, deterministik.
 
-AC yang dijaga di sini: `make skill ARGS="preflight SOL"` menghasilkan envelope
-`unavailable` yang JUJUR (skill belum terdaftar — itu TASKS 2.2), bukan GO palsu dan bukan
-traceback; dua run byte-identik; sumber yang tidak approved (ADR-005) menjadi envelope
-`unavailable`, bukan exception yang lolos ke pengguna.
+AC yang dijaga di sini adalah KONTRAK CLI-nya: nama skill yang tidak terdaftar menghasilkan
+envelope `unavailable` yang JUJUR, bukan GO palsu dan bukan traceback; dua run byte-identik;
+sumber yang tidak approved (ADR-005) menjadi envelope `unavailable`, bukan exception yang
+lolos ke pengguna. Skill nyata `preflight` (TASKS 2.2) diuji end-to-end di
+`tests/test_preflight_skill.py` — lihat :data:`ABSENT`.
 """
 
 from __future__ import annotations
@@ -29,6 +30,11 @@ ROOT = Path(__file__).resolve().parent.parent
 # mengirim satu request pun ke API penyelenggara (Official Rules: "interfere/abuse").
 BASE_URL = "https://127.0.0.1:1/"
 FAKE_KEY = "ryo_mcp_TESTONLY_do_not_log"
+# Nama skill yang TIDAK ada di registry maupun `SKILL_MODULES`. Sejak TASKS 2.2 `preflight`
+# benar-benar terdaftar dan membaca `data/ryo.db`, jadi memakai namanya di berkas ini akan
+# menjadikan kontrak CLI bergantung pada isi DB mesin yang menjalankan tes (dan pada apakah
+# perekam menulis di antara dua subprocess). Yang diuji di sini murni CLI-nya.
+ABSENT = "no_such_skill"
 
 
 @pytest.fixture(autouse=True)
@@ -61,32 +67,51 @@ def run_subprocess(args: list[str], env_extra: dict[str, str] | None = None) -> 
 
 # --- AC 6: dua run byte-identik ----------------------------------------------------------
 def test_two_runs_are_byte_identical() -> None:
-    first = run_subprocess(["preflight", "SOL"])
-    second = run_subprocess(["preflight", "SOL"])
+    first = run_subprocess([ABSENT, "SOL"])
+    second = run_subprocess([ABSENT, "SOL"])
     assert first.returncode == 0 and second.returncode == 0
     assert first.stdout == second.stdout
     assert first.stdout.strip() != b""
 
 
 def test_stdout_is_canonical_json_only() -> None:
-    proc = run_subprocess(["preflight", "SOL"])
+    proc = run_subprocess([ABSENT, "SOL"])
     text = proc.stdout.decode("utf-8")
     assert text.endswith("\n")
     assert text[:-1] == canonical_json(json.loads(text))
     assert b"Traceback" not in proc.stderr
 
 
+def test_bare_process_finds_a_registered_skill_through_the_module_map(tmp_path: Path) -> None:
+    """`core.skill.SKILL_MODULES` harus benar-benar menghubungkan CLI polos ke skill nyata.
+
+    Tanpa entri peta itu, `make skill ARGS="preflight SOL"` di proses yang belum mengimpor
+    paket pemiliknya hanya menjawab "not registered" (envelope sah, tetapi bukan skill-nya).
+    `DB_PATH` sengaja menunjuk berkas yang tidak ada: yang dipatok di sini adalah
+    PENYAMBUNGANNYA — request dirakit oleh skill, bukan oleh CLI — bukan isi keputusannya,
+    dan tes ini tidak boleh menyentuh `data/ryo.db` mesin siapa pun.
+    """
+    proc = run_subprocess(["preflight", "SOL"], {"DB_PATH": str(tmp_path / "absent.db")})
+    assert proc.returncode == 0
+    assert b"Traceback" not in proc.stderr
+    envelope = json.loads(proc.stdout)
+    assert envelope["tool"] == "preflight"
+    assert not any("not registered" in warning for warning in envelope["warnings"])
+    assert "symbol" in envelope["request"]  # {skill, args} = request rakitan CLI
+    assert envelope["simulated"] is True
+
+
 # --- AC 5 (bagian CLI) + kejujuran -------------------------------------------------------
 def test_unregistered_skill_is_reported_not_faked() -> None:
-    code, envelope = run_cli(["preflight", "SOL"])
+    code, envelope = run_cli([ABSENT, "SOL"])
     assert code == 0
-    assert envelope["tool"] == "preflight"
+    assert envelope["tool"] == ABSENT
     assert envelope["status"] == "unavailable"
     assert envelope["data"] is None
     assert envelope["as_of"] is None
     assert envelope["simulated"] is True
-    assert envelope["warnings"] == ["skill 'preflight' not registered"]
-    assert envelope["request"] == {"skill": "preflight", "args": ["SOL"]}
+    assert envelope["warnings"] == [f"skill {ABSENT!r} not registered"]
+    assert envelope["request"] == {"skill": ABSENT, "args": ["SOL"]}
     assert "GO" not in json.dumps(envelope)
 
 
@@ -124,7 +149,7 @@ def test_source_not_approved_becomes_unavailable_envelope(
 def test_subprocess_with_unapproved_registry_still_exits_zero(tmp_path: Path) -> None:
     path = tmp_path / "sources.yaml"
     path.write_text("sources:\n  ryo_tools:\n    enabled: true\n    approved: null\n", encoding="utf-8")
-    proc = run_subprocess(["preflight", "SOL"], {ENV_SOURCES_PATH: str(path)})
+    proc = run_subprocess([ABSENT, "SOL"], {ENV_SOURCES_PATH: str(path)})
     assert proc.returncode == 0
     envelope = json.loads(proc.stdout)
     assert envelope["status"] == "unavailable"

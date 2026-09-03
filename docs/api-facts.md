@@ -195,6 +195,33 @@ Sumber: `docs/samples/*.json`, `docs/samples/*.headers` (rekaman 1 Sep 2026 03:4
   **Catatan presisi:** `additionalProperties:false` melarang properti *tidak dikenal*, BUKAN nilai `null`. Alasan sah untuk tidak mengirim argumen
   `None` adalah **tipe** properti (string/number/boolean, tak ada yang nullable) — bukan `additionalProperties`.
 
+#### Argumen yang DIKIRIM ≠ `request` yang DIKEMBALIKAN — DIVERIFIKASI 3 Sep 2026 (TASKS 2.2)
+Server MENGISI default ke `request`, jadi `request` **bukan** kunci yang dipakai mencari baris store
+(`snapshots.args_json` = argumen yang benar-benar DIKIRIM). Terukur atas `data/ryo.db` dibuka read-only
+(`sqlite3.connect("file:data/ryo.db?mode=ro", uri=True)`), **`id <= 1206`**, ts ≤ 2026-09-02T14:44:12Z:
+- `monitor_market_sentiment_shift` dikirim `{}` → `request: {"time_window":"7d"}` di **26/26** baris.
+- `market_overview` dikirim `{}` → `request: {}` di **26/26** baris → tidak semua tool punya default yang diisi.
+- (instans ketiga sudah tercatat di baris `request` tabel envelope: `scan_market` tanpa argumen → `{"top_n":10}`.)
+Ulangi: `python3 -c 'import sqlite3,json,collections;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);k=collections.Counter((t,a,json.dumps(json.loads(p).get("request"))) for t,a,p in c.execute("SELECT tool,args_json,payload_json FROM snapshots"));print([x for x in k.items() if x[0][0] in ("market_overview","monitor_market_sentiment_shift")])'`
+**Konsekuensi:** pemanggil store-first WAJIB memakai `{}` untuk `market_overview` dan `monitor_market_sentiment_shift`
+(bentuk yang ditulis `core/recorder.py`), BUKAN `request` dari `docs/samples/*.json`. Menyamakan args dengan
+`docs/samples/<tool>.json["request"]` benar untuk `analyze_token`/`deep_analysis`/`compare_tokens` SAJA.
+
+#### `compare_tokens.symbols` — batas & simbol berulang — DIVERIFIKASI 3 Sep 2026 (TASKS 2.2)
+`docs/samples/catalog.json`: `symbols` bertipe **string** dengan deskripsi verbatim "2-4 token symbols to compare, comma- or
+space-separated, e.g. 'SOL, AVAX'." — **tidak ada `minItems`/`maxItems`/`pattern`**; batas 2–4 hanya ada di teks deskripsi dan
+tidak ditegakkan skema. `required: ["symbols"]`; `intent` enum `swing|hold|spot`, opsional.
+**Simbol berulang: 0 amatan dari `id <= 1206`** — 14/14 baris `compare_tokens` di `data/ryo.db` dan 1/1
+`docs/samples/compare_tokens.json` memakai simbol yang berbeda semua. Perilaku RYO terhadap `"BNB, BNB, ETH"`
+**BELUM DIVERIFIKASI**: bentuk itu tidak pernah dikirim, jadi jangan klaim ia ditolak MAUPUN diterima. Daftar 2 simbol
+maupun 3 simbol sama-sama di dalam rentang "2-4" yang didokumentasikan.
+String `symbols` yang benar-benar terekam (14 baris, semuanya `intent: "swing"`, id 41–211, ts 2026-09-01T04:06:09Z–06:33:21Z):
+`SOL, BTC, ETH` (4) · `BTC, ETH, SOL` (4) · `ETH, BTC, SOL` (3) · `BNB, BTC, ETH` (3).
+`"SOL, BNB, ETH"` HANYA ada di `docs/samples/compare_tokens.json` — **0 baris di DB**. `core/recorder.py` **tidak memanggil
+`compare_tokens` sama sekali** (semua `_record(` dicek 3 Sep 2026: scan_market, market_overview, monitor_market_sentiment_shift,
+analyze_token, deep_analysis), jadi tidak ada baris `compare_tokens` baru sejak id 211 dan tidak akan ada. Pemakai store-first
+harus memperhitungkan bahwa tool ini praktis selalu `unspoken` pada DB hidup.
+
 ### Tipe & kosakata envelope (10 field) — DIVERIFIKASI 1 Sep 2026 (TASKS 1.3, verifikasi `core/skill.py` = cermin envelope, ADR-013/015)
 Sumber: keenam `docs/samples/*.json` (`response["result"]`) + **470 envelope perekam** di `data/ryo.db` (dibuka read-only,
 `sqlite3.connect("file:data/ryo.db?mode=ro", uri=True)`, hitung 1 Sep 2026; DB tidak di-commit, ulangi dengan `make record`).
