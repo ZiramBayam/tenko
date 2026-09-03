@@ -26,23 +26,31 @@ menjadi NAMA BERKAS, bukan sintaks), dan sebagai lapis kedua tiap koneksi menjal
 lalu `exit`; menutup posisi berarti MENAMBAH baris `exit`. Posisi terbuka = `decision_id` yang
 punya `open` tanpa `exit`. Baris `open` tidak pernah disentuh lagi.
 
-**Generasi lama.** 9 baris `trade_events` warisan di `data/ryo.db` menunjuk `decision_id`
-generasi sebelumnya (`params_hash` berbeda). Penyaringannya adalah TASKS 2.4b dan TIDAK
-dikerjakan di sini; yang disediakan modul ini adalah `params_hash` tiap keputusan
-(:attr:`DecisionRow.params_hash`) supaya pemanggil bisa menyaringnya tanpa menebak.
+**Generasi lama (TASKS 2.4b, ADR-016).** 9 baris `trade_events` warisan di `data/ryo.db`
+menunjuk `decision_id` yang ditulis implementasi yang dihapus 1 Sep 2026. Lipatan posisi
+(:func:`fold_positions`) hanya melipat generasi BERJALAN dan mengembalikan yang diabaikan
+sebagai data, bukan membuangnya diam-diam: pemanggil wajib mencetak :meth:`PositionFold.notes`.
+
+**Pembeda generasinya adalah ada/tidaknya `algo` di `card_json`** (ADR-016 butir 2), bukan
+`params_hash` dan bukan ambang id. Alasannya bisa diuji: `params_hash` SENGAJA berubah tiap
+kali ambang preflight bergeser (mis. ADR-017), jadi menyaring dengannya akan menandai keputusan
+jujur hari ini sebagai warisan besok; sedangkan `algo` menamai FORMAT hash keputusan dan hanya
+berubah lewat kenaikan versi format yang disengaja. Baris tanpa kunci `algo` = ditulis kode
+yang sudah tidak ada. Tidak ada kolom baru, tidak ada migrasi, tidak ada "abaikan id < 20".
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from core.replay import ALGO
 from core.store import StoreError
 
 #: Kolom yang dibaca — dieja penuh, tidak pernah `SELECT *` (skema bisa tumbuh).
@@ -83,6 +91,27 @@ class DecisionRow:
                 raise LedgerError(f"decisions.snapshot_ids_json memuat {value!r}, bukan id baris")
             out.append(value)
         return out
+
+    def algo(self) -> str | None:
+        """Nama algoritma hash keputusan yang tercatat di `card_json`, atau None.
+
+        None berarti "baris ini tidak menyebut algoritmanya" — generasi sebelum kait
+        STALE_ALGO ada. Fungsi ini sengaja TIDAK melempar untuk `card_json` yang rusak atau
+        bukan objek: kartu yang tidak terbaca juga tidak menyebut algoritma apa pun, dan
+        jawabannya sama-sama "bukan generasi berjalan". Yang melempar tetap :meth:`card`.
+        """
+        try:
+            card = json.loads(self.card_json)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(card, dict):
+            return None
+        value = card.get("algo")
+        return value if isinstance(value, str) else None
+
+    def is_current_generation(self) -> bool:
+        """True bila `card_json` menyebut algoritma hash yang berlaku sekarang (ADR-016)."""
+        return self.algo() == ALGO
 
     def card(self) -> dict[str, Any]:
         try:
@@ -190,21 +219,98 @@ def events_for(db_path: str | Path, decision_id: int) -> list[EventRow]:
     return [EventRow(*row) for row in rows]
 
 
-def open_positions(db_path: str | Path) -> list[Position]:
-    """Lipatan `trade_events`: `open` yang belum punya `exit`, urut `decision_id`.
-
-    Baris `open` kedua untuk satu `decision_id` (tidak seharusnya terjadi; tabel append-only
-    tidak bisa mencegahnya) dilipat menjadi SATU posisi — yang pertama. Menjumlahkannya akan
-    mengarang ukuran yang tidak pernah dibuka.
-    """
+def all_events(db_path: str | Path) -> list[EventRow]:
+    """Semua `trade_events` urut id — bahan mentah lipatan posisi."""
     with _connect(db_path) as conn:
         rows = conn.execute(
             f"SELECT {EVENT_COLUMNS} FROM trade_events ORDER BY id"  # noqa: S608 - kolom dari konstanta modul
         ).fetchall()
+    return [EventRow(*row) for row in rows]
+
+
+def algo_by_decision(db_path: str | Path, decision_ids: Sequence[int]) -> dict[int, str | None]:
+    """`{decision_id: algo}` untuk id yang diminta; id yang barisnya TIDAK ADA tidak muncul.
+
+    Bedanya penting: `None` berarti "barisnya ada, tetapi tidak menyebut algoritma" (generasi
+    lama), sedangkan kunci yang hilang berarti "event menunjuk keputusan yang tidak ada".
+    """
+    try:
+        # `trade_events.decision_id` bertipe longgar di SQLite (tanpa STRICT), jadi nilai yang
+        # bukan angka MUNGKIN ada di kolom itu. Melempar `ValueError` mentah dari sini membuat
+        # tick meledak alih-alih melaporkan (temuan RENDAH security-reviewer, 4 Sep 2026).
+        wanted = sorted({int(i) for i in decision_ids})
+    except (TypeError, ValueError) as exc:
+        raise LedgerError(f"trade_events.decision_id memuat nilai yang bukan id baris: {exc}") from None
+    if not wanted:
+        return {}
+    placeholders = ",".join("?" for _ in wanted)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT {DECISION_COLUMNS} FROM decisions WHERE id IN ({placeholders})",  # noqa: S608 - kolom & placeholder dari konstanta/hitungan
+            wanted,
+        ).fetchall()
+    return {row[0]: DecisionRow(*row).algo() for row in rows}
+
+
+@dataclass(frozen=True, slots=True)
+class PositionFold:
+    """Hasil lipatan `trade_events`: yang dihitung, DAN yang sengaja tidak dihitung.
+
+    Yang diabaikan tidak dibuang: ia dikembalikan sebagai data supaya pemanggil bisa
+    menuliskannya (TASKS 2.4b — "diabaikan secara TERTULIS, bukan diam-diam").
+    """
+
+    positions: tuple[Position, ...] = ()
+    #: Event yang keputusannya bukan generasi berjalan (`card_json` tanpa `algo` yang berlaku).
+    stale_events: tuple[EventRow, ...] = ()
+    #: Event yang `decision_id`-nya tidak punya baris `decisions` sama sekali.
+    orphan_events: tuple[EventRow, ...] = ()
+
+    def notes(self) -> list[str]:
+        """Kalimat yang WAJIB dicetak/dicatat pemanggil bila ada yang diabaikan."""
+        out: list[str] = []
+        if self.stale_events:
+            ids = sorted({event.decision_id for event in self.stale_events})
+            out.append(
+                f"{len(self.stale_events)} trade_events generasi sebelumnya diabaikan "
+                f"(STALE_ALGO); decision_id: {', '.join(str(i) for i in ids)} — "
+                "kartunya tidak menyebut algoritma hash yang berlaku, jadi posisinya tidak "
+                "bisa diturunkan ulang dari bukti beku dan tidak dihitung sebagai posisi terbuka"
+            )
+        if self.orphan_events:
+            ids = sorted({event.decision_id for event in self.orphan_events})
+            out.append(
+                f"{len(self.orphan_events)} trade_events diabaikan karena decision_id-nya tidak "
+                f"ada di ledger: {', '.join(str(i) for i in ids)}"
+            )
+        return out
+
+
+def fold_positions(
+    events: Sequence[EventRow], algo_of: Mapping[int, str | None], *, algo: str = ALGO
+) -> PositionFold:
+    """Lipat event menjadi posisi terbuka — HANYA untuk keputusan generasi berjalan.
+
+    Fungsi murni (tanpa I/O) supaya bisa diuji dengan fixture campuran warisan + baru.
+    Posisi terbuka = `decision_id` yang punya `open` tanpa `exit`. Baris `open` kedua untuk
+    satu `decision_id` (tidak seharusnya terjadi; tabel append-only tidak bisa mencegahnya)
+    dilipat menjadi SATU posisi — yang pertama. Menjumlahkannya akan mengarang ukuran yang
+    tidak pernah dibuka.
+
+    `algo_of` memetakan `decision_id` ke nilai `card_json["algo"]`-nya; kunci yang hilang =
+    tidak ada baris keputusan. Keduanya tidak dilipat, masing-masing dengan sebab tersendiri.
+    """
     opened: dict[int, Position] = {}
     closed: set[int] = set()
-    for row in rows:
-        event = EventRow(*row)
+    stale: list[EventRow] = []
+    orphan: list[EventRow] = []
+    for event in events:
+        if event.decision_id not in algo_of:
+            orphan.append(event)
+            continue
+        if algo_of[event.decision_id] != algo:
+            stale.append(event)
+            continue
         if event.kind == "open":
             opened.setdefault(
                 event.decision_id,
@@ -219,4 +325,22 @@ def open_positions(db_path: str | Path) -> list[Position]:
             )
         elif event.kind == "exit":
             closed.add(event.decision_id)
-    return [pos for decision_id, pos in sorted(opened.items()) if decision_id not in closed]
+    positions = tuple(pos for decision_id, pos in sorted(opened.items()) if decision_id not in closed)
+    return PositionFold(positions=positions, stale_events=tuple(stale), orphan_events=tuple(orphan))
+
+
+def read_positions(db_path: str | Path) -> PositionFold:
+    """Lipatan posisi atas DB `db_path`, berikut daftar event yang sengaja tidak dilipat."""
+    events = all_events(db_path)
+    algo_of = algo_by_decision(db_path, [event.decision_id for event in events])
+    return fold_positions(events, algo_of)
+
+
+def open_positions(db_path: str | Path) -> list[Position]:
+    """Posisi terbuka generasi BERJALAN, urut `decision_id`.
+
+    Sengaja membuang keterangan "apa yang diabaikan": pemanggil yang perlu menuliskannya
+    memakai :func:`read_positions` (TASKS 2.4b). Yang dikembalikan di sini tidak pernah
+    memuat posisi warisan — itu yang membuat hitungan posisi terbuka tidak berbohong.
+    """
+    return list(read_positions(db_path).positions)

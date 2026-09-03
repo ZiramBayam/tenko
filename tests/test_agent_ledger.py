@@ -9,16 +9,29 @@ dengan tulisan/penutupan yang BERHASIL, bukan dengan dugaan:
   baca-saja — dan itu membatalkan satu-satunya alasan SQL boleh hidup di luar `core/store.py`.
 * **TINGGI-2** — `decisions.card_json` tidak dilindungi hash apa pun, tetapi dulu dialah yang
   menentukan `entry`/`stop`/`target` saat posisi ditutup.
+
+Bagian terakhir berkas ini adalah TASKS 2.4b: lipatan `trade_events` hanya melipat generasi
+BERJALAN (`card_json` menyebut `algo` yang berlaku, ADR-016), dan apa yang tidak dilipat
+dikembalikan sebagai data supaya pemanggil menuliskannya — bukan menyusut diam-diam.
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
 import pytest
 
-from agent.ledger import LedgerError, _connect
+from agent.ledger import (
+    DecisionRow,
+    EventRow,
+    LedgerError,
+    _connect,
+    algo_by_decision,
+    fold_positions,
+)
+from core.replay import ALGO
 
 SCHEMA = (
     "CREATE TABLE decisions (id INTEGER PRIMARY KEY, ts_utc TEXT, symbol TEXT, decision TEXT,"
@@ -68,3 +81,114 @@ def test_query_only_is_a_second_layer(tmp_path: Path) -> None:
 def test_a_missing_file_is_an_honest_error(tmp_path: Path) -> None:
     with pytest.raises(LedgerError, match="baca-saja"), _connect(tmp_path / "nope.db") as conn:
         conn.execute("SELECT 1")
+
+
+# --- TASKS 2.4b: lipatan posisi hanya melipat generasi berjalan ------------------------------
+def _event(event_id: int, decision_id: int, kind: str, symbol: str = "SOL") -> EventRow:
+    return EventRow(
+        id=event_id,
+        decision_id=decision_id,
+        symbol=symbol,
+        direction="long",
+        kind=kind,
+        price=100.0 + event_id,
+        size_usd=100.0,
+        reason="fixture",
+        ts_utc=f"2026-09-0{1 + event_id % 3}T00:00:00+00:00",
+        simulated=1,
+    )
+
+
+def test_the_fold_returns_only_positions_of_the_running_generation() -> None:
+    """Fixture campuran warisan + baru: yang dilipat HANYA yang baru (AC 2.4b-1)."""
+    events = [
+        _event(1, 1, "open"),  # warisan: kartunya tanpa `algo`
+        _event(2, 3, "open", "ETH"),  # warisan
+        _event(3, 24, "open"),  # generasi berjalan
+        _event(4, 25, "open", "BTC"),  # generasi berjalan, lalu ditutup
+        _event(5, 25, "exit", "BTC"),
+    ]
+    algo_of = {1: None, 3: None, 24: ALGO, 25: ALGO}
+    fold = fold_positions(events, algo_of)
+
+    assert [pos.decision_id for pos in fold.positions] == [24]
+    assert [event.id for event in fold.stale_events] == [1, 2]
+    assert fold.orphan_events == ()
+    note = fold.notes()[0]
+    assert note.startswith("2 trade_events generasi sebelumnya diabaikan (STALE_ALGO)")
+    assert "1, 3" in note
+
+
+def test_the_fold_never_hides_what_it_skipped() -> None:
+    """Diabaikan = TERTULIS. Tanpa catatan, lipatan yang menyusut adalah kebohongan diam."""
+    fold = fold_positions([_event(1, 1, "open")], {1: None})
+    assert fold.positions == ()
+    assert fold.notes() and "STALE_ALGO" in fold.notes()[0]
+
+
+def test_an_event_pointing_at_a_missing_decision_is_named_separately() -> None:
+    fold = fold_positions([_event(1, 77, "open")], {})
+    assert fold.positions == ()
+    assert [event.id for event in fold.orphan_events] == [1]
+    assert "tidak ada di ledger" in fold.notes()[0]
+
+
+def test_generation_is_decided_by_algo_not_by_params_hash_or_id() -> None:
+    """ADR-016 butir 2: params_hash boleh bergeser (ADR-017) tanpa mengubah generasi."""
+    current = DecisionRow(
+        id=24,
+        ts_utc="2026-09-03T00:00:00+00:00",
+        symbol="SOL",
+        decision="GO",
+        blocking_json="[]",
+        snapshot_ids_json="[1]",
+        params_hash="params-yang-akan-berubah-besok",
+        decision_hash="h",
+        card_json=json.dumps({"algo": ALGO, "skill": {}}),
+        simulated=1,
+    )
+    legacy = DecisionRow(
+        id=13,
+        ts_utc="2026-09-01T00:00:00+00:00",
+        symbol="BNB",
+        decision="NO_GO",
+        blocking_json="[5,6,10]",
+        snapshot_ids_json="[81,83]",
+        params_hash="params-generasi-lama",
+        decision_hash="h",
+        card_json=json.dumps({"skill": {}}),
+        simulated=1,
+    )
+    assert current.algo() == ALGO and current.is_current_generation()
+    assert legacy.algo() is None and not legacy.is_current_generation()
+
+
+@pytest.mark.parametrize("card_json", ["", "[1,2]", "{", '{"algo": 7}'])
+def test_an_unreadable_card_is_simply_not_the_running_generation(card_json: str) -> None:
+    """`algo()` tidak melempar: kartu rusak juga tidak menyebut algoritma apa pun."""
+    row = DecisionRow(
+        id=1,
+        ts_utc="t",
+        symbol="SOL",
+        decision="GO",
+        blocking_json="[]",
+        snapshot_ids_json="[]",
+        params_hash="p",
+        decision_hash="h",
+        card_json=card_json,
+        simulated=1,
+    )
+    assert row.algo() is None
+    assert not row.is_current_generation()
+
+
+def test_a_non_numeric_decision_id_is_a_ledger_error_not_a_raw_valueerror(tmp_path: Path) -> None:
+    """RENDAH (security-reviewer 4 Sep 2026): tick harus MELAPORKAN, bukan meledak.
+
+    `trade_events.decision_id` tidak dijaga tipe oleh SQLite (tabel tanpa STRICT), jadi nilai
+    yang bukan angka mungkin ada di kolom itu.
+    """
+    path = tmp_path / "loose.db"
+    _seed(path)
+    with pytest.raises(LedgerError, match="bukan id baris"):
+        algo_by_decision(path, ["bukan-angka"])

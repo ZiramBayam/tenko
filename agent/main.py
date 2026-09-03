@@ -54,7 +54,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from agent.anchor import EvidenceMismatchError, check_against_evidence
-from agent.ledger import LedgerError, open_positions
+from agent.ledger import LedgerError, read_positions
 from agent.params import DEFAULT_AGENT_PARAMS, AgentParams
 from agent.trade import PracticePlan, TradeError, open_trade, plan_from_items, settle_open_positions
 from agent.watchlist import watchlist
@@ -290,7 +290,14 @@ def tick(
             log.warning("%s: ditolak sebelum menulis apa pun: %s", symbol, exc)
             outcome = SymbolOutcome(symbol=symbol, decision="-", rejected=str(exc))
         report.outcomes.append(outcome)
-    report.open_after = len(open_positions(store.path))
+    fold = read_positions(store.path)
+    report.open_after = len(fold.positions)
+    # Yang TIDAK dilipat disebut, bukan dibuang diam-diam (TASKS 2.4b): `trade_events` warisan
+    # menunjuk keputusan generasi lain, jadi memasukkannya ke hitungan posisi terbuka akan
+    # melaporkan posisi yang tidak bisa dipertanggungjawabkan sama sekali.
+    for note in fold.notes():
+        log.info("%s", note)
+        report.lines.append(note)
     return report
 
 

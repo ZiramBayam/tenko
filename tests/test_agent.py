@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import socket
 import sqlite3
 from datetime import UTC, datetime, timedelta
@@ -592,3 +593,45 @@ def test_plan_from_items_refuses_when_item_nine_is_unspoken(tmp_path: Path) -> N
     recomputed = recompute("SOL", bundle, DEFAULT_PARAMS)
     with pytest.raises(Exception, match="09_plan"):
         plan_from_items("SOL", recomputed.items, DEFAULT_AGENT_PARAMS)
+
+
+# --- TASKS 2.4b: tick tidak pernah menghitung posisi warisan sebagai terbuka ----------------
+def test_a_tick_reports_zero_legacy_positions_and_says_so_in_writing(
+    tmp_path: Path, capsys: pytest.CaptureFixture, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Bentuk `data/ryo.db`: event warisan menunjuk keputusan ber-`card_json` tanpa `algo`.
+
+    Yang dituntut AC 2.4b (2): hitungan posisi terbuka TIDAK memuatnya, dan pengabaian itu
+    TERTULIS — satu baris log + satu baris di keluaran tick.
+    """
+    store = build_store(tmp_path, symbols=("SOL",))
+    legacy_id = store.insert_decision(
+        symbol="SOL",
+        decision="GO",
+        blocking=[],
+        snapshot_ids=[1, 2],
+        params_hash="generasi-lama",
+        decision_hash="f" * 64,
+        card={"skill": {}, "agent": {"module": "gone"}},  # tanpa `algo`
+    )
+    store.insert_trade_event(
+        decision_id=legacy_id,
+        symbol="SOL",
+        direction="long",
+        kind="open",
+        price=100.0,
+        size_usd=100.0,
+        reason="warisan",
+    )
+    with caplog.at_level(logging.INFO, logger="agent.main"):
+        report = agent_main.tick(store, ("SOL",), DEFAULT_AGENT_PARAMS)
+
+    open_ids = [pos.decision_id for pos in open_positions(store.path)]
+    assert legacy_id not in open_ids
+    assert report.open_after == len(open_ids) == 1  # hanya posisi yang dibuka tick ini
+    expected = "1 trade_events generasi sebelumnya diabaikan (STALE_ALGO)"
+    assert any(expected in message for message in caplog.messages)
+    assert any(expected in line for line in report.lines)
+
+    agent_main._print_report(report, store, ("SOL",), DEFAULT_AGENT_PARAMS)
+    assert expected in capsys.readouterr().out

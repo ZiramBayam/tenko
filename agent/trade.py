@@ -400,13 +400,18 @@ def _settle_one(store: Store, position: Position, params: AgentParams, now: date
             f"keputusan {position.decision_id} tidak ada di ledger; posisi dibiarkan terbuka",
         )
     if row.params_hash != params.decision_params_hash():
-        # Generasi lain (TASKS 2.4b): disebut, tidak disentuh.
+        # Ambang yang bergeser (mis. ADR-017) — BUKAN generasi algoritma: baris generasi lama
+        # sudah tidak sampai ke sini karena `open_positions` tidak melipatnya (TASKS 2.4b,
+        # `agent.ledger.fold_positions`). Yang tersisa di cabang ini adalah keputusan generasi
+        # berjalan yang params-nya berubah setelah posisinya dibuka: disebut, tidak disentuh,
+        # karena plan-nya tidak bisa diturunkan ulang dengan ambang sekarang.
         return Settlement(
             position.decision_id,
             position.symbol,
             False,
             f"keputusan {position.decision_id} memakai params_hash generasi lain "
-            f"({row.params_hash[:12]}...); tidak dilipat di sini (TASKS 2.4b)",
+            f"({row.params_hash[:12]}...); posisi dibiarkan terbuka, tidak ditutup dengan "
+            "angka yang tidak bisa diturunkan ulang",
             stale_generation=True,
         )
     try:
