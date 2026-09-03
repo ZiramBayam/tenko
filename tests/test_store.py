@@ -367,16 +367,12 @@ def test_latest_fresh_ignores_a_row_dated_ten_years_ahead(
 def test_latest_fresh_returns_none_when_the_only_row_is_in_the_future(store: Store) -> None:
     """Tidak ada bukti sah → None yang jujur, bukan baris masa depan."""
     now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
-    store.insert_snapshot(
-        "analyze_token", ARGS, ENVELOPE, ts_utc=(now + timedelta(days=3653)).isoformat()
-    )
+    store.insert_snapshot("analyze_token", ARGS, ENVELOPE, ts_utc=(now + timedelta(days=3653)).isoformat())
     assert store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now) is None
 
 
 @pytest.mark.parametrize(("ahead_s", "accepted"), [(119, True), (121, False)])
-def test_latest_fresh_pins_the_future_skew_tolerance(
-    store: Store, ahead_s: int, accepted: bool
-) -> None:
+def test_latest_fresh_pins_the_future_skew_tolerance(store: Store, ahead_s: int, accepted: bool) -> None:
     """Toleransi JAM, bukan kelonggaran kesegaran: 119 dtk lolos, 121 dtk ditolak."""
     assert FUTURE_SKEW_TOLERANCE_S == 120
     now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
@@ -420,9 +416,7 @@ def test_latest_fresh_future_guard_needs_no_env_var() -> None:
         node.value
         for node in ast.walk(tree)
         if isinstance(node, ast.Assign)
-        and any(
-            isinstance(t, ast.Name) and t.id == "FUTURE_SKEW_TOLERANCE_S" for t in node.targets
-        )
+        and any(isinstance(t, ast.Name) and t.id == "FUTURE_SKEW_TOLERANCE_S" for t in node.targets)
     ]
     assert len(assigned) == 1
     assert isinstance(assigned[0], ast.Constant) and assigned[0].value == 120
@@ -445,9 +439,7 @@ def test_latest_fresh_future_guard_is_a_noop_for_the_live_database() -> None:
     conn = sqlite3.connect(f"file:{LIVE_DB.as_posix()}?mode=ro", uri=True)
     try:
         horizon = (datetime.now(UTC) + timedelta(seconds=FUTURE_SKEW_TOLERANCE_S)).isoformat()
-        (ahead,) = conn.execute(
-            "SELECT count(*) FROM snapshots WHERE ts_utc > ?", (horizon,)
-        ).fetchone()
+        (ahead,) = conn.execute("SELECT count(*) FROM snapshots WHERE ts_utc > ?", (horizon,)).fetchone()
     finally:
         conn.close()
     assert ahead == 0
@@ -524,9 +516,7 @@ def test_recent_args_keeps_future_timestamps_when_min_age_is_zero(store: Store) 
     ]
 
 
-def test_recent_args_warns_but_keeps_a_far_future_row(
-    store: Store, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_recent_args_warns_but_keeps_a_far_future_row(store: Store, caplog: pytest.LogCaptureFixture) -> None:
     """Pilihan yang dikunci 2.0d: di sini baris masa depan TETAP ikut, tapi tidak diam.
 
     Membuangnya di sini justru berbahaya: `recent_args` memberi tahu perekam simbol mana yang
@@ -567,9 +557,7 @@ def _followup_like(
     Dipakai untuk menjalankan TIGA kebijakan atas baris masa depan pada data yang sama; itulah
     yang membuat tabel A/B TASKS 2.0f bisa dipaku sel per sel di satu tempat.
     """
-    in_window = store.recent_args(
-        "analyze_token", 26 * 60, now=now, drop_future=drop_future_in_window
-    )
+    in_window = store.recent_args("analyze_token", 26 * 60, now=now, drop_future=drop_future_in_window)
     fresh = store.recent_args("analyze_token", 24 * 60, now=now, drop_future=drop_future_fresh)
     settled = store.recent_args("analyze_token", 26 * 60, min_age_min=24 * 60, now=now)
     done = {a["symbol"] for a in fresh} & {a["symbol"] for a in settled}
@@ -613,9 +601,7 @@ def test_recent_args_future_row_policy_table(
         "analyze_token", {"symbol": "SOL"}, ENVELOPE, ts_utc=(now + timedelta(hours=3)).isoformat()
     )
     in_window_flag, fresh_flag = _POLICIES[policy]
-    got = _followup_like(
-        store, now, drop_future_in_window=in_window_flag, drop_future_fresh=fresh_flag
-    )
+    got = _followup_like(store, now, drop_future_in_window=in_window_flag, drop_future_fresh=fresh_flag)
     assert got == expected
 
 
@@ -631,14 +617,8 @@ def test_recent_args_drop_future_empties_the_retirement_set(store: Store) -> Non
     store.insert_snapshot(
         "analyze_token", {"symbol": "SOL"}, ENVELOPE, ts_utc=(now + timedelta(hours=3)).isoformat()
     )
-    fresh = {
-        a["symbol"]
-        for a in store.recent_args("analyze_token", 24 * 60, now=now, drop_future=True)
-    }
-    settled = {
-        a["symbol"]
-        for a in store.recent_args("analyze_token", 26 * 60, min_age_min=24 * 60, now=now)
-    }
+    fresh = {a["symbol"] for a in store.recent_args("analyze_token", 24 * 60, now=now, drop_future=True)}
+    settled = {a["symbol"] for a in store.recent_args("analyze_token", 26 * 60, min_age_min=24 * 60, now=now)}
     assert fresh & settled == set()
 
 
@@ -655,9 +635,7 @@ def test_recent_args_drop_future_keeps_rows_inside_the_tolerance(store: Store) -
     assert got == [{"symbol": "SOL"}]
 
 
-def test_recent_args_drop_future_still_warns_once(
-    store: Store, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_recent_args_drop_future_still_warns_once(store: Store, caplog: pytest.LogCaptureFixture) -> None:
     """Membuang baris tidak boleh menghilangkan jejaknya: satu warning per baris, tetap ada."""
     now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
     _seed_ages(store, {"NOW": 1.0})
