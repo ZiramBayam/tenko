@@ -60,9 +60,18 @@ Kalibrasi ambang (dibaca read-only dari ``data/ryo.db``, sapuan 756 baris, 2 Sep
 * ``trade_plan.risk_reward`` = ``[1.0, 2.0]`` di 294/294 baris. ``min_rr = 1.0``:
   ambang di atas 1.0 membuat item 9 merah untuk SETIAP plan yang pernah dikeluarkan RYO —
   item tanpa daya pisah, dan §7 langkah 3 ("≥1 GO dan ≥1 NO_GO") mustahil.
-* ``max_age_min = 15`` masih angka spec §4, BELUM dikalibrasi. Perekam berjalan per jam →
-  TASKS 2.2b yang menempelkan distribusi umur per tool dan menetapkan angka finalnya.
-  Lihat juga :attr:`Params.max_age_min` soal jam acuan yang dipakai item 1.
+* ``max_age_min = 120`` menit (TASKS 2.2b-lite, 3 Sep 2026) — aturannya satu kalimat:
+  **umur maksimum bukti = 2× interval perekam (``RECORDER_INTERVAL_S`` = 3600 s = 60 menit),
+  supaya satu siklus perekam boleh terlewat tanpa membuat bukti dianggap basi.** Angka ini
+  diturunkan dari periode pengumpulan data, bukan dari hasil keputusan: dengan perekam per jam,
+  ``15`` menit menuntut bukti yang lebih muda daripada yang bisa dihasilkan jadwalnya sendiri,
+  sehingga item 1 mengukur jadwal kami, bukan kesegaran RYO. Bila ``RECORDER_INTERVAL_S``
+  berubah, angka ini dihitung ulang dari aturan yang sama (2× interval). Distribusi umur per
+  tool ber-n tetap utang TASKS 2.2b penuh; ia dapat mempersempit angka ini, tidak menggantikan
+  aturannya. Lihat :attr:`Params.max_age_min` soal jam acuan item 1.
+  **Jangan samakan dengan ``core.store.FUTURE_SKEW_TOLERANCE_S = 120``**: yang itu 120 DETIK
+  toleransi ``as_of`` di MASA DEPAN (jam server RYO mendahului jam kami), yang ini 120 MENIT
+  batas umur di MASA LALU — sama-sama "120", beda satuan, beda arah, beda tujuan.
 """
 
 from __future__ import annotations
@@ -359,8 +368,9 @@ class Params:
     #: Umur maksimum bukti (menit) untuk item 1. Jam acuannya diambil dari `as_of` envelope
     #: TERBARU di dalam bukti beku itu sendiri, BUKAN jam lokal: keputusan harus fungsi murni
     #: atas snapshot (ADR-003) — memakai `now()` membuat replay menghasilkan item 1 yang
-    #: berbeda seiring waktu. Angka 15 = spec §4; kalibrasi ber-n = TASKS 2.2b.
-    max_age_min: int = 15
+    #: berbeda seiring waktu. Angka 120 menit = 2× interval perekam (lihat docstring modul);
+    #: spec §4 menulis 15, lebih muda daripada yang bisa dihasilkan jadwal perekam per jam.
+    max_age_min: int = 120
     #: Item 6: `CONFIRMED` + score ≥ ambang. 1.0 = kedua gate lulus (lihat docstring modul).
     min_confluence: float = 1.0
     #: Item 9: `trade_plan.risk_reward[0]` ≥ ambang.

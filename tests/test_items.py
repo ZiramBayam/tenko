@@ -18,6 +18,7 @@ import copy
 import inspect
 import json
 import math
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -168,6 +169,15 @@ def test_real_samples_give_ten_green_items_and_go() -> None:
 
 
 # --- item 1: kesegaran ---------------------------------------------------------------------
+def _reference_as_of() -> datetime:
+    """Jam acuan item 1 atas sampel APA ADANYA: `as_of` TERBARU di dalam bundel itu sendiri."""
+    return datetime.fromisoformat(run()[ITEM_FRESHNESS].result.value["reference_as_of"])
+
+
+def _iso_z(moment: datetime) -> str:
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def test_item1_green_when_every_envelope_is_within_the_limit() -> None:
     outcome = run()[ITEM_FRESHNESS]
     assert outcome.status == GREEN
@@ -176,7 +186,10 @@ def test_item1_green_when_every_envelope_is_within_the_limit() -> None:
 
 
 def test_item1_unspoken_when_evidence_is_older_than_the_threshold() -> None:
-    outcome = run(mutate={f"{MARKET_OVERVIEW}:as_of": "2026-09-01T02:00:00Z"})[ITEM_FRESHNESS]
+    """Umur basi DITURUNKAN dari `max_age_min`, bukan diketik: tes ini harus menggigit untuk
+    ambang berapa pun (2.2b-lite mengubah 15 → 120 menit dan tanggal keras jadi tidak basi)."""
+    stale = _reference_as_of() - timedelta(minutes=DEFAULT_PARAMS.max_age_min + 1)
+    outcome = run(mutate={f"{MARKET_OVERVIEW}:as_of": _iso_z(stale)})[ITEM_FRESHNESS]
     assert outcome.status == UNSPOKEN
     assert "min old" in outcome.result.reason and outcome.result.value is None
 
@@ -213,9 +226,7 @@ def test_item1_uses_monitor_observation_as_of_when_it_is_older() -> None:
 
 
 def test_item1_accepts_an_injected_reference_clock() -> None:
-    from datetime import UTC, datetime
-
-    late = datetime(2026, 9, 1, 5, 0, tzinfo=UTC)
+    late = _reference_as_of() + timedelta(minutes=DEFAULT_PARAMS.max_age_min + 1)
     assert status_of(ITEM_FRESHNESS, reference_as_of=late) == UNSPOKEN
 
 
