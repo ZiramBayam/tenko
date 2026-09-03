@@ -207,20 +207,43 @@ Ulangi: `python3 -c 'import sqlite3,json,collections;c=sqlite3.connect("file:dat
 (bentuk yang ditulis `core/recorder.py`), BUKAN `request` dari `docs/samples/*.json`. Menyamakan args dengan
 `docs/samples/<tool>.json["request"]` benar untuk `analyze_token`/`deep_analysis`/`compare_tokens` SAJA.
 
-#### `compare_tokens.symbols` — batas & simbol berulang — DIVERIFIKASI 3 Sep 2026 (TASKS 2.2)
+#### `compare_tokens.symbols` — batas & simbol berulang — DIVERIFIKASI 3 Sep 2026 (TASKS 2.2), DIPERBARUI 3 Sep 2026 (TASKS 2.0c)
 `docs/samples/catalog.json`: `symbols` bertipe **string** dengan deskripsi verbatim "2-4 token symbols to compare, comma- or
 space-separated, e.g. 'SOL, AVAX'." — **tidak ada `minItems`/`maxItems`/`pattern`**; batas 2–4 hanya ada di teks deskripsi dan
 tidak ditegakkan skema. `required: ["symbols"]`; `intent` enum `swing|hold|spot`, opsional.
-**Simbol berulang: 0 amatan dari `id <= 1206`** — 14/14 baris `compare_tokens` di `data/ryo.db` dan 1/1
+**Simbol berulang: masih 0 amatan pada `id <= 1278`** — 18/18 baris `compare_tokens` di `data/ryo.db` dan 1/1
 `docs/samples/compare_tokens.json` memakai simbol yang berbeda semua. Perilaku RYO terhadap `"BNB, BNB, ETH"`
-**BELUM DIVERIFIKASI**: bentuk itu tidak pernah dikirim, jadi jangan klaim ia ditolak MAUPUN diterima. Daftar 2 simbol
-maupun 3 simbol sama-sama di dalam rentang "2-4" yang didokumentasikan.
-String `symbols` yang benar-benar terekam (14 baris, semuanya `intent: "swing"`, id 41–211, ts 2026-09-01T04:06:09Z–06:33:21Z):
-`SOL, BTC, ETH` (4) · `BTC, ETH, SOL` (4) · `ETH, BTC, SOL` (3) · `BNB, BTC, ETH` (3).
-`"SOL, BNB, ETH"` HANYA ada di `docs/samples/compare_tokens.json` — **0 baris di DB**. `core/recorder.py` **tidak memanggil
-`compare_tokens` sama sekali** (semua `_record(` dicek 3 Sep 2026: scan_market, market_overview, monitor_market_sentiment_shift,
-analyze_token, deep_analysis), jadi tidak ada baris `compare_tokens` baru sejak id 211 dan tidak akan ada. Pemakai store-first
-harus memperhitungkan bahwa tool ini praktis selalu `unspoken` pada DB hidup.
+**BELUM DIVERIFIKASI**: bentuk itu tidak pernah dikirim, jadi jangan klaim ia ditolak MAUPUN diterima.
+(`core/recorder.compare_args()` melakukan dedupe berurutan justru supaya bentuk itu tidak pernah terkirim.)
+
+**Daftar 2 simbol DITERIMA — DIVERIFIKASI 3 Sep 2026 (id 1262–1263).** Sampai 3 Sep 2026 daftar 2 simbol punya **0 amatan**
+dan status berkas ini adalah "di dalam rentang 2-4 yang didokumentasikan, tetapi belum pernah dikirim". Sejak siklus perekam
+2026-09-03T10:50:49Z–10:55:07Z (≈ 17:50–17:55 WIB) bentuk itu ADA dan RYO membalas `status: "ok"`:
+`{"intent":"swing","symbols":"ETH, BNB"}` (id 1262) dan `{"intent":"swing","symbols":"BNB, ETH"}` (id 1263).
+**Bentuk respons 2 simbol IDENTIK dengan 3 simbol** — tidak ada kunci yang hilang maupun tambahan:
+top-level 10 kunci sama (`schema_version, tool, status, data_mode, as_of, request, data, summary, availability, warnings`);
+`data` = `{conclusion, coverage_by_token, factors, intent, tokens, winner}` sama persis;
+`availability` sama (`token_market_data/comparison_factors/conclusion = available`, `token_profiles = unavailable`).
+Yang berskala dengan cacah simbol hanya ISI, bukan bentuk: `coverage_by_token` = dict ber-kunci simbol dengan **2 entri**
+(vs 3 pada daftar 3 simbol), `data.tokens` 2 entri, dan tiap `factors[].scores` 2 kunci. **`factors` tetap 3 entri**
+(`momentum`, `market_activity`, `volatility`) dan `winner`/`conclusion.pick` tetap terisi. Konsekuensi untuk item 10:
+tidak ada cabang khusus yang perlu ditulis untuk daftar 2 simbol.
+Ulangi (mencetak kunci top-level, kunci `data`, dan cacah `coverage_by_token` per baris + max id yang disapu):
+`python3 -c 'import sqlite3,json;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);print("max id",c.execute("SELECT max(id) FROM snapshots").fetchone()[0]);[print(i,a,sorted(json.loads(p)),sorted(json.loads(p)["data"]),len(json.loads(p)["data"]["coverage_by_token"])) for i,a,p in c.execute("SELECT id,args_json,payload_json FROM snapshots WHERE tool=? ORDER BY id",("compare_tokens",))]'`
+
+String `symbols` yang benar-benar terekam, disapu pada `id <= 1278` (18 baris, semuanya `intent: "swing"`, semuanya `status: ok`):
+* **sesi manual 1 Sep 2026** (14 baris, id 41–211, ts 2026-09-01T04:06:09Z–06:33:21Z, pembanding BTC+ETH):
+  `SOL, BTC, ETH` (4) · `BTC, ETH, SOL` (4) · `ETH, BTC, SOL` (3) · `BNB, BTC, ETH` (3);
+* **perekam, sejak TASKS 2.0c** (4 baris, id 1260–1263, ts 2026-09-03T10:50:49Z–10:55:07Z, pembanding BNB+ETH):
+  `SOL, BNB, ETH` · `BTC, BNB, ETH` · `ETH, BNB` · `BNB, ETH` (masing-masing 1).
+
+**Sampai 3 Sep 2026** `"SOL, BNB, ETH"` HANYA ada di `docs/samples/compare_tokens.json` (**0 baris di DB**) dan `core/recorder.py`
+**tidak memanggil `compare_tokens` sama sekali**, sehingga berkas ini menyimpulkan tool itu "praktis selalu `unspoken` pada DB hidup".
+**Sejak siklus 2026-09-03T10:50:49Z (≈ 17:50 WIB) keadaan itu berubah** — TASKS 2.0c menambah langkah `compare_tokens` ke
+`core/recorder.py` (`MAX_COMPARES_PER_CYCLE = 4`, watchlist saja), jadi `"SOL, BNB, ETH"` kini ADA di DB (id 1260) dan baris
+`compare_tokens` baru bertambah ≤4 per siklus. Simpulan lama tentang `unspoken` **tidak lagi berlaku untuk DB hidup**; ia tetap
+berlaku untuk DB apa pun yang berhenti pada `id <= 1259`. `_record(` di `core/recorder.py` dicek ulang 3 Sep 2026 — kini enam
+tool: scan_market, market_overview, monitor_market_sentiment_shift, analyze_token, deep_analysis, **compare_tokens**.
 
 ### Tipe & kosakata envelope (10 field) — DIVERIFIKASI 1 Sep 2026 (TASKS 1.3, verifikasi `core/skill.py` = cermin envelope, ADR-013/015)
 Sumber: keenam `docs/samples/*.json` (`response["result"]`) + **470 envelope perekam** di `data/ryo.db` (dibuka read-only,

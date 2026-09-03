@@ -14,10 +14,24 @@ Satu siklus:
 2. ``scan_market`` → watchlist = simbol inti (``WATCHLIST``) + kandidat hasil scan,
    dipotong ``RECORDER_MAX_SYMBOLS``;
 3. per simbol: ``analyze_token`` + ``deep_analysis`` (``include_perp=True``);
-4. follow-up ``analyze_token`` untuk simbol yang pernah direkam ≤26 jam, TIDAK ada di
+4. ``compare_tokens`` untuk simbol **watchlist** saja (bukan kandidat scan), dipotong
+   ``MAX_COMPARES_PER_CYCLE`` — simbol yang terpotong disebut namanya di WARNING dan di
+   ``CycleReport.compares_dropped``;
+5. follow-up ``analyze_token`` untuk simbol yang pernah direkam ≤26 jam, TIDAK ada di
    watchlist siklus ini, dan **belum punya rentang pengamatan ≥24 jam**. Satu-satunya alasan
-   langkah 4 ada: tanpa pembacaan kedua, outcome T+24 jam untuk simbol yang keluar dari
+   langkah 5 ada: tanpa pembacaan kedua, outcome T+24 jam untuk simbol yang keluar dari
    daftar momentum tidak bisa dinilai.
+
+**Kenapa langkah 4 ada (TASKS 2.0c).** Perekam dulu memanggil 5 tool dan tidak pernah
+``compare_tokens``; 14 baris ``compare_tokens`` di ``data/ryo.db`` adalah warisan sesi manual
+1 Sep dengan pembanding BTC+ETH, sedangkan preflight mencari pembanding BNB+ETH. Akibatnya
+item 10 (WAJIB) selalu ``unspoken`` dan setiap keputusan NO_GO — satu dari lima tool tidak
+pernah ikut menyatu ke keputusan. Bentuk argumennya dikunci: ``{"symbols": "<SIMBOL>[, BNB]
+[, ETH]", "intent": "swing"}``, dengan dedupe berurutan terhadap pembanding (``"BNB"`` tidak
+dibandingkan dengan dirinya sendiri). Kesamaan bentuk dengan pembaca store dijaga oleh TES
+(``tests/test_recorder.py``), BUKAN oleh impor: ``core/`` tidak boleh mengimpor ``preflight/``
+(ADR-002). Biaya terukur: +4 panggilan × ~42 dtk ≈ +170 dtk per siklus, jauh di bawah
+``RECORDER_INTERVAL_S`` = 3600.
 
 **Ratchet follow-up dan cara mematikannya.** Setiap follow-up menulis baris `analyze_token`
 ber-`ts_utc` = sekarang, sehingga simbol itu selalu masih berada di jendela 26 jam pada siklus
@@ -80,7 +94,7 @@ import re
 import sys
 import time
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -129,6 +143,19 @@ FOLLOWUP_DONE_AFTER_H = 24.0
 #: Sejauh mana ke belakang pembacaan lama dicari saat memeriksa "sudah selesai" (7 hari).
 FOLLOWUP_DONE_LOOKBACK_H = 7 * 24.0
 
+#: Pembanding tetap untuk `compare_tokens` — sama dengan `preflight.params.Params.peers`.
+#: Disalin, tidak diimpor: `core/` tidak boleh bergantung pada `preflight/` (ADR-002). Yang
+#: menjaga kedua nilai tetap sama adalah tes, bukan impor.
+COMPARE_PEERS: tuple[str, ...] = ("BNB", "ETH")
+#: `intent` untuk `compare_tokens` — enum `swing|hold|spot` (docs/samples/catalog.json).
+COMPARE_INTENT = "swing"
+#: Pemisah daftar `symbols` (`"SOL, BNB, ETH"`,
+#: docs/samples/compare_tokens.json["result"]["request"]).
+COMPARE_SEPARATOR = ", "
+#: Anggaran `compare_tokens` per siklus. Empat = jumlah simbol inti; tool ini ~42 dtk per
+#: panggilan, jadi kandidat scan sengaja TIDAK ikut dibandingkan.
+MAX_COMPARES_PER_CYCLE = 4
+
 #: Batas panjang simbol yang diterima dari `scan_market`. Simbol RYO pendek (lihat
 #: docs/samples/scan_market.json); nilai aneh dilewati dan dicatat, bukan dikirim ke API.
 MAX_SYMBOL_LEN = 64
@@ -146,6 +173,40 @@ _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # argumen yang DISIMPAN adalah objek yang sama, sehingga `args_hash` baris baru sebangun
 # dengan baris lama di DB perekam (`{}`, `{"top_n":21}`, `{"symbol":"SOL"}`,
 # `{"include_perp":true,"symbol":"SOL"}`).
+
+
+def compare_args(
+    symbol: str, peers: Sequence[str] = COMPARE_PEERS, intent: str = COMPARE_INTENT
+) -> dict[str, Any]:
+    """Argumen `compare_tokens` untuk satu simbol: `{"symbols": "SOL, BNB, ETH", "intent": "swing"}`.
+
+    Bentuk kunci `symbols`/`intent` diambil verbatim dari
+    `docs/samples/compare_tokens.json["result"]["request"]` (top-level sampel adalah
+    `['tool', 'result', 'latency_ms']`, jadi `request` ada DI DALAM `result`).
+
+    Dedupe **mempertahankan urutan** (bukan `set`): `args_hash` dihitung dari teks `symbols`,
+    jadi himpunan yang sama dengan urutan berbeda adalah baris store yang BERBEDA dan tidak
+    akan ditemukan pembaca store-first.
+
+    **JANGAN menghapus dedupe-nya.** Ia bukan kerapian: `"BNB, BNB, ETH"` — bentuk yang akan
+    terkirim tanpa dedupe untuk simbol yang ADALAH pembanding — tetap **BELUM DIVERIFIKASI**
+    (0 amatan pada `id <= 1278`, api-facts §A), dan dedupe inilah satu-satunya yang menjaga
+    bentuk tak-terverifikasi itu tidak pernah dikirim ke RYO. "Menyederhanakannya" berarti
+    menebak perilaku API atas argumen yang belum pernah ada amatannya.
+
+    Cacah simbolnya 2–3. Cacah 3 dan cacah 2 sama-sama **terbukti empiris diterima** RYO
+    (`status: ok`; cacah 2 pada snapshot id 1262–1263, siklus 2026-09-03T10:50:49Z — lihat
+    api-facts §A) — bukan sekadar "di dalam rentang 2-4" pada deskripsi `catalog.json`.
+    Bentuk respons daftar 2 simbol **identik** dengan daftar 3 simbol (10 kunci top-level sama,
+    `factors` tetap 3 entri, `winner`/`conclusion.pick` tetap terisi; yang menyusut hanya isi
+    `data.tokens`, `coverage_by_token`, dan `factors[].scores`), jadi pembaca item 10 tidak
+    membutuhkan cabang khusus untuk ETH/BNB.
+    """
+    out: list[str] = []
+    for name in (symbol, *peers):
+        if name not in out:
+            out.append(name)
+    return {"symbols": COMPARE_SEPARATOR.join(out), "intent": intent}
 
 
 class RecorderConfigError(Exception):
@@ -249,6 +310,10 @@ class CycleReport:
     failed: dict[str, int] = field(default_factory=dict)
     snapshot_ids: list[int] = field(default_factory=list)
     symbols: tuple[str, ...] = ()
+    compares: tuple[str, ...] = ()
+    #: Simbol watchlist yang TIDAK dibandingkan karena `MAX_COMPARES_PER_CYCLE`. Kosong di
+    #: produksi hari ini; bila terisi, itulah sebab item 10 bisu untuk simbol tersebut.
+    compares_dropped: tuple[str, ...] = ()
     followups: tuple[str, ...] = ()
 
     @property
@@ -478,6 +543,37 @@ class Recorder:
         )
         return out
 
+    def _compare_symbols(self, symbols: Sequence[str]) -> tuple[list[str], list[str]]:
+        """`(dibandingkan, dipotong)` untuk siklus ini: watchlist saja, dipotong anggaran.
+
+        Kandidat `scan_market` sengaja DIKELUARKAN: `compare_tokens` ~42 dtk per panggilan,
+        dan yang dibutuhkan item 10 adalah baris segar untuk simbol inti — bukan cakupan luas.
+
+        **Simbol yang dipotong disebut NAMANYA, di level WARNING, dan dikembalikan ke
+        :class:`CycleReport`.** Anggaran ini belum pernah menggigit di produksi (watchlist 4
+        simbol → pembatasnya `len(watchlist)`), tetapi operator bisa memperlebar `WATCHLIST`
+        lewat env tanpa review kode. Begitu itu terjadi, simbol ke-5 dst. TIDAK PERNAH
+        mendapat baris `compare_tokens`, sehingga item 10 (WAJIB) menjadi `unspoken`
+        selamanya dan setiap keputusan untuk simbol itu NO_GO. Degradasinya jujur
+        (`unspoken`, bukan nilai default), tetapi SEBABNYA tidak terlihat di mana pun kecuali
+        di sini — jadi "ARB tidak pernah dibandingkan" harus bisa dibaca dari satu baris log,
+        bukan disimpulkan dari cacah yang hilang (temuan SEDANG security-reviewer, TASKS 2.0c;
+        pola yang sama dengan 1.13: celah yang tidak terlihat = celah yang tidak diperbaiki).
+        """
+        watchlist = set(self.config.watchlist)
+        wanted = [symbol for symbol in symbols if symbol in watchlist]
+        out, dropped = wanted[:MAX_COMPARES_PER_CYCLE], wanted[MAX_COMPARES_PER_CYCLE:]
+        if dropped:
+            log.warning(
+                "compare_tokens: %d simbol watchlist, anggaran %d; TIDAK dibandingkan siklus "
+                "ini: %s — item 10 (relatif terhadap pembanding) akan 'unspoken' untuk simbol "
+                "itu sampai WATCHLIST dipersempit atau MAX_COMPARES_PER_CYCLE dinaikkan",
+                len(wanted),
+                MAX_COMPARES_PER_CYCLE,
+                ", ".join(dropped),
+            )
+        return out, dropped
+
     # -- siklus & loop --------------------------------------------------------------------
     def run_cycle(self) -> CycleReport:
         """Satu siklus penuh. Tidak melempar untuk kegagalan tool — lihat :meth:`_record`."""
@@ -490,6 +586,12 @@ class Recorder:
         for symbol in symbols:
             self._record("analyze_token", {"symbol": symbol}, report)
             self._record("deep_analysis", {"symbol": symbol, "include_perp": True}, report)
+
+        compares, compares_dropped = self._compare_symbols(symbols)
+        report.compares = tuple(compares)
+        report.compares_dropped = tuple(compares_dropped)
+        for symbol in compares:
+            self._record("compare_tokens", compare_args(symbol), report)
 
         followups = self._followup_symbols(set(symbols))
         report.followups = tuple(followups)
@@ -526,12 +628,19 @@ class Recorder:
                 total += report.n_recorded
                 consecutive = consecutive + 1 if report.is_total_failure else 0
                 log.info(
-                    "siklus selesai: %d snapshot %s; gagal %d %s; simbol=%d follow-up=%d durasi=%.0fs",
+                    "siklus selesai: %d snapshot %s; gagal %d %s; simbol=%d banding=%d%s "
+                    "follow-up=%d durasi=%.0fs",
                     report.n_recorded,
                     report.recorded,
                     report.n_failed,
                     report.failed,
                     len(report.symbols),
+                    len(report.compares),
+                    (
+                        ""
+                        if not report.compares_dropped
+                        else f" (tanpa banding: {', '.join(report.compares_dropped)})"
+                    ),
                     len(report.followups),
                     time_fn() - started,
                 )
@@ -562,9 +671,16 @@ class Recorder:
 
 
 def _args_label(args: Mapping[str, Any]) -> str:
-    """Label singkat untuk log: simbol saja, tanpa isi envelope."""
+    """Label singkat untuk log: simbol saja, tanpa isi envelope.
+
+    `compare_tokens` tidak punya `symbol` melainkan `symbols` (daftar ber-koma); keduanya
+    argumen yang kita susun sendiri, jadi aman dicatat.
+    """
     symbol = args.get("symbol")
-    return f"[{symbol}]" if isinstance(symbol, str) else ""
+    if isinstance(symbol, str):
+        return f"[{symbol}]"
+    symbols = args.get("symbols")
+    return f"[{symbols}]" if isinstance(symbols, str) else ""
 
 
 def _dotenv_value(raw: str) -> str:

@@ -28,6 +28,7 @@ from core.recorder import (
     CORE_SYMBOLS,
     FOLLOWUP_DONE_AFTER_H,
     FOLLOWUP_MAX_AGE_H,
+    MAX_COMPARES_PER_CYCLE,
     MAX_INTERVAL_S,
     CycleReport,
     Recorder,
@@ -38,6 +39,7 @@ from core.recorder import (
     _normalize_symbol,
     acquire_single_instance_lock,
     build_client,
+    compare_args,
     load_dotenv,
     main,
 )
@@ -205,18 +207,19 @@ def test_full_cycle_records_every_call(store: Store, tmp_path: Path) -> None:
     client = RecordingClient()
     report = make_recorder(store, client).run_cycle()
 
-    # 2 market-wide + 1 scan + 3 simbol x (analyze + deep) = 9 panggilan, 9 snapshot.
+    # 2 market-wide + 1 scan + 3 simbol x (analyze + deep) + 2 banding watchlist = 11 panggilan.
     expected = {
         "market_overview": 1,
         "monitor_market_sentiment_shift": 1,
         "scan_market": 1,
         "analyze_token": 3,
         "deep_analysis": 3,
+        "compare_tokens": 2,
     }
     assert report.recorded == expected
-    assert report.n_recorded == 9
+    assert report.n_recorded == 11
     assert report.failed == {}
-    assert len(report.snapshot_ids) == len(set(report.snapshot_ids)) == 9
+    assert len(report.snapshot_ids) == len(set(report.snapshot_ids)) == 11
     counts = dict(rows(tmp_path / "recorder.db", "SELECT tool, COUNT(*) FROM snapshots GROUP BY tool"))
     assert counts == expected
 
@@ -244,6 +247,7 @@ def test_stored_args_match_the_arguments_actually_sent(store: Store, tmp_path: P
         "scan_market": {"top_n": 1},
         "analyze_token": {"symbol": "SOL"},
         "deep_analysis": {"symbol": "SOL", "include_perp": True},
+        "compare_tokens": {"symbols": "SOL, BNB, ETH", "intent": "swing"},
     }
     assert dict(client.calls) == stored  # yang dikirim == yang disimpan
 
@@ -278,6 +282,116 @@ def test_candidates_never_duplicate_core_symbols(store: Store) -> None:
     report = make_recorder(store, client, watchlist=(SCAN_TOP[0],), max_symbols=3).run_cycle()
     assert report.symbols == (SCAN_TOP[0], SCAN_TOP[1], SCAN_TOP[2])
     assert len(set(report.symbols)) == 3
+
+
+# --- compare_tokens (TASKS 2.0c) -----------------------------------------------------------
+def test_compare_tokens_is_recorded_for_watchlist_symbols_only(store: Store) -> None:
+    """Kandidat `scan_market` TIDAK dibandingkan: ~42 dtk per panggilan, dan item 10 hanya
+    membutuhkan baris segar untuk simbol inti."""
+    client = RecordingClient()
+    report = make_recorder(store, client).run_cycle()
+
+    assert report.symbols == ("SOL", "BTC", SCAN_TOP[0])
+    assert report.compares == ("SOL", "BTC")
+    assert client.tools_called("compare_tokens") == [
+        {"symbols": "SOL, BNB, ETH", "intent": "swing"},
+        {"symbols": "BTC, BNB, ETH", "intent": "swing"},
+    ]
+
+
+def test_compare_tokens_is_capped_by_the_cycle_budget(store: Store, caplog: pytest.LogCaptureFixture) -> None:
+    """Anggaran mengikat, DAN pemotongannya menyebut simbol yang kehilangan cakupan.
+
+    Temuan SEDANG security-reviewer (TASKS 2.0c): `WATCHLIST` yang diperlebar lewat env
+    membuat simbol ke-5 dst. tidak pernah punya baris `compare_tokens`, sehingga item 10
+    (WAJIB) `unspoken` selamanya. Degradasinya jujur; sebabnya harus terlihat.
+    """
+    client = RecordingClient()
+    watchlist = ("SOL", "BTC", "ETH", "BNB", "ARB", "OP")
+    with caplog.at_level(logging.WARNING, logger="core.recorder"):
+        report = make_recorder(store, client, watchlist=watchlist, max_symbols=6).run_cycle()
+
+    assert len(report.compares) == MAX_COMPARES_PER_CYCLE == 4
+    assert report.compares == ("SOL", "BTC", "ETH", "BNB")
+    assert len(client.tools_called("compare_tokens")) == 4
+
+    # Dua simbol terakhir disebut NAMANYA — di CycleReport dan di WARNING.
+    assert report.compares_dropped == ("ARB", "OP")
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "compare_tokens" in r.message]
+    assert len(warnings) == 1
+    text = warnings[0].getMessage()
+    assert "ARB, OP" in text
+    assert "item 10" in text and "unspoken" in text
+
+
+def test_compare_budget_that_does_not_bite_is_silent(store: Store, caplog: pytest.LogCaptureFixture) -> None:
+    """Watchlist 4 simbol (produksi hari ini) → tidak ada yang dipotong, tidak ada WARNING."""
+    client = RecordingClient()
+    with caplog.at_level(logging.WARNING, logger="core.recorder"):
+        report = make_recorder(store, client, watchlist=CORE_SYMBOLS, max_symbols=6).run_cycle()
+
+    assert report.compares == CORE_SYMBOLS
+    assert report.compares_dropped == ()
+    assert "compare_tokens" not in caplog.text
+
+
+def test_dropped_compare_symbols_are_named_in_the_cycle_log(
+    store: Store, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Ringkasan satu baris per siklus juga menyebutnya, supaya `daemons.sh status` cukup."""
+    clock = FakeClock()
+    recorder = make_recorder(
+        store, RecordingClient(), watchlist=("SOL", "BTC", "ETH", "BNB", "ARB", "OP"), max_symbols=6
+    )
+    with caplog.at_level(logging.INFO, logger="core.recorder"):
+        recorder.run(max_cycles=1, sleep_fn=clock.sleep, time_fn=clock.time)
+
+    line = [r.getMessage() for r in caplog.records if "siklus selesai" in r.getMessage()][-1]
+    assert "banding=4 (tanpa banding: ARB, OP)" in line
+
+
+def test_compare_args_never_compares_a_symbol_with_itself() -> None:
+    """`BNB` ada di `COMPARE_PEERS`; dedupe mempertahankan urutan (`args_hash` = teksnya)."""
+    assert compare_args("BNB") == {"symbols": "BNB, ETH", "intent": "swing"}
+    assert compare_args("ETH") == {"symbols": "ETH, BNB", "intent": "swing"}
+    assert compare_args("SOL") == {"symbols": "SOL, BNB, ETH", "intent": "swing"}
+
+
+@pytest.mark.parametrize("symbol", CORE_SYMBOLS)
+def test_recorder_compare_args_match_what_preflight_looks_up(symbol: str) -> None:
+    """Kesamaan args perekam vs pembaca store dijaga TES, bukan impor (ADR-002:
+    `core/` tidak boleh mengimpor `preflight/`).
+
+    Tes ini menggigit: mengubah `preflight.params.Params.peers` (atau `COMPARE_PEERS` di
+    perekam) membuatnya gagal — dan kegagalan itu adalah peringatan bahwa setiap baris
+    `compare_tokens` yang direkam sejak sekarang tidak akan pernah ditemukan item 10.
+    """
+    from preflight.skill import tool_args
+
+    assert compare_args(symbol) == tool_args(symbol, "swing")["compare_tokens"]
+
+
+def test_recorded_compare_args_are_found_by_the_store_lookup_shape(store: Store, tmp_path: Path) -> None:
+    """Bukan sekadar dict yang sama: `args_hash` baris yang DIREKAM == hash args pencarian."""
+    from preflight.skill import tool_args
+
+    client = RecordingClient()
+    make_recorder(store, client, watchlist=("SOL",), max_symbols=1).run_cycle()
+    stored = dict(
+        rows(
+            tmp_path / "recorder.db",
+            "SELECT tool, args_hash FROM snapshots WHERE tool = 'compare_tokens'",
+        )
+    )
+    assert stored["compare_tokens"] == sha256_hex(tool_args("SOL", "swing")["compare_tokens"])
+
+
+def test_compare_tokens_failure_does_not_stop_the_cycle(store: Store) -> None:
+    client = RecordingClient({"compare_tokens": RyoNetworkError("compare_tokens: jaringan gagal")})
+    report = make_recorder(store, client).run_cycle()
+    assert report.failed == {"compare_tokens": 2}
+    assert report.recorded.get("deep_analysis") == 3
+    assert "compare_tokens" not in report.recorded
 
 
 # --- kegagalan per komponen (ADR-004) ------------------------------------------------------
@@ -338,7 +452,7 @@ def test_unexpected_client_exception_is_contained_per_component(store: Store) ->
     client = RecordingClient({"market_overview": RuntimeError("bug klien")})
     report = make_recorder(store, client).run_cycle()
     assert report.failed == {"market_overview": 1}
-    assert report.n_recorded == 8
+    assert report.n_recorded == 10
 
 
 def test_malformed_scan_envelope_yields_no_candidates(store: Store) -> None:
@@ -499,7 +613,7 @@ def test_followup_survives_store_read_failure(store: Store, monkeypatch: pytest.
     monkeypatch.setattr(store, "recent_args", broken)
     report = make_recorder(store, RecordingClient()).run_cycle()
     assert report.followups == ()
-    assert report.n_recorded == 9
+    assert report.n_recorded == 11
 
 
 # --- loop --------------------------------------------------------------------------------
@@ -520,7 +634,7 @@ def test_loop_survives_a_cycle_that_raises(store: Store, caplog: pytest.LogCaptu
         summary = recorder.run(max_cycles=3, sleep_fn=clock.sleep, time_fn=clock.time)
 
     assert len(attempts) == 3  # dua siklus gagal TIDAK menghentikan loop
-    assert summary.recorded == 9  # siklus ketiga tetap merekam
+    assert summary.recorded == 11  # siklus ketiga tetap merekam
     assert not summary.aborted
     assert len(clock.sleeps) == 2  # tidur di antara siklus, bukan setelah yang terakhir
 
@@ -538,7 +652,7 @@ def test_loop_sleeps_the_remainder_of_the_interval(store: Store) -> None:
     clock = FakeClock()
     recorder = make_recorder(store, SlowClient(clock), interval_s=600.0)
     recorder.run(max_cycles=2, sleep_fn=clock.sleep, time_fn=clock.time)
-    assert clock.sleeps == [600.0 - 90.0]  # 9 panggilan x 10 dtk
+    assert clock.sleeps == [600.0 - 110.0]  # 11 panggilan x 10 dtk
 
 
 def test_loop_never_sleeps_below_one_second(store: Store) -> None:
@@ -611,7 +725,7 @@ def test_failure_streak_resets_after_a_good_cycle(store: Store) -> None:
     summary = recorder.run(max_cycles=5, sleep_fn=clock.sleep, time_fn=clock.time)
     assert summary.aborted is False  # streak direset oleh siklus ke-3
     assert summary.cycles == 5
-    assert summary.recorded == 9
+    assert summary.recorded == 11
 
 
 def test_loop_stops_when_sleep_fails(store: Store, caplog: pytest.LogCaptureFixture) -> None:
@@ -767,10 +881,10 @@ def test_once_twice_over_the_same_db_adds_rows(tmp_path: Path, monkeypatch: pyte
     assert main(["--once", "--client", "fixture"]) == 0
     second = rows(db, "SELECT COUNT(*) FROM snapshots")[0][0]
 
-    assert first == 9
-    # Siklus kedua = 9 panggilan yang sama; tidak ada dedup (ADR-006) dan tidak ada follow-up
+    assert first == 11
+    # Siklus kedua = 11 panggilan yang sama; tidak ada dedup (ADR-006) dan tidak ada follow-up
     # karena ketiga simbol siklus pertama masih ada di watchlist siklus kedua.
-    assert second == 18
+    assert second == 22
 
 
 def test_once_records_followups_after_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
