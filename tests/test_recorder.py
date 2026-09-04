@@ -13,11 +13,13 @@ Semua tes OFFLINE dan hanya menulis ke `tmp_path`:
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
 import socket
 import sqlite3
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,9 @@ from core.recorder import (
     FOLLOWUP_MAX_AGE_H,
     MAX_COMPARES_PER_CYCLE,
     MAX_INTERVAL_S,
+    MIN_CYCLE_BUDGET_S,
+    MIN_SLEEP_S,
+    SLEEP_SLICE_S,
     CycleReport,
     Recorder,
     RecorderConfig,
@@ -643,7 +648,7 @@ def test_loop_survives_a_cycle_that_raises(store: Store, caplog: pytest.LogCaptu
     attempts: list[int] = []
     real_cycle = recorder.run_cycle
 
-    def flaky() -> CycleReport:
+    def flaky(**_: Any) -> CycleReport:
         attempts.append(len(attempts))
         if len(attempts) <= 2:
             raise RuntimeError("bug siklus")
@@ -657,7 +662,9 @@ def test_loop_survives_a_cycle_that_raises(store: Store, caplog: pytest.LogCaptu
     assert len(attempts) == 3  # dua siklus gagal TIDAK menghentikan loop
     assert summary.recorded == 11  # siklus ketiga tetap merekam
     assert not summary.aborted
-    assert len(clock.sleeps) == 2  # tidur di antara siklus, bukan setelah yang terakhir
+    # Jeda dipotong `SLEEP_SLICE_S` (TASKS 0.8a), jadi yang dihitung adalah TOTAL waktu
+    # tidur: dua jeda penuh di antara tiga siklus, dan tidak ada tidur setelah yang terakhir.
+    assert sum(clock.sleeps) == pytest.approx(2 * 3600.0)
 
 
 def test_loop_sleeps_the_remainder_of_the_interval(store: Store) -> None:
@@ -673,7 +680,10 @@ def test_loop_sleeps_the_remainder_of_the_interval(store: Store) -> None:
     clock = FakeClock()
     recorder = make_recorder(store, SlowClient(clock), interval_s=600.0)
     recorder.run(max_cycles=2, sleep_fn=clock.sleep, time_fn=clock.time)
-    assert clock.sleeps == [600.0 - 110.0]  # 11 panggilan x 10 dtk
+    # Jeda dipotong `SLEEP_SLICE_S` (TASKS 0.8a) — yang dijaga adalah TOTALnya dan batas
+    # tiap potongan, bukan bahwa jedanya satu panggilan `sleep` tunggal.
+    assert sum(clock.sleeps) == pytest.approx(600.0 - 110.0)  # 11 panggilan x 10 dtk
+    assert max(clock.sleeps) <= SLEEP_SLICE_S
 
 
 def test_loop_never_sleeps_below_one_second(store: Store) -> None:
@@ -735,7 +745,7 @@ def test_failure_streak_resets_after_a_good_cycle(store: Store) -> None:
     attempts: list[int] = []
     real_cycle = recorder.run_cycle
 
-    def flaky() -> CycleReport:
+    def flaky(**_: Any) -> CycleReport:
         attempts.append(len(attempts))
         if len(attempts) in (1, 2, 4, 5):
             raise RuntimeError("bug siklus")
@@ -760,6 +770,232 @@ def test_loop_stops_when_sleep_fails(store: Store, caplog: pytest.LogCaptureFixt
     assert summary.aborted is True
     assert summary.cycles == 1
     assert "berputar tanpa jeda" in caplog.text
+
+
+# --- suspend host & watchdog siklus (TASKS 0.8a) -------------------------------------------
+class SuspendingClock(FakeClock):
+    """Jam palsu yang mensimulasikan host tersuspend DI TENGAH satu potongan tidur.
+
+    `logs/recorder.log` 2026-09-02: satu `backoff 60.0s` memakan 3j19m jam dinding karena
+    host tidur. Di sini `jump_after` potongan pertama, waktunya dimajukan `jump_s` EKSTRA di
+    luar durasi tidur yang diminta — persis bentuk yang tidak terlihat oleh `time.monotonic`.
+    """
+
+    def __init__(self, *, jump_after: int, jump_s: float) -> None:
+        super().__init__()
+        self._jump_after = jump_after
+        self._jump_s = jump_s
+
+    def sleep(self, seconds: float) -> None:
+        super().sleep(seconds)
+        if len(self.sleeps) == self._jump_after:
+            self.t += self._jump_s
+
+
+def test_suspended_host_does_not_burn_the_rest_of_a_stale_sleep(store: Store) -> None:
+    """Host tidur 3 jam di tengah jeda → siklus berikutnya jalan SEGERA, bukan setelah sisa jeda."""
+    clock = SuspendingClock(jump_after=1, jump_s=3 * 3600.0)
+    recorder = make_recorder(store, interval_s=3600.0)
+    recorder.run(max_cycles=2, sleep_fn=clock.sleep, time_fn=clock.time)
+
+    # Hanya satu potongan yang benar-benar ditidurkan: sesudahnya sisa jeda sudah lewat.
+    assert clock.sleeps == [SLEEP_SLICE_S]
+    assert sum(clock.sleeps) < 3600.0  # jeda TIDAK dihabiskan sampai penuh
+
+
+def test_suspended_host_is_reported_in_the_log(store: Store, caplog: pytest.LogCaptureFixture) -> None:
+    """Celah yang tidak dicatat adalah celah yang tidak diperbaiki: satu baris WARNING."""
+    clock = SuspendingClock(jump_after=1, jump_s=3 * 3600.0)
+    with caplog.at_level(logging.WARNING, logger="core.recorder"):
+        make_recorder(store, interval_s=3600.0).run(max_cycles=2, sleep_fn=clock.sleep, time_fn=clock.time)
+
+    assert "tersuspend" in caplog.text
+    assert "180 menit" in caplog.text  # 3 jam, apa adanya — bukan dibulatkan jadi "beberapa jam"
+
+
+def test_short_pauses_are_not_reported_as_suspend(store: Store, caplog: pytest.LogCaptureFixture) -> None:
+    """Kebalikannya: jeda yang lebih pendek dari satu interval BUKAN suspend, jangan berisik."""
+    clock = SuspendingClock(jump_after=1, jump_s=120.0)
+    with caplog.at_level(logging.WARNING, logger="core.recorder"):
+        make_recorder(store, interval_s=3600.0).run(max_cycles=2, sleep_fn=clock.sleep, time_fn=clock.time)
+
+    assert "tersuspend" not in caplog.text
+
+
+def test_wall_clock_moving_backwards_never_sleeps_longer_than_one_interval(store: Store) -> None:
+    """Koreksi NTP mundur tidak boleh berubah menjadi tidur berjam-jam."""
+    clock = SuspendingClock(jump_after=1, jump_s=-6 * 3600.0)
+    make_recorder(store, interval_s=600.0).run(max_cycles=2, sleep_fn=clock.sleep, time_fn=clock.time)
+
+    assert sum(clock.sleeps) <= 600.0 + SLEEP_SLICE_S
+
+
+def test_watchdog_cuts_a_cycle_that_overruns_its_wall_clock_budget(
+    store: Store, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Siklus yang menggantung dipotong, snapshot yang sudah masuk tetap tersimpan."""
+
+    class HangingClient(RecordingClient):
+        """Setiap panggilan memakan satu jam jam dinding."""
+
+        def __init__(self, clock: FakeClock) -> None:
+            super().__init__()
+            self._clock = clock
+
+        def call(self, tool: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+            self._clock.t += 3600.0
+            return super().call(tool, args)
+
+    clock = FakeClock()
+    recorder = make_recorder(store, HangingClient(clock), interval_s=3600.0)
+    with caplog.at_level(logging.WARNING, logger="core.recorder"):
+        report = recorder.run_cycle(deadline=clock.t + 7200.0, time_fn=clock.time)
+
+    assert report.aborted is True
+    assert report.n_recorded == 2  # dua panggilan sempat masuk sebelum anggaran habis
+    assert "melewati anggaran" in caplog.text
+
+
+def test_watchdog_lets_the_loop_start_a_fresh_cycle(store: Store) -> None:
+    """Siklus yang dipotong TIDAK menghentikan perekam — siklus baru dimulai, proses tetap hidup."""
+
+    class SlowThenNormal(RecordingClient):
+        def __init__(self, clock: FakeClock) -> None:
+            super().__init__()
+            self._clock = clock
+            self.cycles = 0
+
+        def call(self, tool: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+            if tool == "market_overview":
+                self.cycles += 1
+            if self.cycles == 1:
+                self._clock.t += 3600.0  # siklus pertama menggantung
+            return super().call(tool, args)
+
+    clock = FakeClock()
+    client = SlowThenNormal(clock)
+    summary = make_recorder(store, client, interval_s=3600.0).run(
+        max_cycles=2, sleep_fn=clock.sleep, time_fn=clock.time
+    )
+
+    assert summary.aborted is False  # dipotong ≠ menyerah
+    assert summary.cycles == 2
+    assert client.cycles == 2  # siklus kedua benar-benar berjalan
+
+
+def test_watchdog_does_not_fire_on_a_normal_cycle(store: Store) -> None:
+    """Siklus normal (990-1268 dtk di produksi) tidak boleh tersentuh watchdog."""
+    clock = FakeClock()
+    report = make_recorder(store, interval_s=3600.0).run_cycle(deadline=clock.t + 7200.0, time_fn=clock.time)
+    assert report.aborted is False
+    assert report.n_recorded == 11
+
+
+def test_run_schedules_on_the_wall_clock_by_default() -> None:
+    """Default `time_fn` adalah `time.time`, bukan `time.monotonic` — sebab celah 0.8a."""
+    assert inspect.signature(Recorder.run).parameters["time_fn"].default is time.time
+
+
+def test_a_cut_short_cycle_is_followed_by_a_full_interval_pause(store: Store) -> None:
+    """Temuan TINGGI 0.8a: siklus terpotong TIDAK boleh disusul jeda 1 detik lalu siklus penuh.
+
+    Anggaran watchdog selalu ≥ 2x interval, jadi `started + interval` sudah lewat saat siklus
+    dipotong. Tanpa perbaikan ini perekam mengulang siklus penuh nyaris tanpa jeda — terukur
+    2703 panggilan/jam melawan ~11/jam normal, yaitu polling rapat yang dilarang api-facts §A.
+    """
+
+    class AlwaysSlow(RecordingClient):
+        def __init__(self, clock: FakeClock) -> None:
+            super().__init__()
+            self._clock = clock
+
+        def call(self, tool: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+            self._clock.t += 3600.0
+            return super().call(tool, args)
+
+    clock = FakeClock()
+    make_recorder(store, AlwaysSlow(clock), interval_s=3600.0, max_failed_cycles=100).run(
+        max_cycles=3, sleep_fn=clock.sleep, time_fn=clock.time
+    )
+
+    assert clock.sleeps  # ada jeda sama sekali
+    assert MIN_SLEEP_S not in clock.sleeps  # bukan jatuh ke lantai 1 detik
+    assert sum(clock.sleeps) == pytest.approx(2 * 3600.0)  # dua jeda penuh di antara tiga siklus
+
+
+def test_recorder_stops_when_the_cycle_tail_starves(store: Store, caplog: pytest.LogCaptureFixture) -> None:
+    """Temuan TINGGI 0.8a: siklus terpotong selalu menyimpan snapshot, jadi rem lama buta.
+
+    `compare_tokens` dan follow-up ada di EKOR siklus — merekalah yang selalu terpotong lebih
+    dulu. Tanpa rem terpisah, perekam bisa berjalan selamanya tampak sehat sementara item 10
+    (WAJIB) selalu `unspoken` dan outcome T+24 jam tidak pernah punya pembacaan kedua.
+    """
+
+    class AlwaysSlow(RecordingClient):
+        def __init__(self, clock: FakeClock) -> None:
+            super().__init__()
+            self._clock = clock
+
+        def call(self, tool: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+            self._clock.t += 3600.0
+            return super().call(tool, args)
+
+    clock = FakeClock()
+    client = AlwaysSlow(clock)
+    recorder = make_recorder(store, client, interval_s=3600.0, max_failed_cycles=3)
+    with caplog.at_level(logging.ERROR, logger="core.recorder"):
+        summary = recorder.run(max_cycles=50, sleep_fn=clock.sleep, time_fn=clock.time)
+
+    assert summary.aborted is True
+    assert summary.cycles == 3  # berhenti pada siklus terpotong ketiga, bukan berputar 50x
+    assert client.tools_called("compare_tokens") == []  # ekor memang tidak pernah tercapai
+    assert "dipotong watchdog" in caplog.text
+    assert "unspoken" in caplog.text  # akibatnya disebut, bukan hanya cacahnya
+
+
+def test_a_cut_short_cycle_reports_only_what_it_actually_recorded(
+    store: Store, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Cacah di baris log = yang benar-benar dijalankan, bukan daftar niat (CLAUDE.md)."""
+
+    class SlowAfterFirstSymbol(RecordingClient):
+        def __init__(self, clock: FakeClock) -> None:
+            super().__init__()
+            self._clock = clock
+
+        def call(self, tool: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+            if tool == "deep_analysis":
+                self._clock.t += 9000.0
+            return super().call(tool, args)
+
+    clock = FakeClock()
+    client = SlowAfterFirstSymbol(clock)
+    recorder = make_recorder(store, client, interval_s=3600.0)
+    with caplog.at_level(logging.INFO, logger="core.recorder"):
+        recorder.run(max_cycles=1, sleep_fn=clock.sleep, time_fn=clock.time)
+
+    assert "banding=0" in caplog.text  # compare_tokens memang tidak pernah dipanggil
+    assert "follow-up=0" in caplog.text
+    assert client.tools_called("compare_tokens") == []
+
+
+def test_run_hands_the_watchdog_deadline_to_run_cycle(store: Store) -> None:
+    """Kontrak watchdog dijaga eksplisit: stub `**kwargs` di tes lain tidak boleh menelannya."""
+    seen: list[dict[str, Any]] = []
+    recorder = make_recorder(store, interval_s=600.0)
+    real_cycle = recorder.run_cycle
+
+    def spy(**kwargs: Any) -> CycleReport:
+        seen.append(kwargs)
+        return real_cycle(**kwargs)
+
+    recorder.run_cycle = spy  # type: ignore[method-assign]
+    clock = FakeClock()
+    recorder.run(max_cycles=1, sleep_fn=clock.sleep, time_fn=clock.time)
+
+    assert len(seen) == 1
+    assert seen[0]["time_fn"] == clock.time  # metode terikat: bandingkan nilai, bukan identitas
+    assert seen[0]["deadline"] == pytest.approx(clock.t + max(2 * 600.0, MIN_CYCLE_BUDGET_S))
 
 
 # --- instance tunggal ----------------------------------------------------------------------
@@ -1005,7 +1241,7 @@ def test_unexpected_exception_message_never_reaches_the_log(
 def test_cycle_level_failure_logs_type_only(store: Store, caplog: pytest.LogCaptureFixture) -> None:
     recorder = make_recorder(store)
 
-    def boom() -> CycleReport:
+    def boom(**_: Any) -> CycleReport:
         raise RuntimeError(f"Bearer {LOUD_KEY}")
 
     recorder.run_cycle = boom  # type: ignore[method-assign]

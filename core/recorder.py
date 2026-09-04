@@ -135,6 +135,24 @@ DEFAULT_MAX_FOLLOWUPS = 20
 #: Siklus beruntun tanpa satu pun snapshot sebelum perekam menyerah dengan kode ≠ 0.
 DEFAULT_MAX_FAILED_CYCLES = 3
 
+# -- jam dinding, suspend host, dan watchdog siklus (TASKS 0.8a) ---------------------------
+#: Jeda antar siklus ditidurkan dalam potongan sependek ini, lalu sisa waktu dihitung ULANG
+#: dari jam dinding. Alasannya ada di "Kenapa jam dinding" pada docstring modul.
+SLEEP_SLICE_S = 60.0
+#: Jeda terpendek yang masih dianggap jeda: perekam tidak boleh berputar tanpa tidur sama
+#: sekali walau siklusnya sendiri sudah lebih lama dari interval.
+MIN_SLEEP_S = 1.0
+#: Satu potongan tidur yang memakan waktu jam dinding sebanyak ini LEBIH LAMA daripada yang
+#: diminta = host tersuspend (atau jam dinding dimajukan). Satu interval, bukan dua: lompatan
+#: sebesar satu interval berarti setidaknya satu siklus hilang, dan celah yang tidak dicatat
+#: adalah celah yang tidak diperbaiki.
+SUSPEND_FACTOR = 1.0
+#: Anggaran jam dinding satu siklus = `CYCLE_BUDGET_FACTOR` x interval, minimal
+#: `MIN_CYCLE_BUDGET_S`. Siklus nyata memakan 990-1268 dtk dari interval 3600 dtk (log 1-4 Sep),
+#: jadi 2x interval adalah kelonggaran besar yang hanya tersentuh oleh kejadian tak wajar.
+CYCLE_BUDGET_FACTOR = 2.0
+MIN_CYCLE_BUDGET_S = 1800.0
+
 #: Umur maksimum sebuah simbol untuk ikut follow-up. 26 jam, bukan 24: siklus per jam butuh
 #: kelonggaran agar pembacaan T+24 jam tidak terlewat gara-gara satu siklus yang molor.
 FOLLOWUP_MAX_AGE_H = 26.0
@@ -315,6 +333,9 @@ class CycleReport:
     #: produksi hari ini; bila terisi, itulah sebab item 10 bisu untuk simbol tersebut.
     compares_dropped: tuple[str, ...] = ()
     followups: tuple[str, ...] = ()
+    #: Siklus dipotong watchdog karena melewati anggaran jam dinding (TASKS 0.8a). Snapshot
+    #: yang SUDAH tersimpan tetap tersimpan; sisanya tidak dipanggil.
+    aborted: bool = False
 
     @property
     def n_recorded(self) -> int:
@@ -588,36 +609,121 @@ class Recorder:
         return out, dropped
 
     # -- siklus & loop --------------------------------------------------------------------
-    def run_cycle(self) -> CycleReport:
-        """Satu siklus penuh. Tidak melempar untuk kegagalan tool — lihat :meth:`_record`."""
+    def run_cycle(
+        self,
+        *,
+        deadline: float | None = None,
+        time_fn: Callable[[], float] = time.time,
+    ) -> CycleReport:
+        """Satu siklus penuh. Tidak melempar untuk kegagalan tool — lihat :meth:`_record`.
+
+        `deadline` (detik jam dinding, sama satuan dengan `time_fn`) adalah watchdog siklus:
+        sebelum setiap panggilan berikutnya perekam memeriksa apakah anggarannya sudah lewat
+        dan, bila ya, MENGHENTIKAN siklus ini dengan `CycleReport.aborted = True`. Ia tidak
+        membunuh proses apa pun dan tidak menyentuh snapshot yang sudah tersimpan (batas 1.13
+        utuh).
+
+        `report.symbols` / `.compares` / `.followups` diisi SESUDAH panggilannya berhasil
+        dijalankan, bukan di depan dari daftar niat: pada siklus yang dipotong, cacah yang
+        dilaporkan log harus cacah yang benar-benar terekam. Langkah yang tidak pernah
+        dijalankan muncul sebagai daftar kosong karena memang tidak ada amatannya — bukan
+        karena nilainya nol (CLAUDE.md, "tunjuk & sebut").
+        """
         report = CycleReport()
+
+        def over_budget(stage: str) -> bool:
+            if deadline is None or time_fn() < deadline:
+                return False
+            report.aborted = True
+            log.warning(
+                "siklus melewati anggaran jam dinding sebelum %s; siklus dipotong dengan %d "
+                "snapshot tersimpan, siklus baru dimulai dari data terkini",
+                stage,
+                report.n_recorded,
+            )
+            return True
+
         self._record("market_overview", {}, report)
+        if over_budget("monitor_market_sentiment_shift"):
+            return report
         self._record("monitor_market_sentiment_shift", {}, report)
 
+        if over_budget("scan_market"):
+            return report
         symbols = self._cycle_symbols(report)
-        report.symbols = tuple(symbols)
         for symbol in symbols:
+            if over_budget(f"analyze_token [{symbol}]"):
+                return report
             self._record("analyze_token", {"symbol": symbol}, report)
             self._record("deep_analysis", {"symbol": symbol, "include_perp": True}, report)
+            report.symbols += (symbol,)
 
         compares, compares_dropped = self._compare_symbols(symbols)
-        report.compares = tuple(compares)
         report.compares_dropped = tuple(compares_dropped)
         for symbol in compares:
+            if over_budget(f"compare_tokens [{symbol}]"):
+                return report
             self._record("compare_tokens", compare_args(symbol), report)
+            report.compares += (symbol,)
 
         followups = self._followup_symbols(set(symbols))
-        report.followups = tuple(followups)
         for symbol in followups:
+            if over_budget(f"follow-up [{symbol}]"):
+                return report
             self._record("analyze_token", {"symbol": symbol}, report)
+            report.followups += (symbol,)
         return report
+
+    def _sleep_until(
+        self,
+        next_start: float,
+        *,
+        sleep_fn: Callable[[float], None],
+        time_fn: Callable[[], float],
+    ) -> None:
+        """Tidur sampai `next_start` (jam dinding) dalam potongan `SLEEP_SLICE_S`.
+
+        Satu `sleep_fn(3600)` tidak bisa dibangunkan lebih awal: bila host tersuspend di
+        tengahnya, jam dinding melompat berjam-jam sementara tidurnya tetap berjalan sampai
+        habis. Memotongnya dan menghitung ulang sisa waktu dari `time_fn` membuat siklus
+        berikutnya jalan SEGERA setelah host bangun.
+        """
+        slept = 0.0
+        while True:
+            remaining = next_start - time_fn()
+            # Jam dinding mundur (koreksi NTP) tidak boleh berubah menjadi tidur panjang.
+            remaining = min(remaining, self.config.interval_s)
+            if remaining <= 0.0 and slept >= MIN_SLEEP_S:
+                return
+            if slept >= self.config.interval_s and remaining > 0.0:
+                # Jam dinding mundur (koreksi NTP) memindahkan tenggatnya menjauh; total tidur
+                # tetap dipatok satu interval supaya jeda tidak ikut tumbuh sebesar koreksinya.
+                log.warning(
+                    "jam dinding mundur selama jeda; jeda ditutup setelah %.0f dtk (satu interval) "
+                    "daripada mengikuti tenggat yang ikut mundur",
+                    slept,
+                )
+                return
+            chunk = max(min(remaining, SLEEP_SLICE_S), MIN_SLEEP_S - slept)
+            before = time_fn()
+            sleep_fn(chunk)
+            slept += chunk
+            drift = (time_fn() - before) - chunk
+            if drift >= SUSPEND_FACTOR * self.config.interval_s:
+                log.warning(
+                    "jam dinding melompat %.0f menit selama jeda %.0f dtk — host tampaknya "
+                    "tersuspend; siklus berikutnya dijalankan segera, jam yang terlewat tidak "
+                    "bisa direkam ulang",
+                    drift / 60.0,
+                    chunk,
+                )
 
     def run(
         self,
         *,
         max_cycles: int | None = None,
         sleep_fn: Callable[[float], None] = time.sleep,
-        time_fn: Callable[[], float] = time.monotonic,
+        time_fn: Callable[[], float] = time.time,
     ) -> RunSummary:
         """Loop perekaman. `max_cycles=1` = mode `--once`.
 
@@ -625,24 +731,40 @@ class Recorder:
         berhenti karena tiga sebab, semuanya dicatat: jumlah siklus tercapai,
         `RECORDER_MAX_FAILED_CYCLES` siklus beruntun tanpa snapshot, atau `sleep_fn` gagal
         (berputar tanpa jeda akan membakar kuota lebih cepat daripada berhenti).
+
+        **Kenapa jam dinding, bukan `time.monotonic` (TASKS 0.8a).** `CLOCK_MONOTONIC` — dan
+        `time.sleep`, yang memakainya — tidak menghitung waktu host tersuspend. Di
+        `logs/recorder.log` satu siklus mulai 2026-09-02 02:08:25 dan selesai 05:44:15 (3j36m
+        jam dinding) sambil melaporkan `durasi=1054s`; celah 3j19m-nya jatuh di dalam satu
+        `backoff 60.0s`. Semua `durasi=` di log ada di 990-1268 dtk, jadi tidak ada satu pun
+        siklus yang benar-benar menggantung dan `DEFAULT_TIMEOUT_S` di `core.ryo_client`
+        bekerja: sebab celahnya adalah jamnya, bukan requestnya. Jadwal dan watchdog di sini
+        memakai `time_fn` = `time.time`, dan durasi yang dicatat log adalah durasi jam dinding
+        — angka yang sama dengan yang dilihat `daemons.sh status` dan sapuan `data/ryo.db`.
         """
         total = 0
         cycles = 0
         consecutive = 0
+        cut_short = 0
         while True:
             started = time_fn()
+            budget = max(CYCLE_BUDGET_FACTOR * self.config.interval_s, MIN_CYCLE_BUDGET_S)
+            aborted_cycle = False
             try:
-                report = self.run_cycle()
+                report = self.run_cycle(deadline=started + budget, time_fn=time_fn)
             except Exception as exc:  # noqa: BLE001 — pagar terakhir: satu siklus yang meledak
                 # tidak boleh menghentikan perekaman. Nama tipe saja (lihat docstring modul).
                 log.error("siklus gagal seluruhnya (%s); lanjut ke siklus berikutnya", type(exc).__name__)
                 consecutive += 1
             else:
+                aborted_cycle = report.aborted
+                cut_short = cut_short + 1 if report.aborted else 0
                 total += report.n_recorded
                 consecutive = consecutive + 1 if report.is_total_failure else 0
                 log.info(
-                    "siklus selesai: %d snapshot %s; gagal %d %s; simbol=%d banding=%d%s "
+                    "siklus %s: %d snapshot %s; gagal %d %s; simbol=%d banding=%d%s "
                     "follow-up=%d durasi=%.0fs",
+                    "DIPOTONG watchdog" if report.aborted else "selesai",
                     report.n_recorded,
                     report.recorded,
                     report.n_failed,
@@ -659,6 +781,20 @@ class Recorder:
                 )
             cycles += 1
 
+            if cut_short >= self.config.max_failed_cycles:
+                # Siklus terpotong SELALU menyimpan beberapa snapshot, jadi rem
+                # `is_total_failure` tidak akan pernah menggigitnya: `daemons.sh status` dan
+                # `db_status.py` tetap melihat data segar sementara `compare_tokens` dan
+                # follow-up — ekor siklus, satu-satunya sumber item 10 dan pembacaan T+24 jam —
+                # tidak pernah dijalankan lagi. Rem terpisah supaya kelaparan itu berisik,
+                # bukan senyap (temuan TINGGI security-reviewer 0.8a, 4 Sep 2026).
+                log.error(
+                    "%d siklus berturut-turut dipotong watchdog; ekor siklus (compare_tokens, "
+                    "follow-up) tidak pernah dijalankan lagi sehingga item 10 akan 'unspoken' dan "
+                    "outcome T+24 jam kehilangan pembacaan kedua; perekam berhenti agar terlihat",
+                    cut_short,
+                )
+                return RunSummary(cycles, total, consecutive, aborted=True)
             if consecutive >= self.config.max_failed_cycles:
                 log.error(
                     "%d siklus berturut-turut tanpa satu pun snapshot tersimpan; perekam berhenti "
@@ -669,15 +805,18 @@ class Recorder:
             if max_cycles is not None and cycles >= max_cycles:
                 return RunSummary(cycles, total, consecutive, aborted=False)
 
-            delay = max(1.0, self.config.interval_s - (time_fn() - started))
+            # Siklus yang dipotong sudah melewati anggarannya (≥ 2x interval), jadi
+            # `started + interval` sudah lewat dan jedanya akan jatuh ke lantai 1 detik: siklus
+            # penuh baru langsung dimulai, berulang-ulang. Terukur 2703 panggilan/jam vs 11/jam
+            # normal — polling rapat yang dilarang api-facts §A dan docs/rules-compliance.md
+            # (temuan TINGGI security-reviewer 0.8a). Karena itu jedanya dihitung dari SEKARANG.
+            resume_at = (time_fn() if aborted_cycle else started) + self.config.interval_s
             try:
-                sleep_fn(delay)
+                self._sleep_until(resume_at, sleep_fn=sleep_fn, time_fn=time_fn)
             except Exception as exc:  # noqa: BLE001 — sleep yang gagal (mis. nilai di luar
                 # jangkauan OS) tidak boleh berubah menjadi loop tanpa jeda.
                 log.error(
-                    "gagal menunggu %.0f dtk antar siklus (%s); perekam berhenti daripada "
-                    "berputar tanpa jeda",
-                    delay,
+                    "gagal menunggu jeda antar siklus (%s); perekam berhenti daripada berputar tanpa jeda",
                     type(exc).__name__,
                 )
                 return RunSummary(cycles, total, consecutive, aborted=True)
