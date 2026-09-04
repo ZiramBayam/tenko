@@ -235,7 +235,12 @@ def test_item2_green_although_optional_sections_are_unavailable() -> None:
     """`token_profile`/`derivatives` unavailable di 294/294 baris nyata: dicatat, bukan merah."""
     outcome = run()[ITEM_COMPLETENESS]
     assert outcome.status == GREEN
-    assert outcome.result.value["optional_sections_unavailable"][DEEP] == ["token_profile", "derivatives"]
+    # Marker-nya ikut disebut sejak TASKS 0.17 — `partial` tidak lagi dilaporkan sebagai
+    # "unavailable", karena kartu tidak boleh menyebut fakta yang salah tentang sumbernya.
+    assert outcome.result.value["optional_sections_unavailable"][DEEP] == [
+        "token_profile='unavailable'",
+        "derivatives='unavailable'",
+    ]
     assert outcome.result.value["tool_status"][DEEP] == "partial"
 
 
@@ -254,7 +259,38 @@ def test_item2_red_when_a_tool_envelope_is_missing_entirely() -> None:
 def test_item2_red_when_a_required_section_is_unavailable() -> None:
     outcome = run(mutate={f"{DEEP}:availability.trade_plan": "unavailable"})[ITEM_COMPLETENESS]
     assert outcome.status == RED
-    assert outcome.result.value["required_sections_unavailable"][DEEP] == ["trade_plan"]
+    assert outcome.result.value["required_sections_unavailable"][DEEP] == ["trade_plan='unavailable'"]
+
+
+def test_item2_says_partial_when_the_source_said_partial() -> None:
+    """TASKS 0.17: `partial` BUKAN `unavailable`, dan kartu tidak boleh menyamakannya.
+
+    Bentuk nyata `data/ryo.db`: `analyze_token.availability.technical_analysis='partial'` 19×
+    (pertama id=1109) dan `deep_analysis` 19× (pertama id=1110). Keputusannya tidak berubah —
+    hanya `available` yang cukup untuk seksi WAJIB, gagal-tertutup — tetapi kalimatnya harus
+    menyebut apa yang sumbernya benar-benar katakan.
+    """
+    outcome = run(mutate={f"{DEEP}:availability.trade_plan": "partial"})[ITEM_COMPLETENESS]
+    assert outcome.status == RED  # gagal-tertutup: `partial` tidak cukup untuk seksi wajib
+    assert outcome.result.value["required_sections_unavailable"][DEEP] == ["trade_plan='partial'"]
+    assert "'partial'" in outcome.result.reason
+    assert "not available" not in outcome.result.reason
+
+
+def test_item2_flags_a_marker_it_has_never_seen_instead_of_swallowing_it() -> None:
+    """Tidak ada tabel kosakata untuk `availability`, jadi nilai kelima tidak boleh ditelan."""
+    outcome = run(mutate={f"{DEEP}:availability.trade_plan": "degraded"})[ITEM_COMPLETENESS]
+    assert outcome.status == RED  # tetap gagal-tertutup
+    assert "unknown marker" in outcome.result.reason
+    assert "'degraded'" in outcome.result.reason
+
+
+def test_item2_does_not_call_not_requested_a_missing_section() -> None:
+    """`not_requested` = kami tidak bertanya, bukan seksinya hilang (36× di `scan_market`)."""
+    outcome = run(mutate={f"{DEEP}:availability.derivatives": "not_requested"})[ITEM_COMPLETENESS]
+    noted = outcome.result.value["optional_sections_unavailable"][DEEP]
+    assert "derivatives='not_requested'" in noted
+    assert "unknown marker" not in " ".join(noted)
 
 
 def test_item2_unspoken_when_no_tool_answered_at_all() -> None:

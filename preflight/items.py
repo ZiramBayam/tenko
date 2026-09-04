@@ -583,6 +583,34 @@ def evaluate_freshness(evidence: Evidence) -> ItemOutcome:
     )
 
 
+#: Nilai `availability.*` yang pernah teramati di `data/ryo.db` (sapuan id <= 2219, 5 Sep 2026):
+#: `available` 7023×, `unavailable` 2799×, `partial` 38× (pertama id=1109), `not_requested` 36×
+#: (pertama id=220, hanya `scan_market.theme_filter`). Hanya `available` yang berarti "seksi ini
+#: bisa dipakai"; sisanya TIDAK disamakan dalam kalimat kartu — pembaca berhak tahu sumbernya
+#: berkata `partial` dan bukan `unavailable` (TASKS 0.17).
+#:
+#: **Sengaja BUKAN tabel kosakata di `preflight/params.py`.** Tabel di sana masuk `params_hash`,
+#: jadi menambahkannya akan memindahkan SETIAP baris `decisions` ke `STALE_PARAMS` sekali lagi —
+#: harga yang tidak sebanding untuk memperbaiki kata-kata. Nilai di luar himpunan ini tidak
+#: ditelan diam-diam: ia memicu warning bernama, dan tetap diperlakukan sebagai "bukan
+#: available" (gagal-tertutup).
+AVAILABILITY_SEEN: frozenset[str] = frozenset({"available", "unavailable", "partial", "not_requested"})
+#: Satu-satunya nilai yang berarti seksinya bisa dipakai.
+AVAILABILITY_USABLE = "available"
+
+
+def _availability_note(marker: Any) -> str:
+    """Sebutan pendek untuk satu nilai `availability`, apa adanya.
+
+    `partial` BUKAN `unavailable`, dan `not_requested` bukan keduanya — menyamakan ketiganya
+    dalam kalimat kartu berarti kartu menyebut fakta yang salah tentang sumbernya sendiri.
+    """
+    if marker is None:
+        return "not listed"
+    text = marker if isinstance(marker, str) else str(marker)
+    return f"{_quote(text)}{'' if text in AVAILABILITY_SEEN else ' (unknown marker)'}"
+
+
 # --- item 2: kelengkapan -----------------------------------------------------------------
 def evaluate_completeness(evidence: Evidence) -> ItemOutcome:
     """spec §4 item 2 — `status`, `availability`, `warnings` tiap envelope.
@@ -655,7 +683,11 @@ def evaluate_completeness(evidence: Evidence) -> ItemOutcome:
         if tool_evidence is None:
             continue
         availability = tool_evidence.availability
-        bad = [section for section in sections if availability.get(section) != "available"]
+        bad = [
+            f"{section}={_availability_note(availability.get(section))}"
+            for section in sections
+            if availability.get(section) != AVAILABILITY_USABLE
+        ]
         if bad:
             sections_unavailable[tool] = bad
     for tool, sections in sorted(OPTIONAL_SECTIONS.items()):
@@ -663,7 +695,11 @@ def evaluate_completeness(evidence: Evidence) -> ItemOutcome:
         if tool_evidence is None:
             continue
         availability = tool_evidence.availability
-        noted = [section for section in sections if availability.get(section) not in ("available", None)]
+        noted = [
+            f"{section}={_availability_note(availability.get(section))}"
+            for section in sections
+            if availability.get(section) not in (AVAILABILITY_USABLE, None)
+        ]
         if noted:
             optional_unavailable[tool] = noted
 
@@ -695,7 +731,11 @@ def evaluate_completeness(evidence: Evidence) -> ItemOutcome:
         if unavailable_tools:
             parts.append(f"status=unavailable for {', '.join(unavailable_tools)}")
         for tool, bad in sorted(sections_unavailable.items()):
-            parts.append(f"{tool}: sections {', '.join(bad)} not available")
+            # Markernya ikut disebut: sampai TASKS 0.17 kalimat ini berbunyi "not available"
+            # untuk seksi yang sumbernya sendiri sebut `partial` — kartu menyebut fakta yang
+            # salah tentang sumbernya. Keputusannya tidak berubah (hanya `available` yang cukup
+            # untuk seksi WAJIB, gagal-tertutup); yang berubah adalah apa yang diucapkannya.
+            parts.append(f"{tool}: sections not usable — {', '.join(bad)}")
         return _item(
             item_id,
             RED,
@@ -965,8 +1005,9 @@ def evaluate_verdict_quick(evidence: Evidence) -> ItemOutcome:
     if not technical_ok:
         warnings.append(
             f"{item_id}: analyze_token.availability.technical_analysis="
-            f"{_quote(analyze.availability.get('technical_analysis'))}; trend/RSI left null "
-            "instead of being read from a section its own source calls unavailable"
+            f"{_availability_note(analyze.availability.get('technical_analysis'))}; trend/RSI "
+            "left null instead of being read from a section its own source does not call "
+            f"{AVAILABILITY_USABLE!r}"
         )
 
     direction = plan_direction(evidence)
