@@ -15,6 +15,7 @@ import json
 import re
 import sqlite3
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -308,6 +309,45 @@ def test_the_only_zero_count_in_its_own_field_is_declared_as_such() -> None:
             assert 0 not in counts, (vocab.field, raw, other.provenance)
 
 
+#: Penanda "telusuri setiap elemen list di sini" pada jalur kanari.
+LIST = object()
+
+
+def dig(value: object, path: tuple[object, ...]) -> list[str]:
+    """Setiap string di ujung `path`, menelusuri list bila jalurnya menyebut :data:`LIST`.
+
+    Versi pertama kanari ini hanya menelusuri dict, jadi `compare_tokens.data.tokens[].verdict`
+    — satu-satunya nilai kosakata yang hidup DI DALAM list — tidak pernah disapu, dan tabel
+    `COMPARE_TOKENS_VERDICT` tidak dijaga apa pun. Ia hijau karena kebetulan, bukan karena
+    diperiksa (temuan quant-engineer saat TASKS 0.12).
+    """
+    if not path:
+        return [value] if isinstance(value, str) else []
+    head, rest = path[0], path[1:]
+    if head is LIST:
+        return [found for item in value for found in dig(item, rest)] if isinstance(value, list) else []
+    return dig(value.get(head), rest) if isinstance(value, dict) else []
+
+
+def test_the_canary_walks_into_lists_not_just_dicts() -> None:
+    """Tes negatif: tanpa ini, "kanari hijau" tidak berarti apa-apa untuk nilai di dalam list."""
+    payload = {"tokens": [{"verdict": "constructive"}, {"verdict": "DIKARANG"}]}
+    assert dig(payload, ("tokens", LIST, "verdict")) == ["constructive", "DIKARANG"]
+    # Bentuk yang tidak cocok tidak boleh meledak, dan tidak boleh diam-diam menemukan apa pun.
+    assert dig(payload, ("tokens", "verdict")) == []
+    assert dig({"tokens": "bukan list"}, ("tokens", LIST, "verdict")) == []
+    assert dig(None, ("tokens", LIST, "verdict")) == []
+
+
+@pytest.mark.skipif(not LIVE_DB.exists(), reason="data/ryo.db tidak ada (tidak di-commit)")
+def test_an_invented_value_inside_a_list_turns_the_canary_red() -> None:
+    """Kanari harus MENGGIGIT untuk nilai di dalam list, bukan sekadar tidak meledak."""
+    forged = {"tokens": [{"verdict": "constructive"}, {"verdict": "DIKARANG"}]}
+    found = dig(forged, ("tokens", LIST, "verdict"))
+    unknown = [value for value in found if COMPARE_TOKENS_VERDICT.lookup(value) is None]
+    assert unknown == ["DIKARANG"]
+
+
 @pytest.mark.skipif(not LIVE_DB.exists(), reason="data/ryo.db tidak ada (tidak di-commit)")
 def test_tables_still_cover_every_value_in_the_live_recorder_db() -> None:
     """Kanari anti-halusinasi: DB perekam dibuka HANYA baca (mode=ro), tidak pernah ditulis.
@@ -335,7 +375,8 @@ def test_tables_still_cover_every_value_in_the_live_recorder_db() -> None:
             (("evidence", "fear_greed", "change_direction"), P.FEAR_GREED_CHANGE_DIRECTION),
         ],
     }
-    connection = sqlite3.connect(f"file:{LIVE_DB.as_posix()}?mode=ro", uri=True)
+    paths["compare_tokens"] = [(("tokens", LIST, "verdict"), COMPARE_TOKENS_VERDICT)]
+    connection = sqlite3.connect("file:" + quote(LIVE_DB.as_posix(), safe="/") + "?mode=ro", uri=True)
     try:
         rows = connection.execute("SELECT tool, payload_json FROM snapshots").fetchall()
     finally:
@@ -343,11 +384,9 @@ def test_tables_still_cover_every_value_in_the_live_recorder_db() -> None:
     unknown: dict[str, set[str]] = {}
     for tool, payload_json in rows:
         for path, vocab in paths.get(tool, []):
-            value = json.loads(payload_json).get("data")
-            for key in path:
-                value = value.get(key) if isinstance(value, dict) else None
-            if isinstance(value, str) and vocab.lookup(value) is None:
-                unknown.setdefault(vocab.field, set()).add(value)
+            for value in dig(json.loads(payload_json).get("data"), path):
+                if vocab.lookup(value) is None:
+                    unknown.setdefault(vocab.field, set()).add(value)
     # Nilai enum dipotong sebelum masuk pesan kegagalan: payload RYO tidak boleh membanjiri
     # keluaran pytest (dan tidak boleh membawa CR/LF ke terminal) hanya karena tes gagal.
     trimmed = {
