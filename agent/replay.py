@@ -273,9 +273,7 @@ def _stale_algo(row: DecisionRow, store: Store) -> ReplayReport:
         snapshot_ids = []
     usable, total = _verifiable_snapshots(store, snapshot_ids)
     algo = row.algo()
-    named = (
-        "tidak menyebut algoritma hash keputusan" if algo is None else f"menyebut algoritma {_safe(algo)}"
-    )
+    named = "tidak menyebut algoritma hash keputusan" if algo is None else f"menyebut algoritma {_safe(algo)}"
     # Klaim "bukan tanda bukti diubah" BERSYARAT pada angkanya sendiri (temuan SEDANG-2
     # security-reviewer, 4 Sep 2026): saat usable < total, buktinya memang berubah/hilang, dan
     # kalimat yang menyangkalnya bisa dikutip naskah demo §7 sebagai jaminan yang tidak benar.
