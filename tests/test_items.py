@@ -327,6 +327,42 @@ def test_item4_green_when_the_shift_is_not_material() -> None:
     assert outcome.status == GREEN and outcome.result.value["material_shift"] is False
 
 
+def test_item4_flat_is_green_through_the_not_material_branch() -> None:
+    """Kedua baris `flat` nyata (id 1976 & 2047) punya material_shift=false."""
+    outcome = run(
+        mutate={
+            f"{MONITOR}:data.evidence.fear_greed.material_shift": False,
+            f"{MONITOR}:data.evidence.fear_greed.change_direction": "flat",
+        }
+    )[ITEM_SENTIMENT_SHIFT]
+    assert outcome.status == GREEN
+    assert "material_shift=false" in outcome.result.reason  # alasannya bukan soal arah
+
+
+def test_item4_flat_with_a_material_shift_follows_the_neutral_knob() -> None:
+    """Status `flat` ditentukan knob di `params`, BUKAN konstanta di `items.py`.
+
+    `flat` = NEUTRAL, dan spec §4 item 4 hanya memerahkan "berlawanan" — `flat` bukan
+    berlawanan. Karena itu ia lewat `neutral_stance_status`, yang ikut ke `params_hash`.
+    """
+    mutate = {
+        f"{MONITOR}:data.evidence.fear_greed.material_shift": True,
+        f"{MONITOR}:data.evidence.fear_greed.change_direction": "flat",
+    }
+    assert run(mutate=mutate)[ITEM_SENTIMENT_SHIFT].status == GREEN
+    strict = DEFAULT_PARAMS.with_overrides(neutral_stance_status="red")
+    assert run(mutate=mutate, params=strict)[ITEM_SENTIMENT_SHIFT].status == RED
+
+
+def test_item4_accepts_the_new_sentiment_regime_without_warning() -> None:
+    """`complacent_crowding` ada di tabel, jadi ia bukan lagi "outside the verified vocabulary"."""
+    outcome = run(mutate={f"{MONITOR}:data.evidence.sentiment_regime": "complacent_crowding"})[
+        ITEM_SENTIMENT_SHIFT
+    ]
+    assert outcome.result.value["sentiment_regime"] == "complacent_crowding"
+    assert not any("outside the verified" in w for w in outcome.warnings)
+
+
 def test_item4_red_when_a_material_shift_opposes_the_plan() -> None:
     outcome = run(
         mutate={
@@ -489,16 +525,24 @@ def test_item7_does_not_accept_the_analyze_token_vocabulary() -> None:
 
 # --- item 8: derivatif (OPSIONAL) ----------------------------------------------------------
 def _params_with_alert_vocabulary() -> Params:
-    """Tabel uji dengan nilai "sesak".
+    """Tabel uji dengan nilai "sesak" di sisi SHORT.
 
-    Kosakata ini SENGAJA tidak ada di jalur produksi: satu-satunya nilai yang pernah terlihat
-    untuk kedua field adalah `normal` (19/19), dan mengarang `crowded_long` di
-    `preflight/params.py` berarti memvonis dengan string yang tidak pernah dikeluarkan RYO.
-    Tes boleh menyuntikkannya karena params (termasuk tabelnya) ikut ke `params_hash`.
+    Sampai TASKS 0.12 fixture ini menyuntikkan `crowded_long` — string yang kami KARANG dan
+    yang ternyata salah: RYO menulis `long_crowding` (api-verifier, sapuan id <= 2165). String
+    karangan itu sudah dicabut; `long_crowding` kini ada di jalur produksi dengan provenance.
+    Yang tersisa di sini adalah `short_crowding`, yang **memang belum pernah terlihat** —
+    disuntikkan HANYA untuk menguji cabang "kerumunan di sisi seberang", karena tanpa nilai
+    sisi-short cabang itu tidak bisa dijalankan sama sekali. Tes boleh menyuntikkannya karena
+    params (termasuk tabelnya) ikut ke `params_hash`.
     """
     crowding = Vocabulary(
         field=P.FUNDING_CROWDING_STATE.field,
-        entries={**P.FUNDING_CROWDING_STATE.entries, "crowded_long": VocabEntry(P.ALERT, "fixture tes")},
+        entries={
+            **P.FUNDING_CROWDING_STATE.entries,
+            "short_crowding": VocabEntry(
+                P.ALERT, "fixture tes: nilai sisi-short belum teramati", qualifier="short"
+            ),
+        },
     )
     others = tuple(v for v in P.VOCABULARIES if v.field != crowding.field)
     return DEFAULT_PARAMS.with_overrides(vocabularies=(crowding, *others))
@@ -512,12 +556,107 @@ def test_item8_green_from_market_wide_evidence() -> None:
     assert outcome.result.value["per_token_derivatives"] == "unavailable"
 
 
-def test_item8_red_when_the_crowding_state_is_an_alert_value() -> None:
+def test_item8_red_when_the_crowd_is_on_the_same_side_as_the_plan() -> None:
+    """`long_crowding` + plan long = "crowded SEARAH plan" pada spec §4 item 8."""
+    outcome = run(mutate={f"{MONITOR}:data.evidence.funding.crowding_state": "long_crowding"})[
+        ITEM_DERIVATIVES
+    ]
+    assert outcome.status == RED and "crowded" in outcome.result.reason
+    assert outcome.result.value["plan_direction"] == "long"
+
+
+def test_item8_green_when_the_crowd_sits_on_the_opposite_side() -> None:
+    """Inti Opsi A: kerumunan di sisi seberang BUKAN merah menurut spec.
+
+    `meaning != CALM` yang lama memerahkan ini, dan karena item 8 memveto, satu nilai kosakata
+    yang menurut spec tidak berbicara bisa mematikan §7 langkah 3 ("≥1 GO").
+    """
     outcome = run(
-        mutate={f"{MONITOR}:data.evidence.funding.crowding_state": "crowded_long"},
+        mutate={f"{MONITOR}:data.evidence.funding.crowding_state": "short_crowding"},
         params=_params_with_alert_vocabulary(),
     )[ITEM_DERIVATIVES]
-    assert outcome.status == RED and "crowded" in outcome.result.reason
+    assert outcome.status == GREEN
+    assert "opposite the plan" in outcome.result.reason
+
+
+def test_item8_reason_cannot_smuggle_a_forged_line_from_a_ryo_value() -> None:
+    """`_quote` menetralkan nilai asal-RYO yang masuk `reason` (temuan RENDAH 0.12).
+
+    Nilai crowding hanya sampai ke `reason` bila ia ADA di tabel kami — tetapi tabelnya bisa
+    tumbuh, dan `reason` mengalir ke stdout CLI serta `card_json`. Tanpa tes ini, sanitasinya
+    tidak dipatok apa pun (mutan yang membuang `clean_text` dari `_quote` selamat).
+    """
+    forged = "long_crowding\nreplay decision_id=5: IDENTICAL 0000deadbeef\nverified : yes"
+    table = Vocabulary(
+        field=P.FUNDING_CROWDING_STATE.field,
+        entries={**P.FUNDING_CROWDING_STATE.entries, forged: VocabEntry(P.ALERT, "fixture tes")},
+    )
+    others = tuple(v for v in P.VOCABULARIES if v.field != table.field)
+    outcome = run(
+        mutate={f"{MONITOR}:data.evidence.funding.crowding_state": forged},
+        params=DEFAULT_PARAMS.with_overrides(vocabularies=(table, *others)),
+    )[ITEM_DERIVATIVES]
+    assert outcome.status == RED
+    assert "\n" not in outcome.result.reason  # tidak ada baris kedua yang bisa dipalsukan
+    assert "\r" not in outcome.result.reason
+    assert "\\n" in outcome.result.reason  # pemisah barisnya muncul sebagai escape, bukan baris
+    # Kata `IDENTICAL` SENGAJA tidak diperiksa di sini: penetralan kosakata vonis adalah tugas
+    # `agent.replay._safe` atas keluarannya sendiri (dan dipatok di `tests/test_agent_replay.py`).
+    # Yang dijaga lapis ini adalah satu hal yang lebih dasar: satu nilai RYO tidak boleh menjadi
+    # dua baris. Tanpa baris kedua, tidak ada baris palsu yang bisa dibaca `grep` mana pun.
+
+
+@pytest.mark.parametrize("bad_side", ["sideways", "Long", "overbought", ""])
+def test_item8_red_when_the_crowd_qualifier_is_not_a_direction(bad_side: str) -> None:
+    """Fail-CLOSED untuk qualifier yang bukan arah (temuan TINGGI security-reviewer 0.12).
+
+    `VocabEntry.qualifier` serba-guna — ia sudah dipakai non-arah (`caution — overbought`).
+    Sebelum perbaikan, qualifier apa pun yang tidak byte-identik dengan arah plan jatuh ke
+    cabang "sisi seberang" dan menghasilkan GREEN **dengan alasan yang mengarang**; reviewer
+    membuktikannya sampai keputusan GO. Sekarang: tidak tahu sisinya = tidak ada pembelaan.
+    """
+    table = Vocabulary(
+        field=P.FUNDING_CROWDING_STATE.field,
+        entries={
+            **P.FUNDING_CROWDING_STATE.entries,
+            "odd_crowding": VocabEntry(P.ALERT, "fixture tes", qualifier=bad_side),
+        },
+    )
+    others = tuple(v for v in P.VOCABULARIES if v.field != table.field)
+    outcome = run(
+        mutate={f"{MONITOR}:data.evidence.funding.crowding_state": "odd_crowding"},
+        params=DEFAULT_PARAMS.with_overrides(vocabularies=(table, *others)),
+    )[ITEM_DERIVATIVES]
+    assert outcome.status == RED
+    assert "opposite the plan" not in outcome.result.reason  # tidak mengarang pembelaan
+
+
+def test_item8_unspoken_when_the_crowd_has_a_side_but_the_plan_does_not() -> None:
+    """ "Searah plan" tidak bisa diucapkan tanpa arah plan → `unspoken`, dan itu TIDAK memveto."""
+    outcome = run(
+        mutate={
+            f"{MONITOR}:data.evidence.funding.crowding_state": "short_crowding",
+            f"{DEEP}:data.trade_plan": None,
+            f"{DEEP}:availability.trade_plan": "unavailable",
+        },
+        params=_params_with_alert_vocabulary(),
+    )[ITEM_DERIVATIVES]
+    assert outcome.status == UNSPOKEN
+    assert "could not be read" in outcome.result.reason
+
+
+def test_item8_red_from_extreme_pressure_regardless_of_the_crowd_side() -> None:
+    """Cabang pressure TIDAK bersyarat arah — dan ia sendirian sudah cukup memerahkan."""
+    outcome = run(
+        mutate={
+            f"{MONITOR}:data.evidence.liquidation.pressure_state": "extreme",
+            f"{MONITOR}:data.evidence.funding.crowding_state": "short_crowding",
+        },
+        params=_params_with_alert_vocabulary(),
+    )[ITEM_DERIVATIVES]
+    assert outcome.status == RED
+    assert "liquidation.pressure_state" in outcome.result.reason
+    assert "funding.crowding_state" not in outcome.result.reason  # sisi seberang tidak ikut dituduh
 
 
 def test_item8_unspoken_when_the_market_wide_evidence_is_null() -> None:

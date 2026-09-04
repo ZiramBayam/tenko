@@ -125,11 +125,71 @@ hanya lebih tua ~25 baris / ~19 menit. Himpunan nilainya identik; yang berubah h
   label, baseline_7d_date, baseline_7d_value, change_7d_points, change_direction, material_shift}; `funding` juga punya
   {data_date, previous_7d_window, wow_change_pct}; `liquidation` juga punya {data_date, coverage_scope}; `altseason` =
   {data_date, index, phase}.
-- Kosakata kategoris monitor lain (20 amatan, semuanya nilai TUNGGAL — jangan dibaca sebagai enum lengkap):
+- **[DICABUT sebagian oleh sapuan `id <= 2165`, 4 Sep 2026 — lihat blok "Sapuan 4 Sep 2026" di bawah: `dominant_liquidated_side`
+  juga `longs`/`balanced`, `altseason.phase` juga `bitcoin_season`, `crowding_state` juga `long_crowding`, `pressure_state` juga `extreme`.]**
+  Kosakata kategoris monitor lain (20 amatan, semuanya nilai TUNGGAL — jangan dibaca sebagai enum lengkap):
   `liquidation.dominant_liquidated_side` `shorts` (20) · `altseason.phase` `transition` (20), di samping
   `funding.crowding_state` dan `liquidation.pressure_state` `normal` (20) yang sudah tercatat di atas.
 - `deep_analysis.data.trade_plan` **long di 319/319** (`id <= 835`) (`stop < entry` selalu). Arah `short` yang disebut spec §4 ("bila plan short
   muncul, arah dibalik") BELUM PERNAH TERAMATI → cabang short adalah cabang tak-teruji-data, bukan cabang biasa.
+
+**Sapuan 4 Sep 2026 (BERLAKU) — `id <= 2165`, MENGGANTIKAN semua hitungan sapuan 697 / 762 / 835 di atas.**
+`data/ryo.db` dibuka read-only saat perekam live masih menulis (`sqlite3.connect("file:data/ryo.db?mode=ro", uri=True)`,
+tidak ada penulisan), **2165 snapshot**, ts 2026-09-01T03:51:43Z–2026-09-04T13:48:37Z (≈81,9 jam):
+analyze_token 1151 · deep_analysis 823 · compare_tokens 74 · market_overview 42 · monitor_market_sentiment_shift 42 · scan_market 33.
+Hitungan lengkap (HIMPUNAN nilai = daftar ini; angka akan basi lagi dalam hitungan jam):
+`analyze_token.data.verdict` accumulate 483 · caution — overbought 331 · neutral 318 · avoid 19 ·
+`deep_analysis.data.verdict.call` neutral 395 · constructive 390 · cautious 38 ·
+`deep_analysis.data.confluence.state` CONFIRMED 492 · MIXED 331 (`confluence.status` `available` 823/823) ·
+`market_overview.data.regime` risk_on 22 · neutral 15 · **risk_off 5** (bukan lagi n=1) ·
+`market_overview.data.sentiment.label` extreme_greed 24 · greed 18 ·
+`compare_tokens.data.tokens[].verdict` neutral 105 · constructive 89 (194 token; `cautious` masih **0×** di field ini) ·
+`compare_tokens.data.tokens[].metrics.trend` up 194/194 · `compare_tokens.data.intent` swing 74/74 · `conclusion.confidence` medium 74/74 ·
+`technical_analysis.trend` analyze_token up 994 · sideways 101 · down 56; deep_analysis up 743 · sideways 62 · down 18.
+
+**EMPAT nilai baru di `monitor_market_sentiment_shift` — TERAMATI, bukan tebakan (sapuan `id <= 2165`, 4 Sep 2026).**
+Semuanya `status: ok`, `data_mode: live`, `warnings: []`, `availability.evidence: available`.
+| field (path persis) | nilai baru | n | snapshot pertama (id, ts_utc, as_of) | nilai lama di field yang sama |
+|---|---|---|---|---|
+| `monitor….data.evidence.sentiment_regime` | `complacent_crowding` | **3** | id=1976, 2026-09-04T11:21:24.489160Z, as_of 2026-09-04T11:21:23Z | extreme_greed_unconfirmed 21 (id=2) · mixed_sentiment 18 (id=301) |
+| `monitor….data.evidence.liquidation.pressure_state` | `extreme` | **3** | id=1976 (sda) | normal 39 (id=2) |
+| `monitor….data.evidence.funding.crowding_state` | `long_crowding` | **3** | id=1976 (sda) | normal 39 (id=2) |
+| `monitor….data.evidence.fear_greed.change_direction` | `flat` | **2** | id=1976 (sda) | down 40 (id=2); `up` masih **0 dari id <= 2165** |
+Ketiga baris pembawa nilai baru adalah id **1976, 2047, 2106** (11:21Z, 12:31Z, 13:32Z 4 Sep 2026). `flat` hanya di **1976 dan 2047**:
+pada id 2106 `change_7d_points` sudah −3 sehingga `change_direction` kembali `down` **sementara** tiga field lain tetap pada nilai barunya
+→ keempatnya **bukan satu paket**; jangan diperlakukan sebagai satu peristiwa yang selalu muncul bersama.
+Ulangi (mencetak sebaran GABUNGAN keempat field + id/ts kemunculan pertama tiap kombinasi + max id monitor; keluaran diverifikasi 4 Sep 2026):
+`python3 -c 'import sqlite3,json,collections;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);r=[(i,ts,json.loads(p)["data"]["evidence"]) for i,ts,p in c.execute("SELECT id,ts_utc,payload_json FROM snapshots WHERE tool=\"monitor_market_sentiment_shift\" ORDER BY id")];print("max monitor id",r[-1][0]);v=[(i,ts,(e["sentiment_regime"],e["liquidation"]["pressure_state"],e["funding"]["crowding_state"],e["fear_greed"]["change_direction"])) for i,ts,e in r];print(collections.Counter(x for _,_,x in v));print({x:min((i,ts) for i,ts,y in v if y==x) for _,_,x in v})'`
+→ `max monitor id 2106` · `{('extreme_greed_unconfirmed','normal','normal','down'): 21, ('mixed_sentiment','normal','normal','down'): 18, ('complacent_crowding','extreme','long_crowding','flat'): 2, ('complacent_crowding','extreme','long_crowding','down'): 1}` (id pertama: 2 · 301 · 1976 · 2106). Baris `monitor` terakhir di DB saat sapuan = id 2106; `max id` seluruh tabel = 2165.
+Konteks amatan id=1976 (DESKRIPTIF, n=3, BUKAN kontrak dan BUKAN ambang yang boleh dikodekan): F&G `value` 78 = `baseline_7d_value` 78,
+`change_7d_points` **0** → `flat`; `funding.current_7d_percentile_90d` 91,11 (vs 56,67 pada sampel `normal`);
+`liquidation.percentile_90d` 92,22, `total_usd` 159.942.427,03 (vs 29.810.068,74), `long_share_pct` 6,39.
+**Arah/makna keempat nilai ini BELUM DITENTUKAN oleh fakta mana pun** — RYO tidak menerbitkan artinya, dan berkas ini tidak
+menyimpulkannya. Pemetaan ke BULLISH/BEARISH/NEUTRAL/ABSTAIN/KNOWN/CALM/ALERT adalah keputusan quant + `docs/spec.md` §4
+(item 4 memakai `change_direction`+`material_shift`; item 8 memakai `crowding_state`+`pressure_state`), bukan fakta API.
+Yang dijamin baris ini hanya: string itu benar-benar keluar dari RYO, dengan ejaan itu, pada id/ts di atas.
+
+**TIDAK ADA enum resmi RYO untuk keempat field itu — diperiksa 4 Sep 2026, bukan diasumsikan.**
+`docs/samples/catalog.json` (katalog live `/tools`, sumber kebenaran final): entri `monitor_market_sentiment_shift` hanya punya
+`inputSchema` dengan SATU properti (`time_window`, `enum: ["7d"]`) — **tidak ada skema output sama sekali**, jadi tidak ada tempat
+untuk enum `sentiment_regime`/`pressure_state`/`crowding_state`/`change_direction`. `description`-nya menyebut konsepnya secara prosa
+("BTC perpetual funding crowding, BTC liquidation pressure and side, altseason phase, the combined regime") tanpa satu pun nilai string.
+Pencarian `complacent`, `long_crowding`, `pressure_state`, `sentiment_regime`, `crowding_state`, `change_direction` di seluruh
+`docs/samples/catalog.json` → **0 kecocokan**; satu-satunya kata `enum` di berkas itu adalah `time_window`. RYO Builder MCP Guide
+(teks lengkap ditempel user 1 Sep 2026) juga tidak memuat daftar nilai untuk field-field ini. Konsisten dengan §A: **tidak ada enum
+yang diterbitkan**; satu-satunya sumber kosakata adalah amatan perekam kami.
+
+**Dua klaim "nilai TUNGGAL" 2 Sep DICABUT (sapuan `id <= 2165`)** — keduanya ada di baris "Kosakata kategoris monitor lain" di atas:
+`liquidation.dominant_liquidated_side` bukan `shorts` 20/20 melainkan **shorts 25 · longs 5 (pertama id=910, 2026-09-02T01:13:09Z) ·
+balanced 12 (pertama id=1208, 2026-09-03T10:37:01Z)**; `altseason.phase` bukan `transition` 20/20 melainkan
+**transition 41 · bitcoin_season 1 (id=910)**. Keduanya tidak punya tabel di `preflight/params.py` sehingga tidak membuat kanari merah,
+tetapi angka lama di berkas ini salah dan tidak boleh dikutip lagi.
+
+**Nilai `availability` KEEMPAT: `partial` — TERAMATI (sapuan `id <= 2165`).** Tabel "Tipe & kosakata envelope" di bawah mencatat
+`available`/`unavailable`/`not_requested` saja; hitungan baru: `available` 6465 · `unavailable` 1736 · `not_requested` 33 · **`partial` 32**.
+`partial` hanya pada kunci `technical_analysis`: `analyze_token` 16× (pertama id=1109, 2026-09-02T09:08:14Z) dan `deep_analysis` 16×
+(pertama id=1110, 2026-09-02T09:08:58Z), keduanya pada envelope ber-`status: partial`. Envelope lain tetap: `status` ok 1326 · partial 839
+(`unavailable` masih 0/2165), `data_mode` `live` 2165/2165, `schema_version` `"1.0"` 2165/2165.
 
 **Baris kosakata dengan NOL amatan tidak boleh ada di `preflight/params.py`.** Aturan §A ini ("nilai di luar tabel → `unspoken`,
 tidak ditebak") berlaku dua arah: memasukkan string yang belum pernah kami lihat ke dalam tabel adalah menebak bahwa RYO akan
@@ -155,7 +215,8 @@ dalam ~19 menit. Konsekuensi praktis: (1) klaim nol punya masa berlaku, sapu ula
 itu mekanisme deteksi, jangan dilemahkan; (3) hitungan frekuensi di komentar kode akan selalu tertinggal — yang harus benar
 adalah HIMPUNAN nilainya, bukan angkanya.
 
-**ENUM DI ATAS TETAP TIDAK LENGKAP** dan tidak bisa dibuktikan lengkap dari sini. Ini pengamatan atas 835 respons (`id <= 835`) dalam ~14,5 jam
+**ENUM DI ATAS TETAP TIDAK LENGKAP** dan tidak bisa dibuktikan lengkap dari sini — dibuktikan lagi 4 Sep 2026 oleh EMPAT nilai baru
+sekaligus di `monitor_market_sentiment_shift` (id 1976). Ini pengamatan atas 2165 respons (`id <= 2165`) dalam ~81,9 jam
 pada satu rezim pasar (F&G greed/extreme_greed) dengan universe simbol perekam kami — **bukan spesifikasi RYO**; Guide maupun
 katalog `/tools` tidak pernah mencantumkan enum untuk `verdict`, `verdict.call`, `confluence.state`, atau `regime`.
 Bukti historis bahwa daftar ini bocor: dalam ~14,5 jam muncul TIGA nilai yang sebelumnya "belum pernah terlihat"
@@ -296,7 +357,7 @@ Semua 470 payload memakai **himpunan 10 kunci yang sama** — tidak ada satu pun
 | `request` | `dict` | argumen ternormalisasi; nilai bertipe sesuai inputSchema (`symbol:str`, `include_perp:bool`, `top_n:int`, `intent:str`, `symbols:str`, `time_window:str`) — `scan_market` mengembalikan `{"top_n":10}` meski dipanggil tanpa argumen → server MENGISI default ke `request` |
 | `data` | `dict`, **tidak pernah `null`** (0/476) | kunci per tool: lihat tabel "Field nyata" |
 | `summary` | `dict` dengan **persis** `{headline, key_points}` di 476/476 | `headline: str`, `key_points: list[str]` (tidak pernah list kosong-bertipe-lain) |
-| `availability` | `dict[str, str]` | kosakata NILAI teramati: `available` (1430) · `unavailable` (398) · `not_requested` (5, `scan_market.theme_filter`). Kunci = nama SEKSI tool, bukan id item |
+| `availability` | `dict[str, str]` | kosakata NILAI teramati: `available` (1430) · `unavailable` (398) · `not_requested` (5, `scan_market.theme_filter`). **DIPERBARUI sapuan `id <= 2165` (4 Sep 2026): ada nilai KEEMPAT `partial` (32×, hanya kunci `technical_analysis`, pertama id=1109); hitungan baru 6465 · 1736 · 33 · 32.** Kunci = nama SEKSI tool, bukan id item |
 | `warnings` | `list[str]` | 0–2 entri di sampel; semua elemen `str` |
 
 **Penyimpangan Tenko yang disengaja terhadap envelope di atas** (dicatat di sini supaya tidak terbaca sebagai fakta RYO):

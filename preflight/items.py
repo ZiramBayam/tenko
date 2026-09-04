@@ -1217,6 +1217,7 @@ def evaluate_derivatives(evidence: Evidence) -> ItemOutcome:
         "per_token_derivatives": per_token,
         "plan_direction": plan_direction(evidence),
     }
+    plan = value["plan_direction"]
     if crowding.meaning == CALM and pressure.meaning == CALM:
         return _item(
             item_id,
@@ -1229,14 +1230,54 @@ def evaluate_derivatives(evidence: Evidence) -> ItemOutcome:
             value=value,
             warnings=warnings,
         )
-    hot = [
-        f"{name}={_quote(raw)}"
-        for name, raw, meaning in (
-            ("funding.crowding_state", crowding_raw, crowding.meaning),
-            ("liquidation.pressure_state", pressure_raw, pressure.meaning),
+
+    # Spec §4 item 8 memerahkan DUA hal yang berbeda syaratnya: "crowded SEARAH plan" dan
+    # "pressure ekstrem". Sampai TASKS 0.12 kode ini menyamakan keduanya lewat `meaning !=
+    # CALM`. Selama `long_crowding` adalah satu-satunya nilai crowding non-CALM yang pernah
+    # terlihat itu tidak terasa — tetapi item 8 MEMVETO, jadi `short_crowding` (bila RYO
+    # mengeluarkannya) akan mematikan keputusan long yang menurut spec tidak terancam:
+    # kerumunannya ada di sisi seberang.
+    hot = [f"liquidation.pressure_state={_quote(pressure_raw)}"] if pressure.meaning != CALM else []
+    crowd_side = crowding.qualifier
+    if crowding.meaning != CALM:
+        # `crowd_side` HARUS berupa arah. `VocabEntry.qualifier` adalah medan serba-guna — ia
+        # sudah dipakai non-arah di tabel lain (`caution — overbought`), jadi sebuah entri
+        # crowding ber-qualifier `"sideways"` (atau `"Long"` dengan kapital berbeda) akan lolos
+        # `crowd_side == plan` sebagai False dan jatuh ke cabang "sisi seberang" — GREEN, dengan
+        # alasan yang MENGARANG bahwa kerumunan ada di seberang plan. Satu entri kosakata dari
+        # terjadi (temuan TINGGI security-reviewer 0.12). Qualifier di luar {long, short}
+        # karena itu diperlakukan seperti tidak ada sisi sama sekali: RED tanpa syarat.
+        if crowd_side not in (LONG, SHORT) or crowd_side == plan:
+            hot.append(f"funding.crowding_state={_quote(crowding_raw)}")
+        elif plan is None and not hot:
+            # "Searah plan" tidak bisa diucapkan tanpa arah plan. Item 8 opsional, jadi
+            # `unspoken` di sini TIDAK memveto — dan keputusannya toh sudah ditahan item 9,
+            # yang justru bertugas menjawab "ada plan yang layak atau tidak".
+            return _item(
+                item_id,
+                UNSPOKEN,
+                reason=(
+                    f"funding crowding {_quote(crowding_raw)} sits on the "
+                    f"{_quote(crowd_side)} side, but the plan direction could not be read, so "
+                    "whether the crowd is with the plan cannot be said"
+                ),
+                source=source,
+                value=value,
+                warnings=warnings,
+            )
+    if not hot:
+        return _item(
+            item_id,
+            GREEN,
+            reason=(
+                f"funding crowding {_quote(crowding_raw)} is on the {_quote(crowd_side)} side "
+                f"while the plan is {_quote(plan)}, and liquidation pressure "
+                f"{_quote(pressure_raw)} -> the crowd sits opposite the plan, not against it"
+            ),
+            source=source,
+            value=value,
+            warnings=warnings,
         )
-        if meaning != CALM
-    ]
     return _item(
         item_id,
         RED,

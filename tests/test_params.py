@@ -170,15 +170,103 @@ def test_tables_hold_exactly_the_values_api_facts_lists() -> None:
     assert set(DEEP_ANALYSIS_VERDICT_CALL.entries) == {"constructive", "neutral", "cautious"}
     assert set(P.CONFLUENCE_STATE.entries) == {"CONFIRMED", "MIXED"}
     assert set(P.SENTIMENT_LABEL.entries) == {"extreme_greed", "greed"}
-    assert set(P.SENTIMENT_REGIME.entries) == {"extreme_greed_unconfirmed", "mixed_sentiment"}
+    assert set(P.SENTIMENT_REGIME.entries) == {
+        "extreme_greed_unconfirmed",
+        "mixed_sentiment",
+        "complacent_crowding",
+    }
     # `risk_off` teramati pertama kali pada snapshot id=763 (2 Sep 2026); `up` tetap 0× dan
     # karena itu tetap dicabut.
     assert set(MARKET_REGIME.entries) == {"risk_on", "neutral", "risk_off"}
-    assert set(P.FEAR_GREED_CHANGE_DIRECTION.entries) == {"down"}
+    assert set(P.FEAR_GREED_CHANGE_DIRECTION.entries) == {"down", "flat"}
     assert set(P.TECHNICAL_TREND.entries) == {"up", "sideways", "down"}
-    # Hanya `normal` yang pernah terlihat: tidak ada string "crowded_*"/"extreme" karangan.
-    assert set(P.FUNDING_CROWDING_STATE.entries) == {"normal"}
-    assert set(P.LIQUIDATION_PRESSURE_STATE.entries) == {"normal"}
+    # TASKS 0.12: `long_crowding`/`extreme` masuk dengan provenance (id 1976/2047/2106).
+    # Ejaannya `long_crowding` — string `crowded_long` yang pernah kami karang TIDAK ada di sini.
+    assert set(P.FUNDING_CROWDING_STATE.entries) == {"normal", "long_crowding"}
+    assert "crowded_long" not in P.FUNDING_CROWDING_STATE.entries
+    assert set(P.LIQUIDATION_PRESSURE_STATE.entries) == {"normal", "extreme"}
+    # `short_crowding` belum pernah teramati; ia hanya boleh hidup di fixture tes.
+    assert "short_crowding" not in P.FUNDING_CROWDING_STATE.entries
+
+
+#: Tabel yang nilainya dibaca `preflight.items._classify`. Konsekuensinya keras: `_classify`
+#: TIDAK punya cabang untuk `KNOWN`, jadi entri `KNOWN` di sini akan jatuh ke `RED` dengan
+#: alasan "opposed to the plan" — nilai yang netral akan diam-diam memveto.
+_CLASSIFIED_TABLES = (
+    "ANALYZE_TOKEN_VERDICT",
+    "DEEP_ANALYSIS_VERDICT_CALL",
+    "COMPARE_TOKENS_VERDICT",
+    "MARKET_REGIME",
+    "FEAR_GREED_CHANGE_DIRECTION",
+)
+#: Tabel "keadaan": hanya tenang atau siaga, tidak ada arah.
+_STATE_TABLES = ("FUNDING_CROWDING_STATE", "LIQUIDATION_PRESSURE_STATE")
+#: Tabel konteks kartu: tidak menggerakkan status item mana pun.
+_CONTEXT_TABLES = ("SENTIMENT_LABEL", "SENTIMENT_REGIME", "TECHNICAL_TREND")
+
+
+@pytest.mark.parametrize("name", _CLASSIFIED_TABLES)
+def test_classified_tables_never_hold_a_known_entry(name: str) -> None:
+    """`KNOWN` di tabel yang masuk `_classify` = veto diam-diam (temuan quant TASKS 0.12)."""
+    allowed = {P.BULLISH, P.BEARISH, P.NEUTRAL, P.ABSTAIN}
+    meanings = {entry.meaning for entry in getattr(P, name).entries.values()}
+    assert meanings <= allowed, f"{name}: {sorted(meanings - allowed)} tidak dikenal _classify"
+
+
+@pytest.mark.parametrize("name", _STATE_TABLES)
+def test_state_tables_only_say_calm_or_alert(name: str) -> None:
+    meanings = {entry.meaning for entry in getattr(P, name).entries.values()}
+    assert meanings <= {P.CALM, P.ALERT}
+
+
+@pytest.mark.parametrize("name", _CONTEXT_TABLES)
+def test_context_tables_never_move_an_item(name: str) -> None:
+    meanings = {entry.meaning for entry in getattr(P, name).entries.values()}
+    assert meanings == {P.KNOWN}
+
+
+def test_the_crowding_alert_carries_the_side_it_sits_on() -> None:
+    """Tanpa `qualifier`, item 8 tidak bisa membedakan "searah plan" dari "sisi seberang"."""
+    assert P.FUNDING_CROWDING_STATE.entries["long_crowding"].qualifier == "long"
+    assert P.FUNDING_CROWDING_STATE.entries["normal"].qualifier is None
+    # Pressure tidak bersyarat arah menurut spec §4 item 8, jadi ia TIDAK boleh punya sisi.
+    assert P.LIQUIDATION_PRESSURE_STATE.entries["extreme"].qualifier is None
+
+
+#: `params_hash` yang BERLAKU. Dipatok, bukan sekadar "berbeda dari yang lama": `provenance`
+#: ikut ke `as_dict()`, jadi menyunting PROSA satu entri pun menggeser hash ini dan membuat
+#: setiap baris `decisions` menjadi `STALE_PARAMS`. Penjaga yang hanya menuntut `!= before`
+#: membiarkan pergeseran senyap itu lolos (mutan M4 security-reviewer 0.12 selamat).
+#: Memperbaruinya adalah tindakan SADAR: pastikan Anda memang bermaksud menggeser params.
+CURRENT_PARAMS_HASH = "3d39fb1bd1a03b7f5269f53fec347d34645d2b402ff1c2de47e53f19d69616b7"
+#: Hash sebelum TASKS 0.12, tercatat di `decisions` id 20-27 pada `data/ryo.db`.
+PARAMS_HASH_BEFORE_0_12 = "f2781184fc0e168c9e2011f873519c51e8561675fc6b7d17d60a445bd692291f"
+
+
+def test_params_hash_is_pinned_so_no_change_to_the_tables_is_silent() -> None:
+    """Empat baris kosakata 0.12 menggeser `params_hash`, dan pergeserannya dipatok.
+
+    Sesudah 0.12, baris `decisions` id 20-27 dilaporkan `STALE_PARAMS` (TASKS 0.14) — bukan
+    `MISMATCH`, dan bukan lagi `NO_EVIDENCE` untuk id 20-23. Itu konsekuensi yang diterima
+    sadar oleh pemilik repo saat memberi izin membuka params yang dibekukan TASKS 5.0.
+    """
+    assert P.DEFAULT_PARAMS.params_hash() == CURRENT_PARAMS_HASH
+    assert CURRENT_PARAMS_HASH != PARAMS_HASH_BEFORE_0_12
+
+
+def test_editing_only_the_provenance_prose_still_moves_the_hash() -> None:
+    """Alasan tes di atas mematok nilai, bukan ketidaksamaan: prosa pun menggeser hash."""
+    entry = P.SENTIMENT_REGIME.entries["complacent_crowding"]
+    edited = P.Vocabulary(
+        field=P.SENTIMENT_REGIME.field,
+        entries={
+            **P.SENTIMENT_REGIME.entries,
+            "complacent_crowding": P.VocabEntry(entry.meaning, entry.provenance + " (disunting)"),
+        },
+    )
+    others = tuple(v for v in P.VOCABULARIES if v.field != edited.field)
+    moved = P.DEFAULT_PARAMS.with_overrides(vocabularies=(edited, *others))
+    assert moved.params_hash() != CURRENT_PARAMS_HASH
 
 
 def test_no_table_row_exists_without_an_observation_count() -> None:

@@ -180,6 +180,10 @@ def _vocab(field_path: str, entries: dict[str, VocabEntry]) -> Vocabulary:
 
 
 _OBS = "docs/api-facts.md §A 'Kosakata terukur' (697 snapshot, api-verifier 1 Sep 2026)"
+#: Sapuan yang BERLAKU (api-verifier, TASKS 0.12). `_OBS` di atas menunjuk sapuan 697 snapshot
+#: yang sudah usang; entri yang disentuh 0.12 memakai konstanta ini, sisanya menyusul saat
+#: fieldnya diperiksa ulang — angka lama tidak dihapus supaya jejaknya tidak hilang.
+SWEEP = "data/ryo.db (mode=ro, sapuan id <= 2165, 4 Sep 2026)"
 
 #: ``analyze_token.data.verdict`` — 365 amatan. Namespace TERPISAH dari verdict deep/compare.
 ANALYZE_TOKEN_VERDICT = _vocab(
@@ -259,7 +263,16 @@ SENTIMENT_LABEL = _vocab(
 FEAR_GREED_CHANGE_DIRECTION = _vocab(
     "monitor_market_sentiment_shift.data.evidence.fear_greed.change_direction",
     {
-        "down": VocabEntry(BEARISH, f"{_OBS}: 20× (sapuan id <= 835, 2 Sep 2026)"),
+        "down": VocabEntry(BEARISH, f"{SWEEP}: 40×"),
+        # NEUTRAL, BUKAN KNOWN. Tabel ini dikonsumsi `_classify`, yang tidak punya cabang
+        # KNOWN dan akan jatuh ke RED — `flat` akan diam-diam memveto (temuan quant 0.12).
+        "flat": VocabEntry(
+            NEUTRAL,
+            f"{SWEEP}: 2× — id 1976 & 2047, pertama 2026-09-04T11:21:24Z, status ok, "
+            "change_7d_points 0 pada keduanya (satu-satunya 0 dari 42 amatan; 'down' selalu "
+            "< 0, -3..-11) dan material_shift false; id 2106 kembali 'down'. Nilai kedua, "
+            "sebelumnya 0 dari 40",
+        ),
     },
 )
 
@@ -267,24 +280,55 @@ FEAR_GREED_CHANGE_DIRECTION = _vocab(
 SENTIMENT_REGIME = _vocab(
     "monitor_market_sentiment_shift.data.evidence.sentiment_regime",
     {
-        "extreme_greed_unconfirmed": VocabEntry(KNOWN, f"{_OBS}: 12×"),
-        "mixed_sentiment": VocabEntry(KNOWN, f"{_OBS}: 8× (sapuan id <= 835, 2 Sep 2026)"),
+        "extreme_greed_unconfirmed": VocabEntry(KNOWN, f"{SWEEP}: 21×"),
+        "mixed_sentiment": VocabEntry(KNOWN, f"{SWEEP}: 18×"),
+        "complacent_crowding": VocabEntry(
+            KNOWN,
+            f"{SWEEP}: 3× — pertama snapshot id=1976, ts 2026-09-04T11:21:24Z, status ok; "
+            "id 2047 & 2106 menyusul, berpasangan dengan funding 'long_crowding' + pressure "
+            "'extreme' pada ketiganya; nilai ketiga, sebelumnya 0 dari 39. Konteks kartu: "
+            "tidak menggerakkan status",
+        ),
     },
 )
 
-#: ``monitor….data.evidence.funding.crowding_state`` — HANYA ``normal`` yang pernah terlihat.
-#: Tidak ada baris "crowded_*" di sini: string itu belum pernah kami lihat, dan mengarangnya
-#: berarti item 8 memvonis dengan kosakata karangan. Nilai lain → unspoken + warning
-#: (item 8 opsional, jadi itu tidak memveto). api-verifier menambah baris bila nilainya muncul.
+#: ``monitor….data.evidence.funding.crowding_state``. Sampai 3 Sep hanya ``normal`` yang pernah
+#: terlihat, dan komentar di sini berbunyi "tidak ada baris crowded_* : string itu belum pernah
+#: kami lihat". **Kalimat itu sekarang tidak berlaku** (TASKS 0.12, 4 Sep 2026): RYO mengeluarkan
+#: ``long_crowding`` — dan perhatikan ejaannya, BUKAN ``crowded_long`` yang pernah kami karang di
+#: fixture tes. Nilai yang belum pernah terlihat tetap → unspoken + warning.
+#:
+#: **"Opsional" membebaskan ``unspoken``, BUKAN ``red``**: ``decide()`` memasukkan setiap item RED
+#: ke ``blocking``, dan ``optional_items`` hanya membebaskan cabang UNSPOKEN. Jadi baris ``ALERT``
+#: di tabel ini benar-benar bisa memveto.
 FUNDING_CROWDING_STATE = _vocab(
     "monitor_market_sentiment_shift.data.evidence.funding.crowding_state",
-    {"normal": VocabEntry(CALM, f"{_OBS}: 20× (sapuan id <= 835, 2 Sep 2026)")},
+    {
+        "normal": VocabEntry(CALM, f"{SWEEP}: 39×"),
+        "long_crowding": VocabEntry(
+            ALERT,
+            f"{SWEEP}: 3× — id 1976/2047/2106, pertama 2026-09-04T11:21:24Z, status ok, "
+            "funding.current_7d_percentile_90d 91.111111 (bandingkan 56.666667–82.222222 pada "
+            "39 baris 'normal'); nilai kedua, sebelumnya 0 dari 39. Ejaan RYO 'long_crowding', "
+            "BUKAN 'crowded_long' yang pernah kami karang di fixture",
+            qualifier="long",
+        ),
+    },
 )
 
-#: ``monitor….data.evidence.liquidation.pressure_state`` — sama, hanya ``normal``.
+#: ``monitor….data.evidence.liquidation.pressure_state``.
 LIQUIDATION_PRESSURE_STATE = _vocab(
     "monitor_market_sentiment_shift.data.evidence.liquidation.pressure_state",
-    {"normal": VocabEntry(CALM, f"{_OBS}: 20× (sapuan id <= 835, 2 Sep 2026)")},
+    {
+        "normal": VocabEntry(CALM, f"{SWEEP}: 39×"),
+        "extreme": VocabEntry(
+            ALERT,
+            f"{SWEEP}: 3× — id 1976/2047/2106, pertama 2026-09-04T11:21:24Z, status ok, "
+            "liquidation.percentile_90d 92.222222 (bandingkan 32.222222–63.333333 pada 39 "
+            "baris 'normal'); nilai kedua, sebelumnya 0 dari 39. ALERT karena spec §4 item 8 "
+            "menyebut 'pressure ekstrem' sebagai merah TANPA syarat arah",
+        ),
+    },
 )
 
 #: ``deep_analysis.data.confluence.state`` — 271 amatan, dua nilai.
