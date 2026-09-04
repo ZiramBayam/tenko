@@ -43,8 +43,10 @@ from agent.trade import (
     settle_open_positions,
 )
 from agent.watchlist import MAX_SYMBOLS, watchlist
+from core.skill import TRUNCATED_MARK
 from core.store import Store
 from preflight.params import DEFAULT_PARAMS, ITEM_COMPLETENESS, ITEM_ORDER, ITEM_PLAN
+from preflight.skill import normalize_symbol
 from tests.helpers_agent import ANALYZE, MARKET_OVERVIEW, build_store, mixed_confluence, price_snapshot
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -563,6 +565,110 @@ def test_watchlist_drops_unusable_entries_and_says_so() -> None:
     result = watchlist("SOL, , sol, A B, X,Y")
     assert result.symbols == ("SOL", "X", "Y")
     assert result.dropped == ("A B",)
+
+
+# --- TASKS 0.11: bentuk simbol disaring sebelum menulis ledger permanen ------------------
+# Keenam bentuk di bawah adalah yang dipakai security-reviewer 2.4 saat menunjukkan bahwa
+# `--symbols` menerima teks yang bukan simbol. (Angka "7 baris `decisions`" yang sempat
+# ditulis di sini DICABUT: sapuan `data/ryo.db` + 13 backup memberi 27 baris `decisions`
+# bersimbol SOL/BTC/ETH/BNB saja.) Semuanya LOLOS `normalize_symbol` — itu memang bukan
+# tugasnya — jadi yang dipatok di sini adalah lapis `plausible_symbol`.
+JUNK_SYMBOLS = ["--", '"BTC"', '{"SYMBOL":"SOL"}', "123", "ＳＯＬ", "BNB😀"]
+
+
+@pytest.mark.parametrize("junk", JUNK_SYMBOLS)
+def test_watchlist_refuses_symbols_that_are_not_shaped_like_tickers(junk: str) -> None:
+    result = watchlist([junk])
+    assert result.symbols == ()
+    assert result.dropped == (junk[:32],)
+
+
+@pytest.mark.parametrize("junk", JUNK_SYMBOLS)
+def test_normalize_symbol_still_accepts_them_so_the_guard_is_the_one_that_bites(junk: str) -> None:
+    """Paritas dengan perekam dijaga: saringannya ada di `agent/`, bukan di `normalize_symbol`."""
+    assert normalize_symbol(junk) is not None
+
+
+@pytest.mark.parametrize("real", ["SOL", "H", "1INCH", "牛来", "龙虾", "CASHCAT"])
+def test_watchlist_keeps_symbols_that_ryo_actually_returns(real: str) -> None:
+    """`H`, `牛来`, `龙虾` ADA di `data/ryo.db` — saringan ASCII saja akan membuangnya."""
+    assert watchlist([real]).symbols == (real,)
+
+
+def test_dropped_symbols_are_named_in_the_log_not_just_counted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AC 2: operator harus tahu simbol MANA yang tidak jadi dipanggil."""
+    with caplog.at_level(logging.WARNING, logger="agent.watchlist"):
+        watchlist("SOL, BNB😀")
+    assert "BNB😀" in caplog.text
+    assert "SOL" not in caplog.text.replace("agent.watchlist", "")
+
+
+@pytest.mark.parametrize("confusable", ["SОL", "BTCאב123", "مBTC1"])
+def test_watchlist_refuses_mixed_scripts(confusable: str) -> None:
+    """Homoglyph & RTL implisit: `SОL` (О Kiril) tampil identik dengan `SOL` di Layar A."""
+    assert watchlist([confusable]).symbols == ()
+
+
+def test_mixed_script_lookalikes_cannot_become_two_ledger_rows() -> None:
+    """Temuan SEDANG 0.11: hanya satu dari keduanya yang boleh sampai ke keputusan."""
+    result = watchlist(["SOL", "SОL"])  # yang kedua memakai U+041E
+    assert result.symbols == ("SOL",)
+    assert result.dropped == ("SОL",)
+
+
+@pytest.mark.parametrize("single_script", ["ВТС", "ЅОЛ", "ᏚᎢᏞ", "ΒΤΑ"])
+def test_single_script_lookalikes_are_NOT_closed_and_that_is_written_down(
+    single_script: str,
+) -> None:
+    """Batas yang diakui, bukan properti yang dijaga (security-reviewer 0.11, putaran 2).
+
+    `ВТС` Kiril penuh, `ᏚᎢᏞ` Cherokee, `ΒΤΑ` Yunani: masing-masing BERAKSARA TUNGGAL, jadi
+    syarat 4 tidak menyentuhnya, dan `--symbols 'BTC,ВТС'` benar-benar menulis dua baris
+    ledger yang tampil sama. Tes ini ada supaya batas itu tidak diam-diam diklaim tertutup —
+    kalau seseorang menutupnya nanti, tes inilah yang harus dihapus dengan sadar.
+    """
+    assert watchlist([single_script]).symbols == (single_script,)
+
+
+@pytest.mark.parametrize("japanese", ["ドージ", "犬コイン", "牛来", "비트"])
+def test_japanese_and_cjk_spellings_are_not_treated_as_mixed_script(japanese: str) -> None:
+    """Kanji+kana adalah ejaan normal, bukan campur-aksara — dan ini lomba Jepang."""
+    assert watchlist([japanese]).symbols == (japanese,)
+
+
+def test_dropped_entries_cannot_forge_a_log_line(caplog: pytest.LogCaptureFixture) -> None:
+    """Entri di-escape (`repr`), jadi ia tidak bisa menyisipkan baris log palsu.
+
+    Yang dipatok adalah ISI LOG-nya. Versi pertama tes ini hanya memeriksa `symbols == ()`,
+    sehingga mutan yang mengganti `repr(entry)` menjadi `entry` lolos seluruh suite
+    (mutation testing security-reviewer 0.11).
+    """
+    forged = "EVIL\u2028WARNING watchlist: SOL dipanggil"
+    with caplog.at_level(logging.WARNING, logger="agent.watchlist"):
+        watchlist([forged])
+    assert "\u2028" not in caplog.text  # karakter aslinya tidak pernah sampai ke log
+    assert "\\u2028" in caplog.text  # ia muncul sebagai escape enam karakter, bukan pemisah
+    assert caplog.text.count("\n") == 1  # satu entri = satu baris log, bukan dua
+
+
+def test_the_log_line_cannot_be_grown_without_bound_by_the_operator(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """200.000 entri sampah tidak boleh menjadi satu baris log 1,2 MB (temuan RENDAH 0.11)."""
+    with caplog.at_level(logging.WARNING, logger="agent.watchlist"):
+        watchlist(",".join(["--"] * 500))
+    assert "500 entri" in caplog.text
+    assert "dan 480 lainnya" in caplog.text
+    assert len(caplog.text) < 2_000
+
+
+def test_a_truncated_entry_is_marked_as_truncated(caplog: pytest.LogCaptureFixture) -> None:
+    """Tanpa penanda, potongan yang dicetak justru berbentuk simbol sah dan menyesatkan."""
+    with caplog.at_level(logging.WARNING, logger="agent.watchlist"):
+        watchlist(["A" * 32 + "BBBB!"])
+    assert TRUNCATED_MARK in caplog.text
 
 
 def test_watchlist_caps_the_number_of_symbols() -> None:
