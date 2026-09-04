@@ -54,9 +54,18 @@ Kalibrasi ambang (dibaca read-only dari ``data/ryo.db``, sapuan 756 baris, 2 Sep
 ``sqlite3.connect("file:data/ryo.db?mode=ro", uri=True)``):
 
 * ``confluence``: ``CONFIRMED`` selalu ``score == 1.0`` (169/169) dan ``MIXED`` selalu
-  ``0.5`` (125/125) — dua gate, skor = pecahan gate yang lulus. ``min_confluence = 1.0``
-  berarti "kedua gate lulus"; ambang di antara 0.5 dan 1.0 memberi keputusan yang sama
-  tetapi menyembunyikan maknanya.
+  ``0.5`` (125/125). ``min_confluence = 1.0`` berarti "semua gate yang DIJAWAB lulus"; ambang
+  di antara 0.5 dan 1.0 memberi keputusan yang sama tetapi menyembunyikan maknanya.
+
+  **Koreksi 5 Sep 2026 (TASKS 0.15).** Kalimat lama di sini berbunyi "dua gate, skor = pecahan
+  gate yang lulus". Itu **tidak benar**: sapuan ``data/ryo.db`` menemukan 19 baris (pertama
+  ``id=1110``, 2026-09-02T09:08:58Z) dengan ``gates = [{"name": "momentum", "passed": null},
+  {"name": "market_activity", "passed": true}]`` dan ``score = 1.0``. Satu gate lulus dari dua
+  gate bukan 1.0 — jadi penyebutnya adalah gate yang DIJAWAB, bukan gate yang ada. Kami tidak
+  tahu itu sebagai aturan RYO yang diterbitkan (tidak ada skema output; api-facts §A), hanya
+  sebagai bentuk yang teramati. Yang berubah karena koreksi ini bukan ambangnya — ``1.0`` tetap
+  angka yang sama — melainkan kalimat yang kami ucapkan tentangnya, dan gate yang diam kini
+  DISEBUT di kartu (``gates_unspoken``) alih-alih hilang dari kedua daftar.
 * ``trade_plan.risk_reward`` = ``[1.0, 2.0]`` di 294/294 baris. ``min_rr = 1.0``:
   ambang di atas 1.0 membuat item 9 merah untuk SETIAP plan yang pernah dikeluarkan RYO —
   item tanpa daya pisah, dan §7 langkah 3 ("≥1 GO dan ≥1 NO_GO") mustahil.

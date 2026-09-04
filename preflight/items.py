@@ -1049,6 +1049,16 @@ def evaluate_confluence(evidence: Evidence) -> ItemOutcome:
         for gate in gates
         if isinstance(gate, Mapping) and gate.get("passed") is True
     ]
+    # Gate ber-`passed: null` DISEBUT, tidak hilang (TASKS 0.15). Ia masuk `gates_total` tetapi
+    # tidak ke `passed` maupun `failed`, jadi sampai 0.15 kartu berbunyi "gates passed:
+    # market_activity" tanpa menyebut bahwa satu gate DIAM — angka agregat tanpa `n`, persis
+    # yang dilarang CLAUDE.md. Terukur 19× di `data/ryo.db` (pertama id=1110), selalu gate
+    # `momentum`, selalu bersama `state=CONFIRMED score=1.0`.
+    unspoken_gates = [
+        _text_value(gate.get("name")) or _quote(gate.get("name"))
+        for gate in gates
+        if isinstance(gate, Mapping) and gate.get("passed") is None
+    ]
     value = {
         "state": state_raw,
         "score": score,
@@ -1056,22 +1066,27 @@ def evaluate_confluence(evidence: Evidence) -> ItemOutcome:
         "gates_total": len(gates),
         "gates_failed": failed,
         "gates_passed": passed,
+        "gates_unspoken": unspoken_gates,
     }
+    silent = f"; not answered: {', '.join(unspoken_gates)}" if unspoken_gates else ""
     if entry.meaning == CONFIRMED and score >= evidence.params.min_confluence:
         return _item(
             item_id,
             GREEN,
             reason=(
                 f"confluence {state_raw} at {score:g} (limit {evidence.params.min_confluence:g}), "
-                f"gates passed: {', '.join(passed) or 'none listed'} -> the evidence agrees with itself"
+                f"gates passed: {', '.join(passed) or 'none listed'}{silent} -> the evidence "
+                "agrees with itself"
             ),
             source=source,
             value=value,
         )
     if entry.meaning == CONFIRMED:
-        detail = f"confluence {state_raw} but score {score:g} < {evidence.params.min_confluence:g}"
+        detail = f"confluence {state_raw} but score {score:g} < {evidence.params.min_confluence:g}{silent}"
     else:
-        detail = f"confluence {state_raw} at {score:g}, gates failed: {', '.join(failed) or 'none listed'}"
+        detail = (
+            f"confluence {state_raw} at {score:g}, gates failed: {', '.join(failed) or 'none listed'}{silent}"
+        )
     return _item(
         item_id,
         RED,

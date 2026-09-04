@@ -485,6 +485,57 @@ def test_item6_red_when_confluence_is_mixed() -> None:
     assert outcome.result.value["gates_failed"] == ["momentum"]
 
 
+# Bentuk NYATA dari `data/ryo.db` id=1110 (2026-09-02T09:08:58Z) dan 18 baris berikutnya:
+# gate `momentum` DIJAWAB null, `market_activity` true, `state=CONFIRMED`, `score=1.0`.
+NULL_GATE = {
+    f"{DEEP}:data.confluence.gates.0.passed": None,
+    f"{DEEP}:data.confluence.gates.1.passed": True,
+}
+
+
+def test_item6_names_a_gate_that_was_never_answered() -> None:
+    """TASKS 0.15: gate ber-`passed: null` DISEBUT, bukan hilang dari kedua daftar.
+
+    Sampai 0.15 gate itu masuk `gates_total` tetapi tidak ke `gates_passed` maupun
+    `gates_failed`, jadi kartu berbunyi "gates passed: market_activity" — angka agregat tanpa
+    `n`, dan pembaca tidak pernah tahu ada gate yang diam. 19 baris nyata berbentuk begini.
+    """
+    outcome = run(mutate=NULL_GATE)[ITEM_CONFLUENCE]
+    value = outcome.result.value
+    assert value["gates_unspoken"] == ["momentum"]
+    assert value["gates_passed"] == ["market_activity"]
+    assert value["gates_failed"] == []
+    assert value["gates_total"] == 2  # ketiganya berjumlah gates_total: 1 + 0 + 1
+    assert len(value["gates_passed"]) + len(value["gates_failed"]) + len(value["gates_unspoken"]) == 2
+    assert "not answered: momentum" in outcome.result.reason
+
+
+def test_item6_status_is_unchanged_by_a_silent_gate() -> None:
+    """0.15 mengubah apa yang DIUCAPKAN, bukan keputusannya: baris nyata itu tetap GREEN."""
+    assert run(mutate=NULL_GATE)[ITEM_CONFLUENCE].status == GREEN
+    assert run()[ITEM_CONFLUENCE].status == GREEN
+
+
+def test_item6_says_nothing_extra_when_every_gate_answered() -> None:
+    """Kebalikannya: jangan berisik saat tidak ada yang diam."""
+    outcome = run()[ITEM_CONFLUENCE]
+    assert outcome.result.value["gates_unspoken"] == []
+    assert "not answered" not in outcome.result.reason
+
+
+def test_item6_names_the_silent_gate_on_the_red_branch_too() -> None:
+    """Kartu merah juga harus menyebutnya — kalau tidak, ia hanya jujur saat kabarnya baik."""
+    outcome = run(
+        mutate={
+            **NULL_GATE,
+            f"{DEEP}:data.confluence.state": "MIXED",
+            f"{DEEP}:data.confluence.score": 0.5,
+        }
+    )[ITEM_CONFLUENCE]
+    assert outcome.status == RED
+    assert "not answered: momentum" in outcome.result.reason
+
+
 def test_item6_red_when_the_score_is_below_the_threshold() -> None:
     outcome = run(mutate={f"{DEEP}:data.confluence.score": 0.5})[ITEM_CONFLUENCE]
     assert outcome.status == RED and "below" not in outcome.result.reason.split()[0]
