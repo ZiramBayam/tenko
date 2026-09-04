@@ -130,19 +130,40 @@ membekukan snapshot (`freeze`), memverifikasi ulang hash-nya (`verify_bundle`), 
 material kanonik. Juri Fase 1 menguji tiga batas yang diakui docstring modul itu satu per satu dan melaporkan
 ketiganya benar persis seperti tertulis (`docs/judge-reports/fase-1.md`, tabel tes destruktif baris f).
 
-Yang **belum**: CLI `make replay ID=<trade_id>` (`agent/replay.py`) belum ada, jadi verdict IDENTICAL / MISMATCH /
-STALE_ALGO belum bisa Anda lihat di terminal. Itu TASKS 2.4.
+CLI-nya sekarang **ada** (`agent/replay.py`; `make replay ID=<trade_id>` → `uv run python -m agent.replay $(ID)`,
+`Makefile:24-25`), dan ia sudah dijalankan atas ke-39 baris ledger SIMULATED — hasilnya dipilah per vonis di §8.
+Yang bisa Anda jalankan sendiri: `uv run python -m agent.replay 28` →
+`IDENTICAL e37eafeddd47f22b344805a588a44d544caf855b5c2b5503ea94cda86600ba1d`,
+`'SOL' NO_GO dari 5 snapshot beku (2166, 2167, 2169, 2170, 2219); blocking: 08_derivatives`.
+
+Vonisnya empat, bukan tiga, dan hanya **satu** yang berarti "terverifikasi": `IDENTICAL` (`VERIFIED_VERDICTS =
+frozenset({VERDICT_IDENTICAL})`, `agent/replay.py:126`). `MISMATCH` (exit 1) adalah **temuan** — bukti tidak
+mereproduksi keputusan; `STALE_ALGO`, `STALE_PARAMS`, dan `NO_EVIDENCE` (exit 0) adalah **pengakuan tidak tahu**.
+Yang dipatok tes, bukan cuma didokumentasikan: satu byte `payload_json` yang diubah pada salinan DB → `MISMATCH` yang
+menyebut snapshot-nya (`tests/test_agent_replay.py::test_one_tampered_byte_in_the_copy_gives_mismatch_naming_the_snapshot`)
+· daftar bukti yang dikosongkan → `MISMATCH`, bukan `NO_EVIDENCE` yang keluar 0
+(`::test_a_row_whose_evidence_list_was_emptied_is_mismatch_not_no_evidence`) · generasi params lain → `STALE_PARAMS`,
+bukan tuduhan (`::test_a_decision_from_another_params_generation_is_stale_params_not_mismatch`).
+
+Yang **belum**: `make demo` — naskah `docs/spec.md` §7 dari nol dengan fixture offline — masih TASKS 3.4 dan sengaja
+gagal keras (`Makefile:30-33`). Replay yang berjalan bukan naskah demo yang berjalan.
 
 ---
 
-## 7. Dua generasi di `data/ryo.db` (ADR-016)
+## 7. Tiga generasi di `data/ryo.db` (ADR-016, TASKS 0.14)
 
-`data/ryo.db` memuat dua generasi. 19 baris `decisions` + 9 `trade_events` pertama ditulis oleh implementasi yang
+`data/ryo.db` memuat lebih dari satu generasi. 19 baris `decisions` + 9 `trade_events` pertama ditulis oleh implementasi yang
 **dihapus 1 Sep 2026**. Store bersifat hanya-tambah (ADR-006), sehingga baris itu tidak dihapus, tidak ditulis ulang,
-dan tidak disembunyikan. Begitu CLI replay ada, `make replay ID=13` akan melaporkannya sebagai `STALE_ALGO` — snapshot
-buktinya utuh, algoritma yang memproduksinya tidak ada lagi. Itu perilaku yang disengaja, bukan kerusakan, dan bukan
-tamper. Pembedanya satu hal saja: ada atau tidaknya kunci `algo` di `card_json` (ADR-016; kait di `core/replay.py`
-belum hidup, TASKS 2.4a/2.4b).
+dan tidak disembunyikan. `make replay ID=13` **sekarang benar-benar** melaporkannya `STALE_ALGO` — snapshot buktinya
+utuh, algoritma yang memproduksinya tidak ada lagi. Itu perilaku yang disengaja, bukan kerusakan, dan bukan tamper.
+Pembedanya satu hal saja: ada atau tidaknya kunci `algo` di `card_json` (ADR-016), dan urutan pemeriksaannya mengikat —
+`algo` usang diperiksa **sebelum** `params_hash`, sehingga baris pra-1-Sep tetap `STALE_ALGO` dan tidak berubah vonis
+tiap kali ambang bergeser (`agent/replay.py:52-53`;
+`tests/test_agent_replay.py::test_a_row_without_algo_is_stale_algo_not_mismatch`).
+
+Sejak TASKS 0.14 generasinya ada tiga, bukan dua: 19 baris `STALE_ALGO` (id 1-19), 8 baris `STALE_PARAMS` (id 20-27,
+ditulis sebelum `params_hash` bergeser hari ini), dan 12 baris yang berlaku (id 28-39). Tidak satu pun dari 27 baris
+lama itu kami sebut salah — kami hanya menyatakan tidak memeriksanya (§8).
 
 Alasannya sama dengan tesis produknya: yang tidak tersebut wajib disebut sebagai tidak tersebut. Menyembunyikan 19
 baris itu akan lebih rapi dan lebih tidak jujur.
@@ -159,8 +180,22 @@ baris itu akan lebih rapi dan lebih tidak jujur.
 - **Tidak ada klaim "production-ready", "teraudit", atau "100%".** Yang ada: 536 tes hijau atas fondasi, dan daftar
   kegagalan yang bisa direproduksi di `docs/judge-reports/fase-1.md` §"Kegagalan yang bisa direproduksi".
 - **Tidak ada klaim performa perdagangan.** Semua posisi adalah practice; P&L jangka pendek juga tidak dinilai rubric.
-- **`params_hash` final belum dibekukan** (TASKS 5.0), jadi keputusan yang dibuat hari ini belum tentu bisa di-replay
-  setelah ambang berubah — guard-nya memang dirancang untuk mengeluh.
+- **Angka replay tidak boleh dijumlahkan.** `params_hash` yang berlaku hari ini (4 Sep 2026) adalah
+  `3d39fb1bd1a03b7f5269f53fec347d34645d2b402ff1c2de47e53f19d69616b7`
+  (`uv run python -c "from preflight.params import DEFAULT_PARAMS; print(DEFAULT_PARAMS.params_hash())"`). Ia bergeser
+  hari ini (commit `6023700`, TASKS 0.12) karena empat nilai kosakata yang belum pernah kami lihat muncul pertama kali
+  di snapshot id=1976 (2026-09-04T11:21:24Z): `sentiment_regime='complacent_crowding'`,
+  `liquidation.pressure_state='extreme'`, `funding.crowding_state='long_crowding'`, `fear_greed.change_direction='flat'`.
+  Memetakannya adalah keputusan sadar pemilik repo, bukan kecelakaan. Menjalankan `uv run python -m agent.replay <id>`
+  atas ke-39 baris ledger (SIMULATED) memberi tiga vonis yang **berbeda arti** dan karena itu tidak kami gabungkan:
+  `IDENTICAL` 12 (id 28-39, generasi params yang berlaku), `STALE_PARAMS` 8 (id 20-27), `STALE_ALGO` 19 (id 1-19).
+  `STALE_PARAMS` — vonis yang baru mendarat hari ini (commit `bab34d5`, TASKS 0.14) — berarti **kami tidak menilai
+  baris itu sama sekali**, bukan bahwa kami menemukannya salah; di repo ini `MISMATCH` berarti bukti tidak
+  mereproduksi keputusan, sebuah tuduhan yang tidak kami dukung untuk baris yang aturannya memang berbeda (sebelum
+  0.14 baris-baris itu memang dilaporkan `MISMATCH`; itu dicabut). Contoh yang bisa dijalankan juri:
+  `uv run python -m agent.replay 28` → `IDENTICAL e37eafeddd47f22b344805a588a44d544caf855b5c2b5503ea94cda86600ba1d`,
+  `'SOL' NO_GO dari 5 snapshot beku (2166, 2167, 2169, 2170, 2219); blocking: 08_derivatives`. Yang tetap TIDAK kami
+  klaim: bahwa 12 `IDENTICAL` itu mengatakan sesuatu tentang mutu keputusannya, atau tentang keandalan sumber mana pun.
 
 ---
 
@@ -170,9 +205,9 @@ Satu BUIDL, tiga track (`docs/api-facts.md` §E: maksimal satu BUIDL per tim):
 
 | Track | Rencana | Status |
 |---|---|---|
-| T3 | skill `preflight(symbol)` dengan bentuk envelope RYO | kontrak & CLI ADA; isi skill BELUM (TASKS 2.2) |
-| T1 | agen practice-trade + kartu panggilan + replay | BELUM (TASKS 2.1/2.4) |
-| T2 | watchlist urut daya veto + kartu keyboard-first | BELUM (TASKS 3.1/3.2) |
+| T3 | skill `preflight(symbol)` dengan bentuk envelope RYO | kontrak, CLI, dan isi skill ADA (`preflight/skill.py`, `preflight/items.py`, `preflight/params.py`); kartu nyata terlihat lewat `uv run python -m agent.replay 28` |
+| T1 | agen practice-trade + kartu panggilan + replay | ADA sebagian: agen menulis keputusan (`agent/main.py`, `make agent-tick`) dan replay memvonis 39 baris — 12 `IDENTICAL`. **`make demo` (naskah §7 utuh) BELUM**, TASKS 3.4 |
+| T2 | watchlist urut daya veto + kartu keyboard-first | BELUM diklaim: `ui/app.py` ada di working tree tetapi **belum di-commit** dan belum ada laporan yang menunjukkannya berjalan (TASKS 3.1/3.2) |
 
 Kepatuhan (`docs/rules-compliance.md`): kredensial hanya dari env dan tidak pernah dilog atau di-repr · label
 SIMULATED di README dan (nanti) di semua layar · jalur nyata hanya memakai sumber yang `enabled: true` **dan**
