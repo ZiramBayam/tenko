@@ -61,7 +61,13 @@ from agent.watchlist import watchlist
 from core.replay import ALGO, Bundle, ReplayError, decision_hash, freeze
 from core.skill import SkillResult
 from core.store import Store, StoreError
-from preflight.skill import DEFAULT_INTENT, check_aggregate_floor, preflight
+from preflight.skill import (
+    DEFAULT_INTENT,
+    check_aggregate_floor,
+    preflight,
+    symbol_evidence,
+    symbol_tools,
+)
 
 log = logging.getLogger("agent.main")
 
@@ -214,6 +220,25 @@ def _decide_symbol(
         raise InsufficientEvidence(
             f"tidak ada snapshot dalam {params.preflight.max_age_min} menit terakhir di store "
             f"({len(points)} baris panggilan tidak terjawab; mis. {head})"
+        )
+    # Penjaga bukti BER-SIMBOL (TASKS 0.13). "Ada snapshot" saja tidak cukup: `market_overview`
+    # dan `monitor_market_sentiment_shift` dicari dengan `{}`, jadi bukti market-wide SELALU ada
+    # untuk simbol apa pun — termasuk `ZZZQQQ`. Sampai 0.13 itu menghasilkan baris `decisions`
+    # permanen yang bahkan di-replay sebagai IDENTICAL: "terlihat seperti verifikasi padahal
+    # tidak ada yang diverifikasi tentang simbol itu". `ui.app` sudah menuntut syarat ini untuk
+    # menjawab 404 sejak 3.1a; agen memakai standar lebih rendah daripada UI-nya sendiri.
+    # Simbol yang DIPAKAI mencari, bukan yang diketik: `result.data["symbol"]` sudah dijaga
+    # `_check_bookkeeping`, jadi pesannya menyebut simbol yang benar-benar dicari (temuan RENDAH
+    # security-reviewer 0.13 — `"bukti TENTANG sol"` untuk pencarian atas `SOL` menyesatkan).
+    searched = result.data.get("symbol") if isinstance(result.data, dict) else None
+    named = searched if isinstance(searched, str) and searched else symbol
+    spoken_about = symbol_evidence(result.data, named)
+    if not spoken_about:
+        raise InsufficientEvidence(
+            f"tidak ada satu pun bukti TENTANG {named} di store dalam "
+            f"{params.preflight.max_age_min} menit terakhir "
+            f"({', '.join(sorted(symbol_tools(named))) or '-'} tidak menjawab); yang terbaca "
+            "hanya bukti market-wide, dan itu tidak berbicara tentang simbol ini"
         )
     bundle: Bundle = freeze(store, snapshot_ids)
 

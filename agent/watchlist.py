@@ -27,14 +27,14 @@ dan `SОL` (huruf О Kiril — tak bisa dibedakan mata dari `SOL` di Layar A dan
 
 * Ia **bukan** daftar simbol sah RYO. Daftar seperti itu tidak diterbitkan (docs/api-facts.md
   §A: input adalah **simbol**, tanpa enum).
-* Simbol yang berbentuk wajar tetapi TIDAK ADA — `ZZZQQQ`, `NOTAREALTOKEN` — tetap lolos dan
-  **masih menulis baris `decisions` permanen**, karena `agent.main` hanya menuntut
-  `snapshot_ids` tidak kosong, sementara `market_overview`/`monitor_market_sentiment_shift`
-  dicari dengan args `{}` sehingga selalu ada bukti market-wide untuk simbol apa pun. `replay`
-  atas baris itu bahkan mencetak `IDENTICAL`. Penutupnya adalah **TASKS 0.13**, bukan modul
-  ini: syaratnya harus "ada ≥1 snapshot dari tool ber-simbol untuk simbol ini" —
-  perhitungan yang `ui/app.py::_symbol_evidence` sudah punya, jadi hari ini agen memakai
-  standar yang lebih rendah daripada UI-nya sendiri.
+* Simbol yang berbentuk wajar tetapi TIDAK ADA — `ZZZQQQ`, `NOTAREALTOKEN` — tetap lolos dari
+  saringan bentuk ini; ia memang tidak bisa tahu simbol mana yang ada. Yang menahannya ada di
+  tempat lain: sejak **TASKS 0.13** `agent.main` menuntut ≥1 snapshot dari tool BER-SIMBOL
+  untuk simbol itu, lewat `preflight/skill.py::symbol_evidence` — satu definisi yang dipakai
+  bersama `ui.app`. Sebelum 0.13 syaratnya hanya "`snapshot_ids` tidak kosong", sementara
+  `market_overview`/`monitor_market_sentiment_shift` dicari dengan args `{}` sehingga selalu
+  ada bukti market-wide untuk simbol apa pun, dan `replay` atas baris itu bahkan mencetak
+  `IDENTICAL`.
 * Ia lebih ketat daripada perekam, dan asimetri itu diakui: `core.recorder._normalize_symbol`
   AKAN merekam `$WIF`, `ETHER.FI`, `BTC-PERP`, dan `ＳＯＬ` ke store, sementara agen tidak akan
   pernah bisa memutuskannya. Hari ini dampaknya nol (0 dari 103 simbol nyata di `data/ryo.db`

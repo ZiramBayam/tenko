@@ -46,7 +46,14 @@ from agent.watchlist import MAX_SYMBOLS, watchlist
 from core.skill import TRUNCATED_MARK
 from core.store import Store
 from preflight.params import DEFAULT_PARAMS, ITEM_COMPLETENESS, ITEM_ORDER, ITEM_PLAN
-from preflight.skill import normalize_symbol
+from preflight.skill import (
+    DEFAULT_INTENT,
+    normalize_symbol,
+    preflight,
+    symbol_evidence,
+    symbol_tools,
+    tool_args,
+)
 from tests.helpers_agent import ANALYZE, MARKET_OVERVIEW, build_store, mixed_confluence, price_snapshot
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -459,6 +466,119 @@ def test_evidence_older_than_the_limit_writes_no_row_at_all(tmp_path: Path) -> N
     assert report.n_insufficient == 1 and report.n_rejected == 0
     assert recent_decisions(store.path) == []
     assert open_positions(store.path) == []
+
+
+def test_a_symbol_with_only_market_wide_evidence_writes_no_row(tmp_path: Path) -> None:
+    """TASKS 0.13: `ZZZQQQ` berbentuk wajar, lolos 0.11, dan TIDAK ADA.
+
+    Sampai 0.13 ia tetap menulis baris `decisions` permanen, karena syaratnya hanya
+    "`snapshot_ids` tidak kosong" sementara `market_overview`/`monitor_market_sentiment_shift`
+    dicari dengan `{}` — bukti market-wide SELALU ada untuk simbol apa pun. `agent.replay` atas
+    baris itu bahkan mencetak `IDENTICAL`: terlihat seperti verifikasi padahal tidak ada yang
+    diverifikasi tentang simbolnya.
+    """
+    store = build_store(tmp_path, symbols=("SOL",))
+    report = agent_main.tick(store, ("ZZZQQQ",), DEFAULT_AGENT_PARAMS)
+    outcome = report.outcomes[0]
+    assert (outcome.decision, outcome.decision_id, outcome.rejected) == ("-", None, "")
+    assert "bukti TENTANG ZZZQQQ" in outcome.insufficient
+    assert "hanya bukti market-wide" in outcome.insufficient
+    # Ketiga tool ber-simbol disebut NAMANYA, supaya operator tahu apa yang tidak menjawab.
+    for tool in ("analyze_token", "compare_tokens", "deep_analysis"):
+        assert tool in outcome.insufficient
+    assert recent_decisions(store.path) == []  # tidak ada baris permanen untuk simbol fiktif
+    assert report.n_insufficient == 1 and report.n_rejected == 0
+
+
+def test_a_real_symbol_still_decides_alongside_a_fictional_one(tmp_path: Path) -> None:
+    """Penjaganya tidak boleh berubah menjadi "tidak ada yang bisa diputuskan"."""
+    store = build_store(tmp_path, symbols=("SOL",))
+    report = agent_main.tick(store, ("ZZZQQQ", "SOL"), DEFAULT_AGENT_PARAMS)
+    by_symbol = {outcome.symbol: outcome for outcome in report.outcomes}
+    assert by_symbol["ZZZQQQ"].decision_id is None
+    assert by_symbol["SOL"].decision_id is not None
+    assert len(recent_decisions(store.path)) == 1
+
+
+def test_the_agent_uses_the_shared_definition_of_symbol_evidence(tmp_path: Path) -> None:
+    """Sisi AGEN dari "satu definisi" (AC 0.13): `preflight.skill.symbol_evidence`.
+
+    Namanya sengaja tidak menyebut UI. Versi pertama tes ini bernama "agen dan UI memakai
+    definisi yang sama" tetapi tidak mengimpor `ui.app` sama sekali — dan saat itu `ui/app.py`
+    memang masih memuat salinannya sendiri yang sudah berbeda (temuan SEDANG security-reviewer
+    0.13). Patok sisi UI-nya ada di `tests/test_ui.py`, yang memaku identitas objeknya.
+    """
+    store = build_store(tmp_path, symbols=("SOL",))
+    real = preflight("SOL", DEFAULT_INTENT, store=store, params=DEFAULT_PARAMS)
+    fake = preflight("ZZZQQQ", DEFAULT_INTENT, store=store, params=DEFAULT_PARAMS)
+    assert symbol_evidence(real.data, "SOL")  # simbol yang direkam: ada buktinya
+    assert symbol_evidence(fake.data, "ZZZQQQ") == []  # yang tidak: kosong, bukan sebagian
+    assert symbol_tools("SOL") == {"analyze_token", "compare_tokens", "deep_analysis"}
+
+
+def test_symbol_evidence_refuses_an_envelope_that_belongs_to_another_symbol(tmp_path: Path) -> None:
+    """Prasyaratnya DIPERIKSA, bukan diserahkan ke disiplin pemanggil (temuan SEDANG 0.13).
+
+    Nama tool tidak membawa simbol, jadi envelope SOL yang ditanyai tentang ZZZQQQ dulu
+    menjawab "ada buktinya". Sekarang `data["symbol"]` dibandingkan lebih dulu.
+    """
+    store = build_store(tmp_path, symbols=("SOL",))
+    sol = preflight("SOL", DEFAULT_INTENT, store=store, params=DEFAULT_PARAMS)
+    assert symbol_evidence(sol.data, "SOL")
+    assert symbol_evidence(sol.data, "ZZZQQQ") == []
+
+
+def test_tool_args_is_pure_so_the_differential_test_cannot_lie() -> None:
+    """Kemurnian `tool_args` kini prasyarat KEAMANAN, jadi dipatok (temuan RENDAH 0.13).
+
+    `symbol_tools` membandingkan dua peta argumen dari DUA panggilan. Kalau argumen mana pun
+    kelak bergantung pada jam/acak/env, `mine != other` akan benar untuk SEMUA tool — termasuk
+    `market_overview` dan `monitor_market_sentiment_shift` — dan lubang `{}` lahir kembali
+    dalam bentuk baru, kali ini tanpa simbol aneh sama sekali.
+    """
+    for symbol in ("SOL", "BTC", "ZZZQQQ"):
+        assert tool_args(symbol, DEFAULT_INTENT) == tool_args(symbol, DEFAULT_INTENT)
+
+
+def test_symbol_bearing_args_differ_between_two_real_symbols() -> None:
+    """ "Berubah oleh simbol" harus juga berarti "berbeda ANTAR simbol nyata" (temuan RENDAH 0.13).
+
+    Uji diferensial hanya membandingkan simbol vs satu sentinel. Bila `_symbol_list` kelak
+    MENGURUTKAN daftarnya, `tool_args("BNB")["compare_tokens"]` dan `tool_args("ETH")[...]`
+    menjadi teks yang sama — `symbol_tools` tetap menyebutnya ber-simbol, dan snapshot compare
+    milik BNB akan dihitung sebagai bukti "tentang" ETH.
+    """
+    for tool in symbol_tools("BNB"):
+        assert tool_args("BNB", DEFAULT_INTENT)[tool] != tool_args("ETH", DEFAULT_INTENT)[tool]
+
+
+def test_symbol_evidence_needs_the_envelope_to_name_its_own_symbol() -> None:
+    """Envelope tanpa kunci `symbol` tidak boleh lolos cek kepemilikan (temuan RENDAH 0.13)."""
+    reads = {"tools": {"analyze_token": {"used_as_evidence": True}}}
+    assert symbol_evidence({"symbol": "SOL", "store_reads": reads}, "SOL") == ["analyze_token"]
+    assert symbol_evidence({"store_reads": reads}, "SOL") == []  # kuncinya hilang → kosong
+
+
+@pytest.mark.parametrize("tricky", ["{}", "{", "}", "7d"])
+def test_market_wide_tools_are_never_counted_as_symbol_scoped(tricky: str) -> None:
+    """Temuan TINGGI security-reviewer 0.13: uji substring atas teks JSON bisa dilewati.
+
+    `json.dumps({}) == "{}"`, jadi `"{}" in json.dumps(args)` menjawab True untuk
+    `market_overview` dan `monitor_market_sentiment_shift` — keduanya justru market-wide.
+    Reviewer memakai itu untuk menulis baris `decisions` permanen bersimbol `{}` yang di-replay
+    sebagai `IDENTICAL`. Sekarang pertanyaannya "apakah argumennya berubah bila simbolnya
+    berubah", jadi simbol seperti apa pun tidak bisa mengklaim tool market-wide.
+    """
+    assert symbol_tools(tricky) == {"analyze_token", "compare_tokens", "deep_analysis"}
+
+
+@pytest.mark.parametrize("tricky", ["{}", "{", "}"])
+def test_a_brace_shaped_symbol_writes_no_row(tmp_path: Path, tricky: str) -> None:
+    """Jalur yang dipakai reviewer: `tick()` langsung, melewati saringan bentuk `agent.watchlist`."""
+    store = build_store(tmp_path, symbols=("SOL",))
+    report = agent_main.tick(store, (tricky,), DEFAULT_AGENT_PARAMS)
+    assert report.outcomes[0].decision_id is None
+    assert recent_decisions(store.path) == []
 
 
 def test_a_tick_without_evidence_still_exits_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

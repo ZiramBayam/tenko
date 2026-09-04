@@ -401,6 +401,84 @@ class ToolRead:
         }
 
 
+#: Dua simbol yang tidak mungkin dipakai siapa pun (NUL ditolak `normalize_symbol`). Dipakai
+#: :func:`symbol_tools` sebagai pembanding; dua, bukan satu, supaya fungsinya tetap benar
+#: seandainya seseorang memanggilnya DENGAN salah satu sentinel.
+_SENTINEL_SYMBOLS = ("\x00SENTINEL-A", "\x00SENTINEL-B")
+
+
+def symbol_tools(symbol: str, intent: str = DEFAULT_INTENT, params: Params = DEFAULT_PARAMS) -> set[str]:
+    """Tool yang argumen PENCARIANnya BERGANTUNG pada `symbol` — diturunkan dari :func:`tool_args`.
+
+    Pertanyaannya "apakah argumen tool ini berubah bila simbolnya berubah", dijawab dengan
+    membangun argumen untuk simbol pembanding lalu membandingkan strukturnya. Tidak didaftar
+    ulang di sini: kalau `tool_args` berubah, himpunan ini ikut berubah sendiri.
+
+    **Bukan uji substring atas teks JSON-nya** (TASKS 0.13, temuan TINGGI security-reviewer).
+    `json.dumps({}) == "{}"`, jadi `"{}" in json.dumps(args)` menjawab True untuk
+    `market_overview` dan `monitor_market_sentiment_shift` — yang dicari dengan `{}` dan justru
+    market-wide. Akibatnya simbol `{}`, `{`, atau `}` — ketiganya lolos `normalize_symbol` —
+    dianggap punya bukti ber-simbol, menulis baris `decisions` permanen, dan di-replay sebagai
+    `IDENTICAL`: persis lubang yang task ini seharusnya menutup. Uji substring juga akan salah
+    untuk simbol yang kebetulan sama dengan nilai argumen lain (mis. `"7d"`).
+    """
+    if not isinstance(symbol, str):
+        # Fail-closed seperti `normalize_symbol`: pemanggil yang salah tipe tidak boleh
+        # menjatuhkan seluruh tick lewat TypeError (temuan RENDAH security-reviewer 0.13).
+        return set()
+    mine = tool_args(symbol, intent, params)
+    other_symbol = _SENTINEL_SYMBOLS[1] if symbol == _SENTINEL_SYMBOLS[0] else _SENTINEL_SYMBOLS[0]
+    other = tool_args(other_symbol, intent, params)
+    return {tool for tool, args in mine.items() if args != other.get(tool)}
+
+
+def symbol_evidence(data: Mapping[str, Any] | None, symbol: str) -> list[str]:
+    """Tool ber-simbol yang benar-benar dipakai sebagai bukti untuk `symbol`, terurut.
+
+    Kosong berarti satu hal yang tajam: envelope ini berdiri **hanya** di atas bukti
+    market-wide, dan tidak ada satu baris pun di store yang berbicara tentang simbol ini.
+
+    **Batas yang diakui:** ia memakai `intent`/`params` DEFAULT saat menurunkan tool ber-simbol,
+    sementara envelope yang diperiksa bisa saja dirakit dengan yang lain. Hari ini tak
+    terjangkau (`INTENTS == {"swing"}` dan pemanggilnya memakai default), tetapi `params.peers`
+    yang berbeda akan mengubah bentuk args `compare_tokens` — dan penjaga akan menilai
+    `tool_args` yang bukan yang dipakai preflight.
+
+    Envelope harus MILIK `symbol`, dan itu **diperiksa di sini**, bukan diserahkan ke disiplin
+    pemanggil: nama tool tidak membawa simbol, jadi envelope SOL yang ditanyai tentang `ZZZQQQ`
+    dulu menjawab "ada buktinya". Sekarang `data["symbol"]` dibandingkan lebih dulu (nilai itu
+    dijaga `_check_bookkeeping` agar sama dengan `request.symbol`), dan envelope milik simbol
+    lain menjawab kosong.
+
+    Rumahnya di sini, bukan di pemakainya, karena bentuk yang dibacanya
+    (``data["store_reads"]["tools"][…]["used_as_evidence"]``) dirakit di berkas ini
+    (:meth:`ToolRead.as_dict`). Dua pemakai memakainya: `ui.app` — yang lebih dulu punya
+    definisi ini dan menjawab 404 — dan `agent.main`, yang sampai TASKS 0.13 memakai standar
+    LEBIH RENDAH daripada UI-nya sendiri dan menulis baris ledger permanen untuk simbol yang
+    tidak ada.
+    """
+    if not isinstance(symbol, str) or not symbol:
+        return []
+    if not isinstance(data, Mapping):
+        return []
+    # Envelope harus MILIK simbol ini. `data["symbol"]` dijaga `_check_bookkeeping` (wajib sama
+    # dengan `request.symbol`), jadi ia bisa dipercaya sebagai penanda kepemilikan — dan dengan
+    # memeriksanya di sini, prasyaratnya tidak lagi bergantung pada disiplin pemanggil.
+    # Kunci `symbol` wajib ADA, bukan sekadar cocok bila kebetulan ada: envelope buatan tangan
+    # tanpa kunci itu dulu lolos cek kepemilikan (temuan RENDAH security-reviewer 0.13).
+    if data.get("symbol") != symbol:
+        return []
+    reads = data.get("store_reads")
+    tools = reads.get("tools") if isinstance(reads, Mapping) else None
+    if not isinstance(tools, Mapping):
+        return []
+    return sorted(
+        tool
+        for tool in symbol_tools(symbol)
+        if isinstance(tools.get(tool), Mapping) and tools[tool].get("used_as_evidence") is True
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class Gathered:
     """Bukti beku untuk satu keputusan + catatan bagaimana ia terkumpul."""
