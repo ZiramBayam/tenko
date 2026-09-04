@@ -190,6 +190,20 @@ Konsekuensi: AC TASKS 2.4 berubah dari dua verdict menjadi tiga (task 2.4a/2.4b)
 cabang tampilan (3.1a); README memuat satu paragraf "dua generasi". Kenaikan versi algoritma di masa
 depan memakai jalur yang sama dan tidak akan pernah tampak sebagai tuduhan tamper.
 
+**Perluasan 4 Sep 2026 (TASKS 0.14), bukan ADR baru.** ADR ini menamai SATU generasi: baris tanpa
+`algo`. Ia tidak menjawab baris yang PUNYA `algo` tetapi ditulis dengan `params_hash` lain. Sampai
+0.14 baris seperti itu dilaporkan `MISMATCH` — vonis yang di `agent/replay.py` berarti "bukti tidak
+mereproduksi keputusan", yaitu sebuah temuan. Untuk baris yang aturannya berbeda, temuan itu tidak
+bisa kami dukung: `decision_hash` memakai params yang berlaku sekarang, jadi buktinya belum diperiksa.
+Vonis `STALE_PARAMS` ditambahkan untuk menyatakan ketidaktahuan itu, keluar 0 seperti `STALE_ALGO`,
+dengan urutan yang mengikat: `STALE_ALGO` → `STALE_PARAMS` → sisanya.
+
+Konsekuensi yang ditulis apa adanya: baris **nol-bukti** kehilangan vonis `NO_EVIDENCE`-nya begitu
+params bergeser, karena cabang itu bersyarat `computed == stored` dan `computed` memakai params
+sekarang. Memindahkan urutan cabangnya tidak menolong — ia menjadi tak terjangkau, bukan terlambat
+(diuji, bukan disimpulkan). Melonggarkan syaratnya menjadi `not frozen_ids` saja akan membuka kembali
+temuan SEDANG-1 security-reviewer 4 Sep, jadi syarat itu dipertahankan.
+
 ## ADR-017 (USULAN 2 Sep 2026) Keadaan ketiga spec §4: `neutral` = hijau tanpa konfirmasi
 Konteks: spec §4 hanya punya kolom Hijau ("searah plan") dan Merah ("berlawanan"). Data nyata
 (`data/ryo.db`, 756 baris, dibaca `mode=ro`, 2 Sep 2026) justru DIDOMINASI keadaan ketiga:

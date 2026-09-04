@@ -28,10 +28,13 @@ from agent.ledger import LedgerError, read_decision
 from agent.main import tick
 from agent.params import DEFAULT_AGENT_PARAMS
 from agent.replay import (
+    EXIT_ZERO_VERDICTS,
     VERDICT_IDENTICAL,
     VERDICT_MISMATCH,
     VERDICT_NO_EVIDENCE,
     VERDICT_STALE_ALGO,
+    VERDICT_STALE_PARAMS,
+    VERIFIED_VERDICTS,
     replay,
 )
 from agent.replay import main as replay_main
@@ -107,13 +110,39 @@ def test_one_tampered_byte_in_the_copy_gives_mismatch_naming_the_snapshot(tmp_pa
     assert "payload_hash" in report.detail
 
 
-def test_a_decision_from_another_params_generation_is_mismatch_with_a_reason(tmp_path: Path) -> None:
+def test_a_decision_from_another_params_generation_is_stale_params_not_mismatch(
+    tmp_path: Path,
+) -> None:
+    """TASKS 0.14: params berbeda = kami TIDAK MENILAI baris ini, bukan menemukannya salah.
+
+    Sampai 0.14 vonisnya `MISMATCH`, yang di repo ini berarti "bukti berubah / tamper". Untuk
+    baris yang ditulis dengan aturan lain itu tuduhan yang tidak kami dukung: `decision_hash`
+    memakai params yang berlaku sekarang, jadi buktinya belum diperiksa sama sekali.
+    """
     store, go_id, _ = decided(tmp_path)
     other = DEFAULT_PARAMS.with_overrides(min_rr=99.0)
     report = replay(go_id, store, other)
-    assert report.verdict == VERDICT_MISMATCH
+    assert report.verdict == VERDICT_STALE_PARAMS
+    assert report.verified is False
     assert "params_hash" in report.detail
     assert other.params_hash() in report.detail
+    # Teksnya menyatakan ketidaktahuan, bukan tuduhan.
+    assert "tidak menilai baris ini sama sekali" in report.detail
+    assert "bukti berubah" not in report.detail
+
+
+def test_stale_params_exits_zero_because_it_is_not_a_failed_verification(tmp_path: Path) -> None:
+    """`MISMATCH` keluar ≠ 0 karena ia temuan; `STALE_PARAMS` bukan temuan, jadi keluar 0."""
+    assert VERDICT_STALE_PARAMS in EXIT_ZERO_VERDICTS
+    assert VERDICT_STALE_PARAMS not in VERIFIED_VERDICTS
+
+
+def test_a_stale_algo_row_is_still_stale_algo_even_with_different_params(tmp_path: Path) -> None:
+    """Urutannya terpatok: `algo` usang mendahului segalanya, termasuk params yang bergeser."""
+    store = build_store(tmp_path, symbols=("SOL",))
+    ids = [row.id for row in store.get_snapshots([1, 2, 3])]
+    decision_id = legacy_decision(store, ids)  # params_hash-nya memang generasi lain
+    assert replay(decision_id, store, DEFAULT_PARAMS).verdict == VERDICT_STALE_ALGO
 
 
 def test_a_missing_row_is_an_honest_error_not_a_verdict(tmp_path: Path) -> None:
@@ -254,6 +283,30 @@ def test_a_row_with_zero_evidence_is_not_identical(tmp_path: Path) -> None:
     assert report.verified is False
     assert "terbukti ditulis tanpa bukti" in report.detail
     assert VERDICT_IDENTICAL not in "\n".join(report.lines())
+    store.close()
+
+
+def test_a_zero_evidence_row_becomes_stale_params_once_the_rules_change(tmp_path: Path) -> None:
+    """Batas yang HARUS ditulis apa adanya (TASKS 0.14).
+
+    `NO_EVIDENCE` bersyarat `computed == stored`, dan `computed` memakai params yang BERLAKU
+    SEKARANG — jadi begitu params bergeser, baris nol-bukti berhenti terbaca sebagai nol-bukti.
+    Memindahkan urutan cabang TIDAK menolong (diuji saat 0.14): cabangnya menjadi tak
+    terjangkau, bukan terlambat. Melonggarkan syaratnya menjadi `not frozen_ids` saja akan
+    membuka kembali temuan SEDANG-1 security-reviewer 4 Sep — baris yang buktinya DIKOSONGKAN
+    akan mengaku "memang ditulis tanpa bukti".
+
+    Jadi `STALE_PARAMS` di sini benar, dan lebih jujur daripada `MISMATCH` yang lama: dengan
+    aturan yang berubah kami tidak bisa menyatakan apa pun tentang baris itu — termasuk bahwa
+    buktinya nol.
+    """
+    store = build_store(tmp_path, symbols=("SOL",))
+    decision_id = zero_evidence_row(store, _empty_bundle_hash(store))
+    assert replay(decision_id, store, DEFAULT_PARAMS).verdict == VERDICT_NO_EVIDENCE
+    other = DEFAULT_PARAMS.with_overrides(min_rr=99.0)
+    report = replay(decision_id, store, other)
+    assert report.verdict == VERDICT_STALE_PARAMS
+    assert "terbukti ditulis tanpa bukti" not in report.detail  # klaim itu tak lagi bisa dibuat
     store.close()
 
 

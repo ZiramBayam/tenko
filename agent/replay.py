@@ -36,7 +36,23 @@ seperti itu lagi, tetapi store append-only (ADR-006) berarti keempatnya ada sela
 terpisah membuat perbedaannya bisa dibaca MESIN (nama vonis + `ReplayReport.verified`), bukan
 hanya oleh manusia yang membaca ekor kalimat — syarat TASKS 3.1a untuk `ui/`.
 
-**`params_hash` yang bergeser dilaporkan MISMATCH ber-sebab, bukan disembunyikan.** Keputusan
+**`params_hash` yang bergeser dilaporkan `STALE_PARAMS`, bukan `MISMATCH`** (TASKS 0.14).
+`MISMATCH` di berkas ini berarti "bukti tidak mereproduksi keputusan" — sebuah temuan. Untuk
+baris yang ditulis dengan aturan LAIN, temuan itu tidak kami dukung: `decision_hash` memakai
+params yang berlaku sekarang, jadi buktinya belum diperiksa sama sekali. `STALE_PARAMS`
+menyatakan ketidaktahuan dan keluar 0, seperti `STALE_ALGO`.
+
+Batas yang harus dibaca apa adanya: begitu params bergeser, baris nol-bukti **kehilangan**
+vonis `NO_EVIDENCE`-nya dan ikut menjadi `STALE_PARAMS`. Itu bukan urutan pemeriksaan yang
+salah — cabang `NO_EVIDENCE` bersyarat `computed == stored`, dan syarat itulah yang menutup
+temuan SEDANG-1 security-reviewer (baris yang `snapshot_ids_json`-nya dikosongkan tidak boleh
+mengaku "memang ditulis tanpa bukti"). Memindahkan urutannya membuat cabang itu tak
+terjangkau, bukan terlambat; diuji saat 0.14, bukan disimpulkan dari membaca.
+
+Urutan vonis, dan urutan ini mengikat: `algo` usang (`STALE_ALGO`) → `params_hash` berbeda
+(`STALE_PARAMS`) → sisanya.
+
+**Sebelumnya (dicabut TASKS 0.14):** `params_hash` yang bergeser dilaporkan MISMATCH ber-sebab. Keputusan
 yang dibuat dengan ambang lain memang tidak bisa direproduksi dengan ambang sekarang; itu fakta
 tentang keputusan itu, bukan kegagalan alat.
 
@@ -101,6 +117,10 @@ VERDICT_IDENTICAL = "IDENTICAL"
 VERDICT_MISMATCH = "MISMATCH"
 VERDICT_STALE_ALGO = "STALE_ALGO"
 VERDICT_NO_EVIDENCE = "NO_EVIDENCE"
+#: Baris ini ditulis dengan `params_hash` lain. Ia menyatakan KETIDAKTAHUAN, bukan tuduhan:
+#: dengan aturan yang berbeda kami tidak bisa menyatakan apa pun tentang baris itu — termasuk
+#: bahwa buktinya nol (TASKS 0.14).
+VERDICT_STALE_PARAMS = "STALE_PARAMS"
 
 #: Vonis yang boleh dibaca sebagai "keputusan ini terbukti bisa direproduksi". Satu, sengaja.
 VERIFIED_VERDICTS = frozenset({VERDICT_IDENTICAL})
@@ -109,7 +129,9 @@ EXIT_IDENTICAL = 0
 EXIT_MISMATCH = 1
 EXIT_UNUSABLE = 2
 #: Vonis yang keluar 0 — "perintah menghasilkan vonis", BUKAN "terverifikasi" (lihat docstring).
-EXIT_ZERO_VERDICTS = frozenset({VERDICT_IDENTICAL, VERDICT_STALE_ALGO, VERDICT_NO_EVIDENCE})
+EXIT_ZERO_VERDICTS = frozenset(
+    {VERDICT_IDENTICAL, VERDICT_STALE_ALGO, VERDICT_NO_EVIDENCE, VERDICT_STALE_PARAMS}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +157,7 @@ class ReplayReport:
         head = f"replay decision_id={self.decision_id}: {self.verdict}"
         if self.verdict == VERDICT_IDENTICAL:
             return [f"{head} {self.computed_hash}", self.detail]
-        if self.verdict in (VERDICT_STALE_ALGO, VERDICT_NO_EVIDENCE):
+        if self.verdict in (VERDICT_STALE_ALGO, VERDICT_NO_EVIDENCE, VERDICT_STALE_PARAMS):
             out = [head, f"algo     : {'null' if self.algo is None else _safe(self.algo)}"]
             if self.verifiable is not None:
                 usable, total = self.verifiable
@@ -177,14 +199,23 @@ def replay(decision_id: int, store: Store, params: Params = DEFAULT_PARAMS) -> R
             algo=row.algo(),
         )
     if row.params_hash != params.params_hash():
+        # Sampai TASKS 0.14 ini berbunyi MISMATCH — vonis yang berarti "bukti tidak
+        # mereproduksi keputusan". Untuk baris yang ditulis dengan aturan LAIN itu tuduhan yang
+        # tidak bisa kami dukung: kami belum memeriksa buktinya sama sekali, dan tidak bisa,
+        # karena `decision_hash` memakai params yang berlaku sekarang. Empat baris nol-bukti
+        # (id 20-23) bahkan kehilangan vonis `NO_EVIDENCE` mereka yang benar dengan cara ini —
+        # cabang itu bersyarat `computed == stored`, jadi ia tak terjangkau begitu params
+        # bergeser, dan memindahkan urutannya TIDAK menolong (diuji, TASKS 0.14).
         return ReplayReport(
             decision_id,
-            VERDICT_MISMATCH,
+            VERDICT_STALE_PARAMS,
             stored,
             None,
             f"sebab: keputusan ini ditulis dengan params_hash {_safe(row.params_hash)} sementara "
-            f"ambang yang berlaku sekarang {params.params_hash()}; aturannya sudah berubah, "
-            "jadi keputusan ini memang tidak bisa direproduksi apa adanya",
+            f"ambang yang berlaku sekarang {params.params_hash()}. Aturannya sudah berubah, jadi "
+            "kami tidak menilai baris ini sama sekali — bukan menemukannya salah. Untuk "
+            "memeriksanya, jalankan replay dengan params yang dipakai saat baris ini ditulis.",
+            algo=row.algo(),
         )
 
     try:
