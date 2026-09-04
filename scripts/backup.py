@@ -83,7 +83,18 @@ class BackupReport:
 
 # --- path & nama -------------------------------------------------------------------------
 def resolve_source(source: str | Path | None = None) -> Path:
-    """Path sumber; bentuk URI ditolak seperti di `core.store` (bukan diterima diam-diam)."""
+    """Path sumber; bentuk URI ditolak, bukan diterima diam-diam.
+
+    **Aturannya SENGAJA lebih longgar daripada `core.store._resolve_path`** (dicatat saat
+    TASKS 0.10, 4 Sep 2026 — sebelumnya baris ini berkata "ditolak seperti di `core.store`",
+    dan itu tidak benar). `core.store` menolak SETIAP `?`/`#` karena ia membuka koneksi
+    baca-tulis dan merakit URI baca-saja; modul ini hanya MEMBACA, dan URI sumbernya dirakit
+    dengan `Path.resolve().as_uri()` (lihat :func:`source_uri`) yang mengutip `?`, `#`, dan
+    spasi menjadi `%3F`/`%23`/`%20`. Karena itu direktori bernama `data dir?x` — nama POSIX
+    yang sah — tetap bisa dicadangkan di sini meski `DB_PATH` yang sama ditolak perekam.
+    Konsekuensinya diakui: satu `DB_PATH` ber-`#` membuat `make record` gagal sementara
+    `make backup` berjalan atas berkas itu.
+    """
     raw = source if source is not None else os.environ.get(ENV_DB_PATH, DEFAULT_DB_PATH)
     text = str(raw).strip()
     if not text:

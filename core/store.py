@@ -70,6 +70,18 @@ Sifat modul ini (setiap klaim di bawah punya tes di ``tests/test_store.py``):
   ``mode=ro``: pembacaan tetap jalan, jalur tulis ditolak :class:`StoreReadOnlyError` DAN
   oleh SQLite sendiri. Dipakai UI, yang memang tidak pernah menulis apa pun.
 
+  Klaim "tidak bisa menulis" itu **pernah tidak benar** (TASKS 0.10, temuan TINGGI
+  security-reviewer 2.4): URI-nya dirakit dengan f-string, jadi path ber-``?`` atau ber-``#``
+  memindahkan sisa teks ke bagian query dan ``mode=ro`` bisa ditimpa. Sekarang ia berdiri di
+  tiga lapis yang saling bebas: :func:`_resolve_path` menolak ``?``/``#``, URI-nya dirakit
+  dengan ``urllib.parse.quote``, dan koneksinya menyalakan ``PRAGMA query_only`` — yang tidak
+  bisa dicabut lewat koneksi itu sendiri, karena authorizer hanya meloloskan
+  ``query_only=ON`` (membacanya boleh, mematikannya tidak).
+
+  Yang TIDAK diklaim: koneksi baca-saja tidak menghalangi proses lain menulis ke berkas yang
+  sama, dan ia tidak menjadikan berkasnya kebal terhadap siapa pun yang memegang path-nya di
+  luar proses ini.
+
 * **Kesegaran punya batas atas, dan itu kewarasan JAM — bukan integritas** (TASKS 2.0d, atas
   temuan TINGGI-2 security-reviewer 2 Sep 2026). Kolom ``ts_utc`` **tidak dijaga hash
   tersimpan mana pun**: ``snapshots.args_hash`` menutupi ``args_json`` dan
@@ -122,6 +134,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 log = logging.getLogger("core.store")
 
@@ -308,7 +321,9 @@ ALLOWED_ACTIONS: frozenset[int] = frozenset(
 #: PRAGMA yang boleh dijalankan koneksi kerja (nama = argumen pertama authorizer).
 #: `writable_schema` (jalan pintas ke skema) dan `journal_mode` (mengubah berkas DB yang
 #: sedang ditulis perekam) sengaja TIDAK ada di sini.
-ALLOWED_PRAGMAS: frozenset[str] = frozenset({"busy_timeout", "table_info"})
+ALLOWED_PRAGMAS: frozenset[str] = frozenset({"busy_timeout", "query_only", "table_info"})
+#: Nilai `PRAGMA query_only` yang boleh lewat. `OFF` TIDAK ada di sini: lihat `_authorizer`.
+QUERY_ONLY_ON: frozenset[str] = frozenset({"on", "1", "true", "yes"})
 
 
 def _authorizer(
@@ -324,7 +339,22 @@ def _authorizer(
     pada docstring modul.
     """
     if action == sqlite3.SQLITE_PRAGMA:
-        if (arg1 or "").strip().lower() in ALLOWED_PRAGMAS:
+        name = (arg1 or "").strip().lower()
+        if name == "query_only":
+            # Hanya MENYALAKAN yang diizinkan. Tanpa pemeriksaan nilai ini, pemegang `_db` —
+            # penyerang yang docstring modul ini akui ada dalam scope — cukup menulis
+            # `PRAGMA query_only=OFF` untuk mencabut lapis ketiga, dan lapis itu berhenti
+            # menjadi cadangan yang berdiri sendiri (temuan SEDANG security-reviewer 0.10).
+            # `arg2 is None` = MEMBACA nilainya. Dibiarkan lewat supaya lapis ketiga bisa
+            # diperiksa (dan dipatok tes), bukan sekadar dipercaya.
+            if arg2 is None or arg2.strip().lower() in QUERY_ONLY_ON:
+                return sqlite3.SQLITE_OK
+            # Dicatat, tidak dikembalikan diam-diam: penolakan INI yang paling ingin dilihat
+            # operator, karena ia berarti ada kode di proses ini yang mencoba mencabut
+            # proteksi baca-saja (temuan RENDAH security-reviewer 0.10).
+            log.warning("store: PRAGMA query_only=%r ditolak (proteksi baca-saja hanya satu arah)", arg2)
+            return sqlite3.SQLITE_DENY
+        if name in ALLOWED_PRAGMAS:
             return sqlite3.SQLITE_OK
     elif action in ALLOWED_ACTIONS:
         return sqlite3.SQLITE_OK
@@ -447,7 +477,11 @@ def _resolve_path(db_path: str | Path | None) -> Path:
     if not text:
         raise StoreError(f"{ENV_DB_PATH} kosong")
     lowered = text.lower()
-    if lowered.startswith("file:") or "?mode=" in lowered or "?cache=" in lowered:
+    if lowered.startswith("file:") or "?" in text or "#" in text:
+        # `?` dan `#` ditolak SELURUHNYA, bukan hanya `?mode=`/`?cache=` (TASKS 0.10, temuan
+        # TINGGI security-reviewer 2.4). Keduanya memisahkan query/fragment di dalam URI
+        # SQLite, jadi `evil.db?mode=rwc&x=` maupun nama berkas ber-`#` — yang SAH sebagai
+        # nama berkas POSIX — bisa mengubah arti path yang dikira berkas biasa.
         raise StoreError(f"path DB berbentuk URI tidak didukung: {text!r} — beri path berkas biasa")
     if ":memory:" in lowered:
         raise StoreError("DB in-memory tidak didukung: store harus tahan restart (ADR-006)")
@@ -522,7 +556,11 @@ class Store:
         self._closed = False
 
         if self.read_only:
-            uri = f"file:{self.path.as_posix()}?mode=ro"
+            # `quote` (bukan f-string) supaya `?`/`#` di dalam nama berkas menjadi bagian dari
+            # PATH-nya, bukan pemisah query URI yang bisa menimpa `mode=ro` — kembaran temuan
+            # yang ditutup di `agent/ledger.py` (TASKS 0.10). `_resolve_path` sudah menolak
+            # kedua karakter itu; ini lapis kedua untuk pemanggil yang merakit `Path` sendiri.
+            uri = "file:" + quote(self.path.as_posix(), safe="/") + "?mode=ro"
             try:
                 self._db = sqlite3.connect(uri, uri=True, check_same_thread=False)
             except sqlite3.Error as exc:
@@ -539,6 +577,10 @@ class Store:
             # izin di luar allowlist, termasuk saat guard berjalan.
             self._db.set_authorizer(_authorizer)
             self._db.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
+            if self.read_only:
+                # Lapis ketiga: walau URI-nya salah dirakit di kemudian hari, koneksi ini tetap
+                # menolak setiap tulisan. `query_only` hanya MEMPERSEMPIT izin.
+                self._db.execute("PRAGMA query_only=ON")
             # Guard dijalankan SEBELUM pembuatan tabel: bentuk lama yang tidak cocok harus
             # menghentikan proses, bukan diam-diam menerima tulisan berikutnya.
             self.tables = self._check_schema()

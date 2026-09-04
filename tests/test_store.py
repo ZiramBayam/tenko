@@ -12,11 +12,13 @@ import json
 import logging
 import math
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -902,6 +904,104 @@ def test_read_only_connection_is_enforced_by_sqlite_as_well(tmp_path: Path) -> N
     with Store(path, read_only=True) as reader, pytest.raises(sqlite3.Error):
         reader._db.execute(SQL_INSERT_SNAPSHOT, ("x", "{}", "h", "t", None, None, "{}", "h"))
     assert _rows(path, "SELECT COUNT(*) FROM snapshots")[0][0] == 1
+
+
+# --- TASKS 0.10: URI baca-saja tidak boleh bisa dibelokkan -------------------------------
+# Temuan TINGGI security-reviewer 2.4 (4 Sep 2026): `f"file:{path}?mode=ro"` menyerahkan arti
+# URI kepada isi path. Dua serangan reviewer direproduksi di bawah; keduanya HARUS gagal, dan
+# `test_the_old_f_string_uri_really_was_exploitable` membuktikan tesnya memang menggigit —
+# tanpa itu, dua tes di bawah bisa hijau hanya karena serangannya salah dirakit.
+ATTACK_QUERY = "evil.db?mode=rwc&x="
+ATTACK_FRAGMENT = "evil#1.db"  # nama berkas POSIX yang SAH, bukan bentuk aneh
+
+
+@pytest.mark.parametrize("name", [ATTACK_QUERY, ATTACK_FRAGMENT])
+def test_resolve_path_refuses_query_and_fragment_characters(tmp_path: Path, name: str) -> None:
+    """Lapis pertama: path ber-`?`/`#` ditolak, bukan diterima lalu ditafsirkan sebagai URI."""
+    with pytest.raises(StoreError, match="berbentuk URI"):
+        Store(tmp_path / name, read_only=True)
+    with pytest.raises(StoreError, match="berbentuk URI"):
+        Store(tmp_path / name)
+
+
+def _store_bypassing_the_resolver(
+    monkeypatch: pytest.MonkeyPatch, path: Path, *, read_only: bool = True
+) -> Store:
+    """`Store` sungguhan atas `path` apa adanya, dengan `_resolve_path` dilewati.
+
+    Melewati resolver DENGAN SENGAJA: yang diuji di sini adalah lapis 2 dan 3 (rakitan URI dan
+    `query_only`), yang harus berdiri sendiri seandainya lapis 1 kelak dilonggarkan. Konstruktor
+    yang nyata yang dipanggil — bukan URI yang disalin ulang oleh tes — supaya regresi di
+    `Store.__init__` memerahkan tes ini (temuan TINGGI security-reviewer 0.10).
+    """
+    monkeypatch.setattr("core.store._resolve_path", lambda _raw: path)
+    return Store(path, read_only=read_only)
+
+
+@pytest.mark.parametrize("name", [ATTACK_QUERY, ATTACK_FRAGMENT])
+def test_read_only_store_cannot_write_even_on_a_uri_shaped_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    """Lapis 2: `Store(read_only=True)` atas path ber-`?`/`#` TIDAK bisa menulis."""
+    path = tmp_path / name
+    with Store(tmp_path / "seed.db") as writer:
+        writer.insert_snapshot("analyze_token", ARGS, ENVELOPE)
+    shutil.copy(tmp_path / "seed.db", path)
+
+    with _store_bypassing_the_resolver(monkeypatch, path) as reader:
+        assert reader.path == path  # benar-benar berkas yang sama, bukan `evil.db` hasil potong
+        # Penegasan ini yang membuat varian `#` menggigit: bila URI-nya terpotong, koneksi
+        # membuka berkas LAIN yang kosong dan SELECT ini meledak "no such table" — sedangkan
+        # `pytest.raises(sqlite3.Error)` di bawah akan puas oleh kesalahan itu juga.
+        assert reader._db.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 1
+        with pytest.raises(StoreReadOnlyError):
+            reader.insert_snapshot("analyze_token", ARGS, ENVELOPE)
+        with pytest.raises(sqlite3.Error):
+            reader._db.execute(SQL_INSERT_SNAPSHOT, ("x", "{}", "h", "t", None, None, "{}", "h"))
+
+    check = sqlite3.connect("file:" + quote(path.as_posix(), safe="/") + "?mode=ro", uri=True)
+    try:
+        assert check.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 1
+    finally:
+        check.close()
+    # Rakitan lama akan memotong nama berkas di `?` dan menulis ke berkas LAIN; berkas itu
+    # tidak boleh ada.
+    assert not (tmp_path / "evil.db").exists()
+
+
+def test_query_only_cannot_be_switched_off_through_the_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lapis 3 berdiri sendiri: pemegang `_db` tidak bisa mencabutnya (temuan SEDANG 0.10)."""
+    path = tmp_path / "ro3.db"
+    with Store(path) as writer:
+        writer.insert_snapshot("analyze_token", ARGS, ENVELOPE)
+    with _store_bypassing_the_resolver(monkeypatch, path) as reader:
+        assert reader._db.execute("PRAGMA query_only").fetchone()[0] == 1  # lapis 3 memang menyala
+        with pytest.raises(sqlite3.DatabaseError):
+            reader._db.execute("PRAGMA query_only=OFF")
+        assert reader._db.execute("PRAGMA query_only").fetchone()[0] == 1  # dan tetap menyala
+        with pytest.raises(sqlite3.Error):
+            reader._db.execute(SQL_INSERT_SNAPSHOT, ("x", "{}", "h", "t", None, None, "{}", "h"))
+
+
+def test_the_old_f_string_uri_really_was_exploitable(tmp_path: Path) -> None:
+    """Kontrol negatif: rakitan LAMA pada path yang sama benar-benar bisa menulis.
+
+    Tanpa tes ini, tes di atas bisa hijau karena serangannya tidak pernah berbahaya. Yang
+    dijalankan di sini adalah kode LAMA (f-string), bukan kode `core.store` hari ini.
+    """
+    path = tmp_path / ATTACK_QUERY
+    old_style = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+    try:
+        old_style.execute("CREATE TABLE IF NOT EXISTS t (x INTEGER)")
+        old_style.execute("INSERT INTO t VALUES (1)")
+        old_style.commit()
+    finally:
+        old_style.close()
+    # `mode=rwc` dari nama berkas menang: berkasnya dibuat dan ditulis lewat koneksi yang
+    # dikira "mode=ro". Nama berkas nyatanya terpotong di `?`.
+    assert (tmp_path / "evil.db").exists()
 
 
 def test_repr_shows_path_and_mode(tmp_path: Path) -> None:
