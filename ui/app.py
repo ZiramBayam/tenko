@@ -15,7 +15,11 @@ Ditambah dua route pelayan: ``GET /`` (indeks route, bukan landing page) dan ``G
 Aturan yang ditegakkan di sini, bukan dijanjikan
 ------------------------------------------------
 1. **`simulated: true` di SETIAP respons**, termasuk 404/405/422/500/503 — lewat :func:`_body`
-   dan TIGA exception handler: `starlette.exceptions.HTTPException` (induk dari
+   dan TIGA exception handler. Sejak TASKS 3.2 ketiganya menjawab dalam BENTUK yang sedang
+   dilihat pemanggil (:func:`_fail`): di bawah `/ui` sebagai halaman ber-banner + CSP, di luar
+   itu sebagai JSON. Sebelumnya `/ui/decision/0` (salah ketik yang wajar, `ge=1`), `/ui/nope`,
+   dan `POST /ui` menjawab JSON telanjang TANPA CSP — `simulated` ada, tetapi layarnya hilang.
+   Handler itu sendiri: `starlette.exceptions.HTTPException` (induk dari
    `fastapi.HTTPException`, sekaligus 404 rute tak dikenal dan 405 metode salah),
    `RequestValidationError`, dan `Exception` (jaring terakhir, menggantikan "Internal Server
    Error" teks polos bawaan). Ini kewajiban aturan lomba (docs/rules-compliance.md), bukan
@@ -74,7 +78,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi import Path as PathParam
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agent.ledger import DecisionRow, LedgerError, read_decision, recent_decisions
@@ -89,7 +93,7 @@ from agent.replay import (
 )
 from agent.watchlist import plausible_symbol
 from core.replay import ALGO
-from core.skill import KEY_LIMIT, TEXT_LIMIT, UNSPOKEN, WARNING_LIMIT, clean_text
+from core.skill import KEY_LIMIT, REASON_LIMIT, TEXT_LIMIT, UNSPOKEN, WARNING_LIMIT, clean_text
 from core.store import Store, StoreError
 from preflight.narrate import SUMMARY_KEY, Narration
 from preflight.params import DEFAULT_PARAMS, ITEM_ORDER
@@ -100,11 +104,26 @@ from preflight.skill import (
     symbol_evidence,
     symbol_tools,
 )
+from ui.screens import STYLESHEET, render_card, render_error, render_watchlist
 
 log = logging.getLogger("ui.app")
 
 #: Banner tetap — kalimat yang sama di tiap layar dan tiap respons (rules-compliance).
 BANNER = "SIMULATED — practice positions on read-only market intelligence. No real funds."
+
+#: Header setiap halaman HTML. `default-src 'none'` melarang SKRIP sama sekali (Layar A/B tidak
+#: memuat satu pun `<script>`; lihat `ui/screens.py`), `style-src 'self'` hanya mengizinkan
+#: `/ui/tenko.css` yang lahir dari repo ini, dan tidak ada satu pun sumber pihak ketiga yang
+#: diizinkan — termasuk CDN mana pun (checklist UI, DISCLOSURE.md: `ui/static/` tidak ada).
+HTML_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'none'; style-src 'self'; img-src 'none'; base-uri 'none'; "
+        "form-action 'none'; frame-ancestors 'none'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+}
 
 #: Jam tampilan: JST (spec §7 & deadline lomba). `ts_utc` tetap ikut supaya angkanya bisa dicek.
 JST = timezone(timedelta(hours=9), "JST")
@@ -371,7 +390,13 @@ def _items_of(skill: dict[str, Any], narration: dict[str, str]) -> tuple[list[di
                     "snapshot_id": source.get("snapshot_id"),
                     "as_of": _clean(as_of, KEY_LIMIT),
                     "as_of_jst": _jst(as_of),
-                    "reason": _clean(entry.get("reason"), WARNING_LIMIT),
+                    # `REASON_LIMIT`, BUKAN `WARNING_LIMIT`: `core.skill.ItemResult` sudah
+                    # membatasi `reason` di 800 sebelum baris dibukukan, jadi memotongnya lagi
+                    # di 400 di sini akan membuang kalimat yang ADA di ledger — dan Layar B
+                    # kemudian menyebutnya "terpotong sebelum dibukukan", yang tidak benar.
+                    # Angkanya diimpor, tidak disalin: dua konstanta yang bisa berselisih diam-diam
+                    # adalah persis cara cacat itu lahir (security review 3.2, TINGGI-1).
+                    "reason": _clean(entry.get("reason"), REASON_LIMIT),
                     "narration": narration.get(item_id),
                 }
             )
@@ -604,6 +629,120 @@ def _truncation_notes(n_items: int, n_items_total: int, n_warnings: int, n_warni
     return notes
 
 
+# --- layar HTML (TASKS 3.2) ---------------------------------------------------------------
+def _now_jst() -> datetime:
+    """Jam render, JST. Dipakai HANYA untuk kalimat umur di layar — tidak masuk hash apa pun."""
+    return datetime.now(tz=JST)
+
+
+def _html(body: str, status_code: int = 200, headers: dict[str, str] | None = None) -> Response:
+    """Satu-satunya cara halaman keluar dari modul ini — termasuk halaman GAGAL.
+
+    `headers` hanya MENAMBAH (mis. `Allow` pada 405); ia tidak bisa mencopot `HTML_HEADERS`,
+    karena halaman tanpa CSP adalah halaman yang mengizinkan skrip.
+    """
+    return Response(
+        content=body,
+        media_type="text/html; charset=utf-8",
+        status_code=status_code,
+        headers={**(headers or {}), **HTML_HEADERS},
+    )
+
+
+#: Prefix satu-satunya keluarga route HTML. Dipakai handler kegagalan untuk memutuskan bentuk
+#: jawaban: di bawah prefix ini juri sedang melihat LAYAR, jadi 404/405/422/500 pun wajib keluar
+#: sebagai halaman ber-banner + CSP, bukan JSON telanjang (security review 3.2, TINGGI-2).
+HTML_PREFIX = "/ui"
+
+
+def _is_screen(request: Request) -> bool:
+    """Apakah permintaan ini menuju layar HTML?
+
+    Dijawab dari PATH, bukan dari header `Accept`: `Accept` datang dari pemanggil, dan
+    membiarkannya memilih bentuk berarti `/api/decision/abc` bisa menjawab HTML tanpa
+    `simulated: true` di badan JSON-nya. Path `/ui...` adalah milik kami sendiri.
+    """
+    path = request.url.path
+    return path == HTML_PREFIX or path.startswith(HTML_PREFIX + "/")
+
+
+def _fail(
+    request: Request,
+    status_code: int,
+    message: str,
+    headers: dict[str, str] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> Response:
+    """Kegagalan dalam BENTUK yang sedang dilihat pemanggil, tanpa pernah kehilangan banner.
+
+    Layar → halaman HTML ber-banner + CSP; API → JSON ber-`simulated: true`. Perakitan HTML-nya
+    dijaga `try`: kalau renderer sendiri yang gagal, jawabannya turun ke JSON yang selalu bisa
+    dirakit — bukan ke "Internal Server Error" teks polos tanpa `simulated`.
+    """
+    if _is_screen(request):
+        try:
+            return _html(render_error(status_code, message, BANNER, _now_jst()), status_code, headers)
+        except Exception:  # noqa: BLE001 — renderer gagal tidak boleh menghapus banner
+            log.error("%s %s: render halaman gagal", request.method, request.url.path)
+    return SafeJSONResponse(
+        status_code=status_code,
+        content=_body(
+            {
+                "error": clean_text(message, WARNING_LIMIT),
+                "status_code": status_code,
+                **(extra or {}),
+            }
+        ),
+        headers=headers,
+    )
+
+
+@app.api_route("/ui/tenko.css", methods=["GET", "HEAD"])
+def stylesheet() -> Response:
+    """Satu-satunya aset layar, dan ia lahir di repo ini.
+
+    Tidak ada `ui/static/`, tidak ada CDN, tidak ada npm (ADR-001; DISCLOSURE.md menyatakan
+    nol berkas three/GSAP/Lenis pernah disalin ke repo — pernyataan itu tetap benar).
+    """
+    return Response(content=STYLESHEET, media_type="text/css; charset=utf-8", headers=HTML_HEADERS)
+
+
+@app.api_route("/ui", methods=["GET", "HEAD"])
+def screen_watchlist() -> Response:
+    """Layar A — HTML atas badan respons `/api/watchlist` yang sama persis.
+
+    Fungsi route JSON dipanggil langsung (bukan HTTP ke diri sendiri) supaya layar dan API
+    tidak bisa menyimpang: satu sumber angka, satu urutan, satu daftar catatan.
+
+    `HEAD` ikut dideklarasikan: FastAPI tidak menambahkannya sendiri seperti Starlette, dan
+    `curl -I /ui` yang dijawab 405 menyatakan halaman ini tidak ada padahal ia ada.
+    """
+    try:
+        payload = watchlist()
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "watchlist tidak bisa dilayani"
+        return _html(render_error(exc.status_code, detail, BANNER, _now_jst()), exc.status_code)
+    return _html(render_watchlist(payload, BANNER, _now_jst()))
+
+
+@app.api_route("/ui/decision/{decision_id}", methods=["GET", "HEAD"])
+def screen_card(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> Response:
+    """Layar B — kartu panggilan satu keputusan, dirender di server, tanpa satu pun skrip.
+
+    404/503 pun keluar sebagai halaman ber-banner SIMULATED, bukan JSON telanjang: layar yang
+    gagal tetap layar, dan juri yang salah ketik id tidak boleh melihat halaman tanpa banner.
+    Itu berlaku untuk id di LUAR rentang juga (`/ui/decision/0`, `/ui/decision/abc`): keduanya
+    ditolak `PathParam` sebelum fungsi ini dipanggil, dan yang menjadikannya halaman adalah
+    :func:`_fail` di handler `RequestValidationError` — bukan kalimat ini.
+    """
+    try:
+        payload = decision(decision_id)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "kartu ini tidak bisa dilayani"
+        return _html(render_error(exc.status_code, detail, BANNER, _now_jst()), exc.status_code)
+    return _html(render_card(payload, BANNER, _now_jst()))
+
+
 # --- route --------------------------------------------------------------------------------
 @app.get("/")
 def index() -> dict[str, Any]:
@@ -612,6 +751,8 @@ def index() -> dict[str, Any]:
         {
             "product": "Tenko (点呼)",
             "routes": [
+                "/ui",
+                "/ui/decision/{id}",
                 "/api/health",
                 "/api/watchlist",
                 "/api/decisions",
@@ -820,6 +961,11 @@ def decision(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> dict[str
             "decision": clean_text(row.decision, KEY_LIMIT),
             "ts_utc": clean_text(row.ts_utc, KEY_LIMIT),
             "ts_jst": _jst(row.ts_utc),
+            # `as_of` bundle = jam ENVELOPE, dijaga `payload_hash`; `ts_utc` di atas adalah jam
+            # penulisan baris ledger dan TIDAK dijaga hash apa pun. Layar B menghitung umur
+            # bundle dari field ini, bukan dari `ts_utc` (TASKS 3.2, amandemen TINGGI-2).
+            "as_of": _clean(skill.get("as_of"), KEY_LIMIT),
+            "as_of_jst": _jst(skill.get("as_of")),
             "generation": "legacy" if legacy else "current",
             "headline": None if legacy else _clean(summary.get("headline"), TEXT_LIMIT),
             "blocking": [] if legacy else _blocking_of(row, skill),
@@ -885,7 +1031,13 @@ def preflight_symbol(symbol: str) -> dict[str, Any]:
     except (StoreError, PreflightError) as exc:
         raise _unreadable(f"preflight {normalized}", exc) from None
 
-    envelope = _clean(result.model_dump(mode="json"), WARNING_LIMIT)
+    # Dua bentuk dari satu hasil: `raw` (untuk baris item, yang membersihkan tiap field dengan
+    # batasnya SENDIRI — `reason` di `REASON_LIMIT`) dan `envelope` (yang diterbitkan apa adanya,
+    # tiap teksnya dibatasi `WARNING_LIMIT`). Membangun item dari `envelope` akan memotong
+    # `reason` di 400 dan membuat route ini menyajikan kalimat yang lebih pendek daripada
+    # /api/decision untuk item yang sama.
+    raw = result.model_dump(mode="json")
+    envelope = _clean(raw, WARNING_LIMIT)
     spoken_about = symbol_evidence(result.data, normalized)
     if result.data is None or not spoken_about:
         raise HTTPException(
@@ -899,7 +1051,7 @@ def preflight_symbol(symbol: str) -> dict[str, Any]:
         )
     skill = envelope if isinstance(envelope, dict) else {}
     warnings, n_warnings_total = _warnings_of(skill)
-    items, n_item_rows = _items_of(skill, {})
+    items, n_item_rows = _items_of(raw, {})
     counts = _counts_of(skill, items, n_item_rows)
     data = skill.get("data") if isinstance(skill.get("data"), dict) else {}
     return _body(
@@ -941,7 +1093,7 @@ def preflight_symbol(symbol: str) -> dict[str, Any]:
 
 # --- kegagalan tetap membawa `simulated` --------------------------------------------------
 @app.exception_handler(StarletteHTTPException)
-def _http_error(request: Request, exc: StarletteHTTPException) -> SafeJSONResponse:
+def _http_error(request: Request, exc: StarletteHTTPException) -> Response:
     """404/400/405/503 pun wajib membawa `simulated: true` (docs/rules-compliance.md).
 
     Didaftarkan pada HTTPException **Starlette**, bukan turunannya di FastAPI: 404 untuk rute
@@ -949,51 +1101,48 @@ def _http_error(request: Request, exc: StarletteHTTPException) -> SafeJSONRespon
     dilempar router Starlette sebagai kelas induk itu, dan pencarian handler menyusuri MRO —
     jadi satu pendaftaran ini menutup keduanya SEKALIGUS `fastapi.HTTPException` yang dilempar
     route di berkas ini. Sebelumnya keduanya keluar sebagai `{"detail": "..."}` telanjang.
+
+    Bentuknya mengikuti PATH: `/ui/nope` dan `POST /ui` menjawab halaman ber-banner + CSP,
+    `/favicon.ico` dan `POST /api/health` tetap JSON ber-`simulated`.
     """
     detail = exc.detail if isinstance(exc.detail, str) else "permintaan tidak bisa dilayani"
-    return SafeJSONResponse(
-        status_code=exc.status_code,
-        content=_body({"error": clean_text(detail, WARNING_LIMIT), "status_code": exc.status_code}),
-        # `Allow` pada 405 datang dari sini: header exception dibawa apa adanya, karena
-        # menjawab "metode salah" tanpa menyebut metode yang benar adalah jawaban setengah.
-        headers=dict(exc.headers) if exc.headers else None,
-    )
+    # `Allow` pada 405 dibawa apa adanya dari exception, karena menjawab "metode salah" tanpa
+    # menyebut metode yang benar adalah jawaban setengah — dan ia ikut ke halaman HTML juga.
+    return _fail(request, exc.status_code, detail, dict(exc.headers) if exc.headers else None)
 
 
 @app.exception_handler(RequestValidationError)
-def _validation_error(request: Request, exc: RequestValidationError) -> SafeJSONResponse:
-    """Path/query yang tidak bisa dibaca (mis. `/api/decision/abc`) — jujur, tanpa traceback."""
-    return SafeJSONResponse(
-        status_code=422,
-        content=_body(
-            {
-                "error": "parameter permintaan tidak bisa dibaca; tidak ada yang dibaca dari store",
-                "status_code": 422,
-                "n_errors": len(exc.errors()),
-            }
-        ),
+def _validation_error(request: Request, exc: RequestValidationError) -> Response:
+    """Path/query yang tidak bisa dibaca (mis. `/api/decision/abc`) — jujur, tanpa traceback.
+
+    Di bawah `/ui` jawabannya HALAMAN, bukan JSON: `ge=1` membuat `/ui/decision/0` (salah ketik
+    yang wajar) berakhir di sini, dan juri yang salah ketik tidak boleh melihat respons tanpa
+    banner SIMULATED maupun tanpa CSP.
+    """
+    return _fail(
+        request,
+        422,
+        "parameter permintaan tidak bisa dibaca; tidak ada yang dibaca dari store",
+        extra={"n_errors": len(exc.errors())},
     )
 
 
 @app.exception_handler(Exception)
-def _unexpected_error(request: Request, exc: Exception) -> SafeJSONResponse:
+def _unexpected_error(request: Request, exc: Exception) -> Response:
     """Jaring terakhir: bug pun tidak boleh menjawab tanpa `simulated: true`.
 
     Tanpa handler ini `ServerErrorMiddleware` menjawab `text/plain` "Internal Server Error" —
     respons yang tidak mengaku simulasi, yaitu persis bentuk yang dilarang aturan lomba. Jenis
     kegagalannya dicatat ke log (nama kelas saja: pesan exception bisa memuat path berkas),
-    dan yang keluar ke pemanggil hanya satu kalimat tanpa traceback. Starlette tetap
+    dan yang keluar ke pemanggil hanya satu kalimat tanpa traceback — sebagai halaman di bawah
+    `/ui` (renderer yang ikut gagal turun ke JSON), sebagai JSON di tempat lain. Starlette tetap
     melempar ulang `exc` sesudah respons ini terkirim, jadi kegagalannya tidak hilang dari log
     server — yang berubah hanya isi jawabannya.
     """
     log.error("%s %s: kegagalan tak terduga: %s", request.method, request.url.path, type(exc).__name__)
-    return SafeJSONResponse(
-        status_code=500,
-        content=_body(
-            {
-                "error": "permintaan ini gagal karena kesalahan tak terduga di server; tidak ada "
-                "angka yang dikarang untuk menutupinya",
-                "status_code": 500,
-            }
-        ),
+    return _fail(
+        request,
+        500,
+        "permintaan ini gagal karena kesalahan tak terduga di server; tidak ada angka yang "
+        "dikarang untuk menutupinya",
     )

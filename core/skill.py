@@ -90,6 +90,25 @@ HEADLINE_LIMIT = 240
 KEY_LIMIT = 64
 TEXT_LIMIT = 240
 WARNING_LIMIT = 400
+#: Batas KHUSUS `ItemResult.reason` — kalimat yang dibaca juri di kartu panggilan (TASKS 3.2).
+#:
+#: Dipisahkan dari `TEXT_LIMIT` karena tugasnya berbeda. `TEXT_LIMIT` membatasi teks asal-RYO
+#: yang kami tampilkan; `reason` adalah kalimat yang KAMI tulis untuk menjelaskan satu baris
+#: keputusan. Memotongnya mengubah penjelasan jujur menjadi klaim yang tidak pernah dibuat kode:
+#: pada 240, `reason` item 1 berakhir di ``"…so this says nothing about how old ...(truncated)"``
+#: — klausa wajib "not the wall clock" selamat, tetapi kalimat yang MENJELASKANNYA terpotong di
+#: tengah frasa, dan kartu terbaca sebagai klaim kesegaran (persis yang TASKS 3.2 larang, dan
+#: yang pernah membuat security-reviewer 2.2 menyimpulkan kartu berbohong).
+#:
+#: Panjang nyata hari ini (sapuan 5 Sep 2026 atas `data/ryo.db`): item 2 = 355, item 1 = 260,
+#: item 8 = **240** — yaitu tepat di tepi, jadi penyebutan `data_date` dari TASKS 0.21 adalah
+#: yang berikutnya hilang. 800 memberi ruang ~2,2x yang terpanjang.
+#:
+#: Yang TIDAK berubah karena ini: perlindungannya. Baris palsu dicegah `clean_text` yang
+#: menetralkan kontrol/CR/LF, BUKAN oleh panjangnya. Dan `decision_hash` tidak bergeser —
+#: `Decision.as_material()` hanya memuat `decision`/`blocking`/`item_status` (dibuktikan
+#: TASKS 0.21). Sisi tampilan tetap dibatasi UI, yang menyebut totalnya saat memotong.
+REASON_LIMIT = 800
 # Kedalaman `request`/`summary` yang ditelusuri. Di luar itu nilainya dibiarkan apa adanya —
 # BATAS YANG DIAKUI, bukan klaim kekebalan; `request` nyata (argumen CLI ternormalisasi) dan
 # `summary` ({headline, key_points}) tidak pernah sedalam itu.
@@ -255,8 +274,12 @@ class ItemResult(BaseModel):
     @field_validator("reason")
     @classmethod
     def _bounded_reason(cls, value: str) -> str:
-        """`reason` ikut ke kartu panggilan; teks RYO tidak boleh menyisipkan baris palsu."""
-        return clean_text(value, TEXT_LIMIT)
+        """`reason` ikut ke kartu panggilan; teks RYO tidak boleh menyisipkan baris palsu.
+
+        Batasnya :data:`REASON_LIMIT`, bukan :data:`TEXT_LIMIT` — lihat alasannya di konstanta.
+        Yang mencegah baris palsu adalah `clean_text` (kontrol/CR/LF), bukan panjangnya.
+        """
+        return clean_text(value, REASON_LIMIT)
 
     @model_validator(mode="after")
     def _unspoken_carries_no_value(self) -> ItemResult:

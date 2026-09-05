@@ -30,8 +30,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from html import escape, unescape
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +41,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import ui.app as ui_app
+import ui.screens as ui_screens
+from agent.ledger import recent_decisions
 from agent.main import tick
 from agent.params import DEFAULT_AGENT_PARAMS
 from agent.replay import (
@@ -49,11 +53,28 @@ from agent.replay import (
 )
 from agent.watchlist import plausible_symbol
 from core.replay import ALGO
+from core.skill import REASON_LIMIT, TEXT_LIMIT, TRUNCATED_MARK, ItemResult, clean_text
 from core.store import Store
 from preflight.params import DEFAULT_PARAMS, ITEM_ORDER
 from preflight.skill import symbol_evidence, symbol_tools
 from tests.helpers_agent import ANALYZE, CORE, DEEP, build_store
-from ui.app import BANNER, TONE_FINDING, TONE_NO_EVIDENCE, TONE_NOT_ASSESSED, app
+from ui.app import BANNER, HTML_HEADERS, TONE_FINDING, TONE_NO_EVIDENCE, TONE_NOT_ASSESSED, app
+from ui.app import JST as UI_JST
+from ui.screens import (
+    FOREIGN_MARK_NOTE,
+    LEGACY_REASON_CUT_NOTE,
+    NARRATION_EMPTY,
+    NARRATION_LABEL,
+    NARRATION_NOTE,
+    NEUTRAL_MARK,
+    REASON_CUT_NOTE,
+    SCREEN_CUT_NOTE,
+    UNSPOKEN_MARK,
+    VALUE_LIMIT,
+    age_phrase,
+    render_card,
+    render_watchlist,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 LIVE_DB = ROOT / "data" / "ryo.db"
@@ -1075,3 +1096,763 @@ def test_live_database_is_not_modified_by_any_route(live_client: TestClient) -> 
     for path in ("/api/health", "/api/watchlist", "/api/decisions", f"/api/decision/{LIVE_LEGACY_ID}"):
         assert live_client.get(path).status_code == 200
     assert hashlib.sha256(LIVE_DB.read_bytes()).hexdigest() == before
+
+
+# --- Layar A & Layar B (TASKS 3.2) ------------------------------------------------------------
+# Layar dirender di SERVER dan tidak memuat satu pun `<script>`, jadi yang diuji di bawah adalah
+# HTML yang benar-benar sampai ke browser juri — bukan sumber JS yang dicocokkan sebagai teks.
+# Fungsi render `ui/screens.py` murni (payload dict + banner + jam -> str), sehingga umur, klausa
+# `reason`, penanda netral, dan label narasi bisa dipatok sebagai KALIMAT, bukan sebagai janji.
+
+
+def card_payload(client: TestClient, symbol: str = "ETH") -> dict[str, Any]:
+    """Badan `/api/decision/{id}` NYATA untuk satu simbol fixture — bukan dict karangan.
+
+    Tes render di bawah memodifikasi salinannya (jam, stance, narasi) supaya yang diuji adalah
+    perilaku layar, sementara BENTUK payload-nya tetap bentuk yang benar-benar diproduksi route.
+    """
+    entries = client.get("/api/watchlist").json()["symbols"]
+    row = next(entry for entry in entries if entry["symbol"] == symbol)
+    return client.get(f"/api/decision/{row['decision_id']}").json()
+
+
+def render_clock() -> datetime:
+    return datetime.now(UI_JST)
+
+
+def strip_tags(html: str) -> str:
+    """Teks yang benar-benar terbaca juri: tag dibuang, entitas dikembalikan, spasi dirapatkan.
+
+    Spasi dirapatkan karena tag yang dibuang meninggalkan celah — `<bdi>SOL</bdi>` di tengah
+    kalimat menjadi dua spasi. Yang diuji adalah KALIMAT yang dibaca juri, bukan whitespace HTML.
+    """
+    return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", " ", html)))
+
+
+def test_screen_a_answers_which_symbol_is_closest_to_go_in_its_first_sentence(client: TestClient) -> None:
+    """Uji 30 detik Layar A: jawabannya ada di kalimat pertama, bukan di urutan tabel.
+
+    `/api/watchlist` mengurutkan daya veto MENURUN (penahan terberat di atas), jadi simbol yang
+    paling dekat GO justru ada di bawah. Layar menyebutnya di kalimat pertama, lengkap dengan
+    ATURAN yang dipakai — supaya "paling dekat" tidak terbaca sebagai skor atau ramalan.
+    """
+    page = client.get("/ui")
+    assert page.status_code == 200
+    assert page.headers["content-type"].startswith("text/html")
+    lede = strip_tags(page.text.split("<table")[0])
+    assert "paling dekat GO: SOL" in lede  # fixture: SOL satu-satunya GO
+    assert "bukan skor" in lede
+    assert BANNER in lede
+
+
+def test_screen_a_orders_rows_by_veto_power_and_says_what_holds_each_symbol(client: TestClient) -> None:
+    """Kolom "apa yang menahan": id penahan, statusnya, alasannya, sumbernya, dan jamnya."""
+    text = client.get("/ui").text
+    body = text.split("<tbody>")[1]  # urutan BARIS TABEL, bukan kalimat pembuka
+    order = [body.index(f">{symbol}</bdi>") for symbol in ("ETH", "BTC", "BNB", "SOL")]
+    assert order == sorted(order)  # 05 (rank 5) < 06 < 10; GO menyusul paling bawah
+    readable = strip_tags(text)
+    assert "05_verdict_quick" in readable and "06_confluence" in readable
+    assert "the source argues against opening a position in any direction" in readable
+    assert "analyze_token" in readable and "data.verdict" in readable
+    assert " JST" in readable
+
+
+def test_screen_a_says_how_much_it_did_not_show(client: TestClient) -> None:
+    """Pemotongan harus terlihat: batas pindai dan baris generasi lama disebut dengan angkanya."""
+    readable = strip_tags(client.get("/ui").text)
+    assert "baris keputusan TERBARU, bukan seluruh tabel" in readable
+    assert "generasi lama tidak ditampilkan" in readable
+
+
+def test_screen_b_headline_answers_why_this_decision_without_a_single_click(client: TestClient) -> None:
+    """Uji 30 detik Layar B: penahan terberat, alasannya, sumbernya, dan jamnya di atas lipatan."""
+    payload = card_payload(client, "BTC")
+    html = render_card(payload, BANNER, render_clock())
+    above_fold = strip_tags(html.split("<h2")[0])
+    assert "BTC" in above_fold and "NO_GO" in above_fold
+    assert "Penahan TERBERAT: 06_confluence" in above_fold
+    assert "the evidence does not agree with itself" in above_fold
+    assert "deep_analysis" in above_fold and "data.confluence.state" in above_fold
+    assert "as_of" in above_fold
+    assert payload["decision_hash"] in html
+
+
+#: Kata-kata TERAKHIR `reason` item 1 (`preflight/items.py`), dipatok sebagai LITERAL dan tidak
+#: diturunkan dari `REASON_LIMIT` mana pun. Alasannya: tes yang membandingkan panjang dengan
+#: konstanta yang sama yang memotongnya akan tetap hijau ketika konstanta itu diturunkan — ia
+#: memakukan STRUKTUR (satu langit-langit, bukan tiga), bukan kecukupannya. Yang dilarang AC 3.2
+#: justru bentuk kegagalan pada 240: klausa "not the wall clock" kebetulan selamat sementara
+#: kalimat yang MENJELASKANNYA terpotong di tengah frasa, sehingga kartu terbaca sebagai klaim
+#: kesegaran terhadap jam dinding. Kalimat ini utuh atau tidak sama sekali.
+ITEM_ONE_LAST_WORDS = "so this says nothing about how old the bundle itself is"
+
+
+def test_screen_b_shows_the_last_words_of_item_one_not_just_the_wall_clock_clause(
+    client: TestClient,
+) -> None:
+    """Langit-langit `reason` harus cukup TINGGI untuk kalimat nyata, bukan sekadar konsisten.
+
+    Kartu fixture ini dibangun agen sungguhan dari envelope RYO nyata (`docs/samples`), jadi
+    `reason` yang diuji adalah kalimat yang benar-benar ditulis `preflight/items.py` — dan yang
+    dipatok adalah kata-kata terakhirnya sebagai literal. Menurunkan `REASON_LIMIT` ke 240
+    membuat tes ini MERAH, yang memang tugasnya.
+    """
+    payload = card_payload(client)
+    reason = next(item["reason"] for item in payload["items"] if item["item_id"] == "01_freshness")
+    assert ITEM_ONE_LAST_WORDS in reason  # prasyarat: route menyajikan kalimatnya utuh
+    assert TRUNCATED_MARK not in reason
+    readable = strip_tags(render_card(payload, BANNER, render_clock()))
+    assert ITEM_ONE_LAST_WORDS in readable  # sampai KATA TERAKHIR, di layar yang dirender
+    page = client.get(f"/ui/decision/{payload['decision_id']}")
+    assert ITEM_ONE_LAST_WORDS in strip_tags(page.text)  # dan lewat HTTP, bukan hanya render()
+
+
+def live_reason_row(live_client: TestClient) -> tuple[int, str] | None:
+    """(id, reason) baris NYATA pertama yang membawa kalimat penuh item 1 — atau None.
+
+    Dicari, bukan diasumsikan: kalau `data/ryo.db` hari ini tidak punya satu pun baris yang
+    cocok, yang jujur adalah `skip` dengan sebab, bukan tes yang selalu hijau.
+    """
+    listing = live_client.get("/api/decisions").json()
+    for entry in listing["decisions"]:
+        card = live_client.get(f"/api/decision/{entry['decision_id']}").json()
+        for item in card.get("items", []):
+            if item.get("item_id") == "01_freshness" and ITEM_ONE_LAST_WORDS in (item.get("reason") or ""):
+                return entry["decision_id"], item["reason"]
+    return None
+
+
+def test_live_card_shows_the_last_words_of_item_one_on_the_rendered_screen(
+    live_client: TestClient,
+) -> None:
+    """Padanan tes di atas atas `data/ryo.db` — data yang benar-benar akan dibuka juri.
+
+    Baris `data/ryo.db` yang ada hari ini dibukukan SEBELUM `REASON_LIMIT` lahir, jadi
+    `reason`-nya sudah terpotong 240 di ledger dan kalimatnya tidak bisa dimunculkan layar mana
+    pun. Selama itu masih benar, tes ini `skip` dengan sebab yang menyebut kondisinya — dan ia
+    mulai menjaga sendirinya begitu satu baris baru direkam.
+    """
+    found = live_reason_row(live_client)
+    if found is None:  # pragma: no cover - tergantung isi data/ryo.db saat tes dijalankan
+        pytest.skip(
+            "tidak ada baris `data/ryo.db` yang membawa kalimat penuh item 1; baris yang ada "
+            f"dibukukan saat langit-langit `reason` masih {TEXT_LIMIT} aksara"
+        )
+    decision_id, reason = found
+    assert TRUNCATED_MARK not in reason
+    readable = strip_tags(live_client.get(f"/ui/decision/{decision_id}").text)
+    assert ITEM_ONE_LAST_WORDS in readable
+
+
+def test_screen_b_renders_item_one_reason_whole_including_the_wall_clock_clause(client: TestClient) -> None:
+    """Amandemen TINGGI-2: memotong item 1 di "x min (limit y min)" mengubah artinya.
+
+    Tanpa klausa "the clock is the newest as_of in this bundle …, not the wall clock", baris itu
+    terbaca sebagai klaim kesegaran terhadap jam dinding — klaim yang TIDAK pernah dibuat kode.
+    """
+    payload = card_payload(client)
+    reason = next(item["reason"] for item in payload["items"] if item["item_id"] == "01_freshness")
+    assert "not the wall clock" in reason  # prasyarat: kartunya memang membawa klausa itu
+    readable = strip_tags(render_card(payload, BANNER, render_clock()))
+    assert "the clock is the newest as_of in this bundle" in readable
+    assert "not the wall clock" in readable
+    assert reason in readable  # utuh, bukan sepotong
+
+
+def doctored_reason_row(store: Store, reason: str, symbol: str = "ETH") -> int:
+    """Baris `decisions` NYATA yang `reason` item pertamanya ditulis lewat `core.skill.ItemResult`.
+
+    Rantainya utuh dan itulah intinya: teks masuk lewat validator yang memotong pada
+    `REASON_LIMIT` (bukan lewat dict rakitan tes), tersimpan di `card_json`, lalu dibaca
+    `/api/decision/{id}` dan dirender `/ui/decision/{id}`. Tes yang memanggil `render_card`
+    dengan payload rakitan TIDAK PERNAH melewati `ui/app.py` — dan justru di sanalah batas
+    kedua yang berselisih itu bersembunyi (security review 3.2, TINGGI-1).
+
+    `decision_hash` baris ini karena itu tidak lagi cocok dengan kartunya (vonis replay
+    `MISMATCH`), dan itu memang jujur: kartunya memang diubah sesudah dihitung.
+    """
+    rows = [row for row in recent_decisions(store.path, limit=50) if row.is_current_generation()]
+    source = next(row for row in rows if row.symbol == symbol)
+    card = json.loads(source.card_json)
+    first = card["skill"]["data"]["items"][0]
+    item = ItemResult(id=first["id"], status=first["status"], reason=reason, value=None)
+    card["skill"]["data"]["items"][0] = json.loads(item.model_dump_json())
+    return store.insert_decision(
+        symbol=source.symbol,
+        decision=source.decision,
+        blocking=[first["id"]],
+        snapshot_ids=json.loads(source.snapshot_ids_json),
+        params_hash=source.params_hash,
+        decision_hash=source.decision_hash,
+        card=card,
+    )
+
+
+def test_a_reason_survives_the_whole_chain_from_item_result_to_the_rendered_screen(
+    client: TestClient, store: Store
+) -> None:
+    """`ItemResult` → ledger → `/api/decision` → layar: satu langit-langit, bukan tiga.
+
+    Rantai yang diukur security-reviewer 3.2: `reason` 839 aksara dibukukan sebagai 814
+    (`REASON_LIMIT` + penanda), tetapi route menyajikan 414 dan layar memotongnya lagi di 400 —
+    sehingga klausa wajib item 1 hilang DAN kartu mencetak "terpotong sebelum dibukukan" untuk
+    potongan yang ia buat sendiri. Yang dipatok di sini adalah angkanya, di ketiga titik.
+    """
+    written = ItemResult(id="01_freshness", status="green", reason="Z" * 839, value=None)
+    assert len(written.reason) == REASON_LIMIT + len(TRUNCATED_MARK)  # 800 + 14, dipotong ledger
+    decision_id = doctored_reason_row(store, "Z" * 839)
+
+    served = client.get(f"/api/decision/{decision_id}").json()
+    reason = next(item["reason"] for item in served["items"] if item["item_id"] == "01_freshness")
+    assert reason == written.reason  # route tidak memotong apa yang ledger simpan
+
+    page = client.get(f"/ui/decision/{decision_id}")
+    assert page.status_code == 200
+    readable = strip_tags(page.text)
+    assert reason in readable  # 814 aksara, utuh — bukan 400
+    assert readable.count(SCREEN_CUT_NOTE.format(limit=REASON_LIMIT)) == 0
+    assert REASON_CUT_NOTE in readable  # sebabnya disebut, dan sebabnya BENAR
+    assert f"{REASON_LIMIT} aksara" in REASON_CUT_NOTE  # langit-langit yang BENAR-BENAR memotong
+    # Baris generasi kini tidak boleh memakai kalimat baris warisan: `TEXT_LIMIT` disebut hanya
+    # oleh `LEGACY_REASON_CUT_NOTE`, dan menyebut langit-langit yang salah = kartu yang berbohong.
+    assert "TEXT_LIMIT" not in REASON_CUT_NOTE
+    assert LEGACY_REASON_CUT_NOTE not in readable
+
+
+def test_the_screen_reason_limit_is_the_one_from_core_not_a_copy() -> None:
+    """Dua konstanta yang bisa berselisih diam-diam adalah cara cacat TINGGI-1 lahir.
+
+    Karena itu yang diuji bukan angkanya, melainkan bahwa angkanya SATU: `ui.screens` memakai
+    `core.skill.REASON_LIMIT` yang sama persis dengan yang memotong `ItemResult`.
+    """
+    assert ui_screens.REASON_LIMIT is REASON_LIMIT
+    long_reason = "x" * (REASON_LIMIT - 1)
+    payload: dict[str, Any] = {
+        "decision_id": 1,
+        "symbol": "SOL",
+        "decision": "NO_GO",
+        "generation": "current",
+        "blocking": ["01_freshness"],
+        "items": [{"item_id": "01_freshness", "veto_rank": 1, "status": "green", "reason": long_reason}],
+    }
+    readable = strip_tags(render_card(payload, BANNER, render_clock()))
+    assert long_reason in readable  # 799 aksara: layar tidak memotong apa pun
+    assert TRUNCATED_MARK not in readable
+
+
+def test_a_truncated_mark_that_is_no_ceiling_is_never_claimed_as_a_cut_that_happened_earlier() -> None:
+    """Nilai RYO yang memuat literal `...(truncated)` tidak boleh membuat kartu mengaku.
+
+    Penanda di panjang yang bukan langit-langit mana pun berarti: layar ini tidak memotongnya,
+    dan kami tidak bisa membuktikan siapa yang memotongnya. Kalimat yang keluar mengatakan
+    persis itu — bukan "terpotong sebelum dibukukan", yang akan menuduh ledger menyembunyikan
+    sesuatu yang mungkin tidak pernah disembunyikan (security review 3.2, RENDAH a).
+    """
+    payload: dict[str, Any] = {
+        "decision_id": 1,
+        "symbol": "SOL",
+        "decision": "NO_GO",
+        "generation": "current",
+        "blocking": ["01_freshness"],
+        "items": [
+            {
+                "item_id": "01_freshness",
+                "veto_rank": 1,
+                "status": "green",
+                "reason": "short" + TRUNCATED_MARK,
+                "value": {"note": "harga " + TRUNCATED_MARK + " apa adanya"},
+            }
+        ],
+    }
+    readable = strip_tags(render_card(payload, BANNER, render_clock()))
+    assert REASON_CUT_NOTE not in readable
+    assert SCREEN_CUT_NOTE.format(limit=REASON_LIMIT) not in readable
+    # tiga tempat penanda itu benar-benar muncul: `reason` di baris tabel, `value` di baris
+    # tabel, dan `reason` penahan terberat di kalimat jawaban — masing-masing membawa sebabnya.
+    assert readable.count(FOREIGN_MARK_NOTE) == 3
+
+
+def test_a_row_booked_at_the_old_ceiling_names_that_ceiling_and_its_era() -> None:
+    """Bentuk SELURUH 40 baris `data/ryo.db` hari ini: `reason` 254 aksara = `TEXT_LIMIT` + penanda.
+
+    Ledger append-only, jadi baris itu tidak bisa ditulis ulang — dan kartu yang menjawab
+    "panjangnya tidak berada di langit-langit mana pun" untuk potongan yang punya sebab yang
+    bisa disebut salah bicara tentang dirinya sendiri, kelas kesalahan yang sama dengan TINGGI-1.
+    Yang dituntut di sini: angka langit-langitnya (240) DAN eranya (dibukukan sebelum dinaikkan).
+    """
+    booked = clean_text("y" * (TEXT_LIMIT + 50), TEXT_LIMIT)
+    assert len(booked) == TEXT_LIMIT + len(TRUNCATED_MARK) == 254  # bentuk baris nyata
+    payload: dict[str, Any] = {
+        "decision_id": 1,
+        "symbol": "SOL",
+        "decision": "NO_GO",
+        "generation": "current",
+        "blocking": ["01_freshness"],
+        "items": [{"item_id": "01_freshness", "veto_rank": 1, "status": "green", "reason": booked}],
+    }
+    readable = strip_tags(render_card(payload, BANNER, render_clock()))
+    assert LEGACY_REASON_CUT_NOTE in readable
+    assert f"{TEXT_LIMIT} aksara" in LEGACY_REASON_CUT_NOTE and "SEBELUM dinaikkan" in LEGACY_REASON_CUT_NOTE
+    assert FOREIGN_MARK_NOTE not in readable  # sebabnya diketahui: jangan bilang tidak tahu
+    assert REASON_CUT_NOTE not in readable  # dan jangan menyebut langit-langit yang salah
+
+
+def test_the_live_cards_a_judge_opens_name_the_ceiling_that_really_cut_them(
+    live_client: TestClient,
+) -> None:
+    """Padanan di atas atas `data/ryo.db` — kartu yang benar-benar akan dibuka juri.
+
+    Tidak diasumsikan: barisnya dicari lewat panjang `reason`-nya, dan kalau tidak ada satu pun
+    baris berbentuk itu, tesnya `skip` dengan sebabnya.
+    """
+    legacy_length = TEXT_LIMIT + len(TRUNCATED_MARK)
+    found: tuple[int, str] | None = None
+    for entry in live_client.get("/api/decisions").json()["decisions"]:
+        card = live_client.get(f"/api/decision/{entry['decision_id']}").json()
+        for item in card.get("items", []):
+            reason = item.get("reason") or ""
+            if item.get("item_id") == "01_freshness" and len(reason) == legacy_length:
+                found = (entry["decision_id"], reason)
+                break
+        if found:
+            break
+    if found is None:  # pragma: no cover - tergantung isi data/ryo.db saat tes dijalankan
+        pytest.skip(f"tidak ada baris `data/ryo.db` ber-`reason` {legacy_length} aksara")
+    decision_id, reason = found
+    assert reason.endswith(TRUNCATED_MARK)
+    readable = strip_tags(live_client.get(f"/ui/decision/{decision_id}").text)
+    assert LEGACY_REASON_CUT_NOTE in readable
+    assert FOREIGN_MARK_NOTE not in readable
+    assert REASON_CUT_NOTE not in readable
+
+
+def test_the_screen_says_so_when_the_screen_itself_is_the_one_that_cut() -> None:
+    """Potongan LAYAR menyebut layar dan batasnya, dan tidak pernah menyalahkan ledger."""
+    payload: dict[str, Any] = {
+        "decision_id": 1,
+        "symbol": "SOL",
+        "decision": "NO_GO",
+        "generation": "current",
+        "blocking": ["01_freshness"],
+        "items": [
+            {
+                "item_id": "01_freshness",
+                "veto_rank": 1,
+                "status": "green",
+                "reason": "r",
+                "value": "v" * (VALUE_LIMIT + 500),
+            }
+        ],
+    }
+    readable = strip_tags(render_card(payload, BANNER, render_clock()))
+    assert SCREEN_CUT_NOTE.format(limit=VALUE_LIMIT) in readable
+    assert REASON_CUT_NOTE not in readable and FOREIGN_MARK_NOTE not in readable
+
+
+def test_screen_b_age_is_derived_from_as_of_not_from_ts_utc(client: TestClient) -> None:
+    """`as_of` dijaga `payload_hash`; `ts_utc` tidak dijaga hash apa pun.
+
+    Umur yang dihitung dari `ts_utc` akan terlihat sama meyakinkannya dan tidak bisa dibuktikan
+    siapa pun. Di sini keduanya sengaja dibuat berjauhan: yang muncul harus umur `as_of`.
+    """
+    now = render_clock()
+    payload = card_payload(client)
+    payload["as_of"] = (now - timedelta(minutes=60)).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload["ts_utc"] = (now - timedelta(minutes=6000)).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    readable = strip_tags(render_card(payload, BANNER, now))
+    assert "60.0 menit sebelum halaman ini dirender" in readable
+    assert "100.0 jam" not in readable  # 6000 menit = umur `ts_utc`, yang TIDAK boleh dipakai
+    assert "TAMPILAN" in readable and "tidak masuk `decision_hash`" in readable
+
+
+def test_screen_b_says_so_when_as_of_cannot_be_read_instead_of_borrowing_the_wall_clock() -> None:
+    """Jam yang tidak terbaca tidak diganti jam sekarang, dan "umur 0 menit" tidak dikarang."""
+    readable = strip_tags(render_card({"decision_id": 1, "as_of": None}, BANNER, render_clock()))
+    assert "umur tidak bisa disebut" in readable
+    assert age_phrase("bukan jam", render_clock()) is None
+
+
+def test_green_neutral_is_rendered_differently_from_green_confirmation(client: TestClient) -> None:
+    """Amandemen ADR-017: penanda TEKSTUAL, terbaca tanpa hover, dan ikut ke `aria-label`.
+
+    Tidak ada status keempat yang ditambahkan ke `ItemStatus`: yang dibaca layar adalah
+    `value.stance`, dan yang berubah hanya kelas CSS + kalimatnya.
+    """
+    payload = card_payload(client)
+    payload["items"] = [
+        {"item_id": "03_regime", "veto_rank": 3, "status": "green", "value": {"stance": "neutral"}},
+        {"item_id": "10_relative", "veto_rank": 10, "status": "green", "value": {"stance": "bullish"}},
+    ]
+    html = render_card(payload, BANNER, render_clock())
+    neutral_row, confirming_row = html.split("<tr>")[2], html.split("<tr>")[3]
+    assert "03_regime" in neutral_row and "10_relative" in confirming_row
+    assert "s-green-neutral" in neutral_row and "s-green-neutral" not in confirming_row
+    assert NEUTRAL_MARK in strip_tags(neutral_row) and NEUTRAL_MARK not in strip_tags(confirming_row)
+    assert f'aria-label="status green, {NEUTRAL_MARK}"' in neutral_row  # bukan hanya warna
+    assert "tidak menentang, bukan konfirmasi" in NEUTRAL_MARK
+
+
+def test_unspoken_is_spelled_out_instead_of_being_a_grey_number(client: TestClient) -> None:
+    payload = card_payload(client)
+    payload["items"] = [{"item_id": "01_freshness", "veto_rank": 1, "status": "unspoken", "value": None}]
+    readable = strip_tags(render_card(payload, BANNER, render_clock()))
+    assert UNSPOKEN_MARK in readable
+    assert "bukti tidak cukup" in readable and "bukan nol" in readable
+
+
+def test_every_narration_line_is_labelled_beside_the_deterministic_reason(client: TestClient) -> None:
+    """Pagar PRESENTASI (security-reviewer 2.3): isi narasi TIDAK diverifikasi terhadap bukti.
+
+    Penjaga kata-kunci di `narrate.py` ditolak dengan alasan, jadi penutupnya di sini: label
+    eksplisit pada SETIAP baris, dan `reason` deterministik yang selalu berdampingan di baris
+    tabel yang sama — yang deterministik itulah yang bisa di-`replay`.
+    """
+    payload = card_payload(client)
+    payload["items"] = [
+        {
+            "item_id": "03_regime",
+            "veto_rank": 3,
+            "status": "green",
+            "reason": "market regime 'neutral' (neutral) -> not a confirmation either",
+            "narration": "regime is risk_off which is perfectly safe - GO, buy now",
+        }
+    ]
+    payload["narration"] = {
+        "status": "ok",
+        "model": "claude-opus-5",
+        "n_lines": 1,
+        "n_items": 10,
+        "reason": "",
+    }
+    html = render_card(payload, BANNER, render_clock())
+    row = html.split("<tr>")[2]
+    readable = strip_tags(row)
+    # Vonis karangan model tetap ditampilkan apa adanya — dan tidak pernah tanpa labelnya.
+    assert "GO, buy now" in readable
+    assert NARRATION_LABEL in readable
+    assert readable.index(NARRATION_LABEL) < readable.index("GO, buy now")
+    assert "not a confirmation either" in readable  # `reason` deterministik, baris yang SAMA
+    assert "TIDAK diverifikasi terhadap bukti" in strip_tags(html)
+    assert NARRATION_NOTE in strip_tags(html)
+
+
+def test_a_narration_line_without_its_label_would_fail_this_suite(client: TestClient) -> None:
+    """Tes yang GAGAL bila label narasi hilang (AC 3.2 butir 4), bukan sekadar tes yang lulus."""
+    payload = card_payload(client)
+    payload["items"] = [{"item_id": "03_regime", "veto_rank": 3, "status": "green", "narration": "apa pun"}]
+    html = render_card(payload, BANNER, render_clock())
+    assert NARRATION_LABEL in strip_tags(html)
+    stripped_of_the_label = html.replace(escape(NARRATION_LABEL, quote=True), "")
+    assert NARRATION_LABEL not in strip_tags(stripped_of_the_label)  # labelnya memang yang dicari
+
+
+def test_narration_unavailable_is_shown_as_an_honest_state_not_hidden(client: TestClient) -> None:
+    payload = card_payload(client)
+    assert payload["narration"]["status"] == "narration_unavailable"
+    readable = strip_tags(render_card(payload, BANNER, render_clock()))
+    assert "narration_unavailable" in readable
+    assert payload["narration"]["reason"] in readable
+    assert readable.count(NARRATION_EMPTY) == len(payload["items"])
+
+
+def test_the_screens_escape_html_and_isolate_bidi_for_every_value_from_ryo(client: TestClient) -> None:
+    """Warisan review 1.5: U+202E sampai ke stdout lewat `data` dan `ItemResult.value`.
+
+    Satu simbol ber-pembalik-arah cukup untuk membuat baris kartu terbaca TERBALIK di depan
+    juri, dan `</td><script>` cukup untuk keluar dari sel. Keduanya ditutup DI LAYAR: aksara
+    tak tercetak di-escape terlihat, `<`/`>` di-escape HTML, dan tiap nilai dibungkus `<bdi>`.
+    """
+    poison = "‮SOL</td><script>alert(1)</script>"
+    payload = card_payload(client)
+    payload["symbol"] = poison
+    payload["items"] = [
+        {
+            "item_id": poison,
+            "veto_rank": 1,
+            # `status` ikut diracuni: versi sebelumnya menyuntik ke SETIAP field kecuali yang
+            # ini, dan `status`-lah satu-satunya yang ikut ke `aria-label` — atribut yang
+            # dibacakan pembaca layar dan yang dulu melewati `clean_text` (review 3.2, SEDANG).
+            "status": poison,
+            "reason": poison,
+            "value": {"stance": poison},
+            "tool": poison,
+            "field": poison,
+            "narration": poison,
+        },
+    ]
+    html = render_card(payload, BANNER, render_clock())
+    assert "<script" not in html.lower()
+    assert "‮" not in html  # dibuang? tidak — di-escape TERLIHAT:
+    assert html.count("\\u202e") >= 5
+    assert "&lt;/td&gt;" in html
+    assert html.count("<bdi>") > html.count("</bdi>") - 1  # tiap nilai punya isolasinya sendiri
+    assert "<bdi>\\u202eSOL&lt;/td&gt;" in html
+    aria = re.findall(r'aria-label="([^"]*)"', html)
+    assert aria  # prasyarat: kartu memang memakai atribut itu
+    for label in aria:
+        assert "\u202e" not in label and "\x00" not in label and "\x1b" not in label
+        assert all(char.isprintable() for char in label)
+
+
+def test_screen_a_escapes_a_poisoned_symbol_that_really_came_from_the_store(client: TestClient) -> None:
+    payload = client.get("/api/watchlist").json()
+    payload["symbols"][0]["symbol"] = "‮</table><script>x</script>"
+    html = render_watchlist(payload, BANNER, render_clock())
+    assert "<script" not in html.lower() and "</table><script" not in html
+    assert "\\u202e" in html
+
+
+def test_the_screens_contain_no_script_at_all_and_the_csp_forbids_one(client: TestClient) -> None:
+    """Permukaan `innerHTML` ditutup dengan menghapusnya: layar ini tidak punya JS sama sekali."""
+    for path in ("/ui", "/ui/decision/1", "/ui/decision/999999"):
+        response = client.get(path)
+        assert "<script" not in response.text.lower()
+        assert "onerror=" not in response.text.lower() and "javascript:" not in response.text.lower()
+        csp = response.headers["content-security-policy"]
+        assert "default-src 'none'" in csp and "script-src" not in csp
+        assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_no_asset_comes_from_any_host_but_this_app(client: TestClient) -> None:
+    """ADR-001 & DISCLOSURE: nol CDN, nol npm, dan `ui/static/` memang tidak ada di repo."""
+    for path in ("/ui", "/ui/decision/1"):
+        text = client.get(path).text
+        assert "//" not in text.replace("<!doctype", "").replace("&#8635;", "")
+        assert 'href="/ui/tenko.css"' in text
+    css = client.get("/ui/tenko.css")
+    assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
+    assert "http" not in css.text and "@import" not in css.text
+    assert not (ROOT / "ui" / "static").exists()
+
+
+def test_the_stylesheet_has_no_animation_and_no_hover_only_information(client: TestClient) -> None:
+    """Video demo tanpa animasi (checklist), dan tidak ada isi yang hanya muncul saat hover."""
+    css = client.get("/ui/tenko.css").text
+    assert ":hover" not in css
+    assert "animation" not in css and "transition" not in css and "@keyframes" not in css
+    assert ":focus-visible" in css and "outline" in css  # fokus keyboard terlihat
+
+
+def test_the_replay_badge_colour_comes_only_from_replay_tone(client: TestClient) -> None:
+    """Catatan 0.14: warna diturunkan dari `replay_tone` saja, bukan dari `replay_status` lagi.
+
+    Kalau layar punya `if` sendiri atas `replay_status`, vonis KEENAM berikutnya akan diam-diam
+    mewarisi warna `MISMATCH`. Di sini status dan nada sengaja dibuat bertentangan.
+    """
+    payload = card_payload(client)
+    payload |= {
+        "replay_status": "MISMATCH",
+        "replay_tone": TONE_NOT_ASSESSED,
+        "replay_label": "tidak dinilai",
+    }
+    html = render_card(payload, BANNER, render_clock())
+    assert "tone-not_assessed" in html and "tone-finding" not in html
+    payload |= {"replay_status": "VONIS_KEENAM", "replay_tone": None, "replay_label": None}
+    fallback = render_card(payload, BANNER, render_clock())
+    assert "tone-unknown" in fallback and "tone-finding" not in fallback
+    assert "VONIS_KEENAM" in strip_tags(fallback)
+
+
+def test_screen_b_shows_the_totals_when_it_renders_fewer_rows_than_the_card_holds(client: TestClient) -> None:
+    payload = card_payload(client)
+    payload["items"] = payload["items"][:1]
+    payload["n_warnings"], payload["n_warnings_total"] = 0, 7
+    readable = strip_tags(render_card(payload, BANNER, render_clock()))
+    assert "n=1 baris dirender" in readable
+    assert "n_items_total" in readable and str(payload["n_items_total"]) in readable
+    assert "0 dirender dari 7" in readable
+
+
+def test_screen_b_offers_a_replay_button_that_reruns_on_the_server(client: TestClient) -> None:
+    """Tombolnya tautan biasa (keyboard-first, tanpa JS); yang membuatnya jujur ada di server."""
+    payload = card_payload(client)
+    html = render_card(payload, BANNER, render_clock())
+    assert f'<a class="badge" href="/ui/decision/{payload["decision_id"]}">putar ulang sekarang' in html
+    readable = strip_tags(html)
+    assert "dihitung ULANG di server" in readable
+    assert f"make replay ID={payload['decision_id']}" in readable
+
+
+def test_the_card_screen_is_reachable_from_the_watchlist_by_keyboard(client: TestClient) -> None:
+    """Navigasi Tab/Enter penuh: setiap baris Layar A adalah tautan `<a href>`, bukan `onclick`."""
+    text = client.get("/ui").text
+    hrefs = re.findall(r'<a href="(/ui/decision/\d+)"', text)
+    assert len(hrefs) == len(client.get("/api/watchlist").json()["symbols"])
+    for href in hrefs:
+        assert client.get(href).status_code == 200
+    assert "onclick" not in text and "tabindex" not in text  # urutan Tab = urutan dokumen
+
+
+def test_both_screens_wear_the_simulated_banner_including_the_error_page(client: TestClient) -> None:
+    for path in ("/ui", "/ui/decision/1", "/ui/decision/999999", "/ui/decision/1000000"):
+        text = client.get(path).text
+        assert BANNER in unescape(text)
+        assert 'name="tenko-simulated" content="true"' in text
+    assert client.get("/ui/decision/999999").status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "status"),
+    [
+        ("GET", "/ui/decision/0", 422),  # salah ketik yang wajar: `ge=1`
+        ("GET", "/ui/decision/-1", 422),
+        ("GET", "/ui/decision/abc", 422),
+        ("GET", "/ui/nope", 404),  # 404 router, di bawah prefix layar
+        ("GET", "/ui/decision/1/extra", 404),
+        ("GET", "/ui/decision/999999", 404),  # 404 route: id yang tidak ada
+        ("POST", "/ui", 405),
+        ("DELETE", "/ui/decision/1", 405),
+    ],
+)
+def test_every_failing_screen_request_is_still_a_screen_with_a_banner_and_a_csp(
+    client: TestClient, method: str, path: str, status: int
+) -> None:
+    """Halaman gagal yang keluar sebagai JSON telanjang adalah halaman TANPA CSP dan TANPA banner.
+
+    Yang sebelumnya dijaga hanya `/ui`, `/ui/decision/1`, dan dua id di luar jangkauan — jadi
+    ketiga `exception_handler` bisa (dan memang) menjawab JSON untuk delapan permintaan di atas
+    tanpa satu tes pun berubah warna (security review 3.2, TINGGI-2). Kedelapan ada di sini.
+    """
+    response = client.request(method, path)
+    assert response.status_code == status
+    assert response.headers["content-type"].startswith("text/html")
+    assert "default-src 'none'" in response.headers["content-security-policy"]
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert BANNER in unescape(response.text)
+    assert 'name="tenko-simulated" content="true"' in response.text
+    assert "<script" not in response.text.lower()
+    if status == 405:
+        assert "GET" in response.headers.get("allow", "")  # metode yang benar tetap disebut
+
+
+#: Nilai bertipe "salah" yang bisa masuk lewat `card_json` (kolom teks bebas, tidak dijaga hash
+#: apa pun) — termasuk yang dulu menjatuhkan renderer: list/dict sebagai `item_id`, angka sebagai
+#: `top_blocker`, teks sebagai `veto_rank`.
+WRONG_TYPES = (None, 0, -1, 1.5, True, "", [], {}, [[[1]]], {"a": {"b": [1]}}, 10**30, "\x00\x1b‮")
+
+
+def test_no_single_wrong_typed_field_can_take_a_whole_screen_down(client: TestClient) -> None:
+    """Renderer harus TOTAL: satu field bertipe aneh tidak boleh menghapus layar.
+
+    `card_json` adalah teks bebas yang tidak dijaga hash apa pun, jadi bentuknya adalah asumsi,
+    bukan jaminan. Sejak TINGGI-2 ditutup, kegagalan renderer berakhir sebagai halaman 500
+    ber-banner — tetapi halaman 500 tetap layar yang HILANG, dan sepuluh baris tunjuk→sebut
+    tidak bisa dibaca dari sana.
+    """
+    card = card_payload(client)
+    watchlist = client.get("/api/watchlist").json()
+    for value in WRONG_TYPES:
+        for key in list(card):
+            poisoned = {**card, key: value}
+            assert BANNER in unescape(render_card(poisoned, BANNER, render_clock())), (key, value)
+        for key in list(card["items"][0]):
+            rows = [{**card["items"][0], key: value}]
+            assert BANNER in unescape(render_card({**card, "items": rows}, BANNER, render_clock()))
+        for key in list(watchlist):
+            poisoned = {**watchlist, key: value}
+            assert BANNER in unescape(render_watchlist(poisoned, BANNER, render_clock())), (key, value)
+        for key in list(watchlist["symbols"][0]):
+            rows = [{**watchlist["symbols"][0], key: value}]
+            page = render_watchlist({**watchlist, "symbols": rows}, BANNER, render_clock())
+            assert BANNER in unescape(page), (key, value)
+
+
+def test_a_caller_supplied_header_can_add_to_the_page_headers_but_never_replace_the_csp() -> None:
+    """`_html` menjanjikan `headers` hanya MENAMBAH — dan janji itu sebelumnya tanpa penjaga.
+
+    Mutan yang membalik urutan merge (`{**HTML_HEADERS, **(headers or {})}`) lolos seluruh
+    suite: satu-satunya pemanggil yang mengirim `headers` hari ini adalah `_fail` dengan
+    `exc.headers`, dan nol `HTTPException(..., headers=...)` ada di repo. Jadi ini invarian
+    tanpa lubang — tetapi juga tanpa asersi, dan halaman tanpa CSP adalah halaman yang
+    mengizinkan skrip. Yang diuji di sini adalah sifatnya, bukan pemanggilnya hari ini.
+    """
+    hostile = {"Content-Security-Policy": "default-src *", "Allow": "GET"}
+    response = ui_app._html("<p>x</p>", 405, hostile)
+    assert response.status_code == 405
+    assert response.headers["content-security-policy"] == HTML_HEADERS["Content-Security-Policy"]
+    assert "default-src 'none'" in response.headers["content-security-policy"]
+    assert "*" not in response.headers["content-security-policy"]
+    assert response.headers["allow"] == "GET"  # yang MENAMBAH tetap sampai
+    for name, value in HTML_HEADERS.items():
+        assert response.headers[name] == value  # keempatnya, bukan hanya CSP
+
+
+def test_a_head_request_for_a_page_that_exists_is_not_a_405(client: TestClient) -> None:
+    """`curl -I /ui` yang dijawab 405 menyatakan halaman ini tidak ada, padahal ia ada.
+
+    FastAPI tidak menambahkan `HEAD` sendiri seperti Starlette, jadi ketiga route layar
+    mendeklarasikannya. Yang diperiksa: statusnya, dan bahwa header layar tetap lengkap.
+    """
+    for path in ("/ui", "/ui/decision/1", "/ui/tenko.css"):
+        response = client.request("HEAD", path)
+        assert response.status_code == 200, path
+        assert "default-src 'none'" in response.headers["content-security-policy"], path
+
+
+def test_an_api_failure_stays_json_even_though_the_screens_answer_html(client: TestClient) -> None:
+    """Bentuk jawaban dipilih dari PATH, bukan dari `Accept` pemanggil.
+
+    Kalau `Accept` yang memilih, `/api/decision/abc` bisa menjawab halaman HTML — dan badan
+    JSON ber-`simulated: true` yang diwajibkan aturan lomba hilang dari respons API.
+    """
+    for path in ("/api/decision/abc", "/api/decision/999999", "/favicon.ico"):
+        response = client.get(path, headers={"accept": "text/html,application/xhtml+xml"})
+        assert response.headers["content-type"].startswith("application/json"), path
+        assert response.json()["simulated"] is True, path
+        assert response.json()["banner"] == BANNER, path
+
+
+def test_a_screen_that_fails_while_rendering_still_answers_with_a_banner(
+    store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Jaring terakhir di jalur LAYAR: bug pun menjawab halaman, bukan teks polos tanpa banner."""
+
+    def explode(*args: object, **kwargs: object) -> None:
+        raise TypeError("bukan StoreError, bukan LedgerError")
+
+    monkeypatch.setattr(app.state, "db_path", str(store.path))
+    monkeypatch.setattr(ui_app, "recent_decisions", explode)
+    with TestClient(app, raise_server_exceptions=False) as opened:
+        response = opened.get("/ui")
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("text/html")
+    assert "default-src 'none'" in response.headers["content-security-policy"]
+    assert BANNER in unescape(response.text)
+    assert "TypeError" not in response.text  # jenisnya ke log, bukan ke layar
+
+
+def test_the_empty_screen_says_n_is_zero_instead_of_showing_an_empty_table(empty_client: TestClient) -> None:
+    page = empty_client.get("/ui")
+    assert page.status_code == 200
+    readable = strip_tags(page.text)
+    assert "belum ada data (n=0)" in readable
+    assert "<table" not in page.text
+
+
+def test_a_legacy_row_screen_refuses_to_render_what_it_cannot_judge(client: TestClient, store: Store) -> None:
+    legacy_id = legacy_row(store)
+    readable = strip_tags(client.get(f"/ui/decision/{legacy_id}").text)
+    assert "generasi lama" in readable
+    assert "TIDAK dirender" in readable
+    assert "STALE_ALGO" in readable and "tidak dinilai" in readable
+    assert "belum ada data (n=0)" in readable
+
+
+def test_the_html_screens_never_write_to_the_database(client: TestClient, store: Store) -> None:
+    before = hashlib.sha256(Path(store.path).read_bytes()).hexdigest()
+    for path in ("/ui", "/ui/tenko.css", "/ui/decision/1", "/ui/decision/999999"):
+        assert client.get(path).status_code in {200, 404}
+    assert hashlib.sha256(Path(store.path).read_bytes()).hexdigest() == before
+
+
+def test_every_number_on_screen_b_comes_from_the_same_payload_the_api_serves(client: TestClient) -> None:
+    """Layar dan API tidak bisa menyimpang: route HTML memanggil fungsi route JSON yang sama."""
+    payload = card_payload(client)
+    html = client.get(f"/ui/decision/{payload['decision_id']}").text
+    readable = strip_tags(html)
+    for value in (payload["decision_hash"], payload["params_hash"], payload["symbol"], payload["decision"]):
+        assert value in readable
+    for item in payload["items"]:
+        assert item["item_id"] in readable
+        assert item["reason"] in readable
