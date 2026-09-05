@@ -40,9 +40,24 @@ envelope hasil, jadi byte kanonik di stdout — byte yang SAMA dengan `make skil
 dan masuk submission — tidak memuat satu jejak pun bahwa padamnya dibuat-buat. Karena itu
 :func:`main` mencetak :func:`confession_lines` ke **stderr** lebih dulu (stdout tetap satu baris
 JSON kanonik yang bisa di-pipe, bentuknya tidak disentuh) DAN menolak mencetak sama sekali bila
-:func:`verified_confession` menemukan envelope `unavailable` yang tidak mengaku dibentuk. Dua-duanya,
+:func:`verified_confession` menemukan envelope padam yang tidak mengaku dibentuk. Dua-duanya,
 bukan salah satu: pengakuan saja bisa hilang saat stderr dibuang, penolakan saja membuat pemakai
 tidak pernah membaca alasannya.
+
+**Yang diaudit BUKAN hanya bentuk envelope, tetapi ISInya.** Sebelumnya `status` dan `warnings`
+saja yang diperiksa, sehingga himpunan "yang TIDAK dibentuk" hanyalah komplemen — dan kalimat
+"salinan apa adanya bukti nyata" tercetak tanpa satu baris pun membandingkannya dengan sumber.
+Mengedit satu angka (mis. `risk_reward`) di dalam envelope NYATA menggeser keputusan dan
+`decision_hash` tanpa peringatan apa pun. Karena itu tiap baris membawa :data:`SOURCE_HASH_KEY` =
+kolom `snapshots.payload_hash` baris asalnya, direkam saat penyalinan (`agent.demo_fixture.capture`),
+dan :func:`verify_provenance` menghitung ulang sha256 kanonik envelope yang benar-benar dimuat
+untuk membandingkannya. Hash dibandingkan, bukan `data/ryo.db` dibuka ulang: naskah demo mengukur
+bahwa ia tidak menyentuh `data/`. Baris tanpa hash tidak dicap bohong — ia dicetak sebagai
+pengakuan yang **TIDAK DIVERIFIKASI**, bukan sebagai fakta.
+
+**Predikat "envelope ini dibentuk" hidup di SATU tempat** (:func:`is_shaped`) dan `agent/demo.py`
+mengimpornya. Dua salinan yang menyimpang pernah membuat berkas yang sama divonis berbeda oleh
+demo dan oleh CLI ini.
 
 Pemakaian::
 
@@ -63,13 +78,15 @@ import argparse
 import json
 import sys
 import tempfile
+import textwrap
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from core.skill import SkillResult, clean_text
-from core.store import Store, StoreError
+from core.store import Store, StoreError, sha256_hex
 from preflight.params import DEFAULT_PARAMS, REQUIRED_TOOLS, Params
 from preflight.skill import preflight
 
@@ -111,6 +128,16 @@ PATHS: Mapping[str, Path] = {
 }
 
 FIXTURE_VERSION = 1
+
+#: Penanda di `warnings` sebuah envelope yang menyatakan envelope itu DIBENTUK, bukan diterima.
+#: Ditulis :func:`outage_envelope`, dibaca :func:`is_shaped`.
+SYNTHETIC_WARNING = "SYNTHETIC"
+
+#: Kunci per baris `snapshots`: nilai kolom `snapshots.payload_hash` baris ASAL, direkam saat
+#: penyalinan (`agent.demo_fixture.capture`). Ia satu-satunya cara memeriksa ISI sebuah envelope
+#: fixture tanpa membuka `data/` saat demo berjalan — dan tanpa itu, "salinan apa adanya" hanya
+#: klaim berkas tentang dirinya sendiri.
+SOURCE_HASH_KEY = "source_payload_hash"
 
 
 class OutageFixtureError(Exception):
@@ -168,6 +195,154 @@ def outage_envelope(envelope: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+# --- provenans: SATU predikat + SATU verifikator, dipakai modul ini DAN `agent/demo.py` ----
+
+
+def is_shaped(envelope: Mapping[str, Any] | None) -> bool:
+    """Apakah envelope INI dibentuk, dinilai dari envelopenya sendiri — bukan dari klaim berkas.
+
+    Dua tanda, `or` bukan `and`, dan itu disengaja:
+
+    * ``status == "unavailable"`` — status itu BELUM PERNAH teramati dari RYO (`docs/api-facts.md`:
+      0/3645, `id <= 3645`, 6 Sep 2026; enumnya dari Builder MCP Guide, bukan dari sampel), jadi
+      envelope berstatus itu tidak mungkin salinan apa adanya bukti nyata;
+    * ``warnings`` memuat :data:`SYNTHETIC_WARNING` — penanda yang ditulis :func:`outage_envelope`
+      saat ia membentuk envelope.
+
+    `and` akan membuat berkas yang MENGHAPUS salah satu tandanya lolos sebagai "salinan apa adanya".
+    Fungsi ini hidup di sini, dan `agent/demo.py` mengimpornya: dua penjaga dengan dua definisi
+    berbeda atas berkas yang SAMA pernah membuat demo mencetak KETIDAKCOCOKAN sementara CLI ini
+    keluar rc=0 — dua vonis, satu berkas.
+    """
+    if not isinstance(envelope, Mapping):
+        return False
+    if str(envelope.get("status") or "") == "unavailable":
+        return True
+    warnings = envelope.get("warnings")
+    if not isinstance(warnings, list):
+        return False
+    return any(SYNTHETIC_WARNING in str(entry).upper() for entry in warnings)
+
+
+@dataclass(frozen=True, slots=True)
+class Provenance:
+    """Hasil PEMERIKSAAN isi tiap envelope fixture terhadap hash baris asalnya.
+
+    Empat himpunan `source_id`, dan semuanya perlu dibedakan karena kalimat yang boleh dicetak
+    untuk masing-masing berbeda: `verified` boleh disebut salinan apa adanya, `unverified` hanya
+    boleh disebut PENGAKUAN berkas, `mismatched` wajib disebut sebagai ketidakcocokan, dan
+    `shaped` memang tidak diklaim menyalin apa pun.
+    """
+
+    verified: tuple[int, ...] = ()
+    unverified: tuple[int, ...] = ()
+    mismatched: tuple[int, ...] = ()
+    shaped: tuple[int, ...] = ()
+
+    @property
+    def answering(self) -> int:
+        """Berapa envelope yang MENJAWAB (bukan padam) — terverifikasi atau tidak."""
+        return len(self.verified) + len(self.unverified) + len(self.mismatched)
+
+
+def verify_provenance(fixture: Mapping[str, Any]) -> Provenance:
+    """Bandingkan ISI tiap envelope yang menjawab dengan sha256 baris asal yang direkam berkas.
+
+    Kenapa hash, bukan pembacaan ulang `data/ryo.db`: naskah demo menjamin (dan MENGUKUR, lewat
+    `sys.addaudithook`) bahwa ia tidak membuka satu berkas pun di bawah `data/`. Karena itu
+    perbandingannya dipindah ke waktu PENYALINAN: `agent.demo_fixture.capture` merekam kolom
+    `snapshots.payload_hash` baris asal ke :data:`SOURCE_HASH_KEY`, dan di sini sha256 kanonik
+    envelope yang benar-benar dimuat dihitung ulang dan dibandingkan dengannya. Mengedit satu
+    angka di dalam envelope (mis. `risk_reward`) menggeser sha256-nya dan langsung jatuh ke
+    `mismatched`.
+
+    Baris tanpa :data:`SOURCE_HASH_KEY` TIDAK dianggap salah — ia `unverified`, dan yang boleh
+    dicetak untuknya adalah pengakuan berkas, bukan klaim afirmatif.
+    """
+    rows = fixture.get("snapshots")
+    rows = rows if isinstance(rows, list) else []
+    verified: list[int] = []
+    unverified: list[int] = []
+    mismatched: list[int] = []
+    shaped: list[int] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        source_id = row.get("source_id")
+        if not isinstance(source_id, int):
+            continue
+        envelope = row.get("envelope")
+        if is_shaped(envelope if isinstance(envelope, Mapping) else None):
+            shaped.append(source_id)
+            continue
+        recorded = row.get(SOURCE_HASH_KEY)
+        if not isinstance(recorded, str) or not recorded.strip():
+            unverified.append(source_id)
+            continue
+        try:
+            actual = sha256_hex(dict(envelope) if isinstance(envelope, Mapping) else envelope)
+        except StoreError:
+            # Envelope yang tidak bisa dikanonikalisasi tidak bisa dibandingkan; itu bukan
+            # "cocok", dan juga bukan bukti bohong — ia tidak terverifikasi.
+            unverified.append(source_id)
+            continue
+        (verified if actual == recorded.strip() else mismatched).append(source_id)
+    return Provenance(tuple(verified), tuple(unverified), tuple(mismatched), tuple(shaped))
+
+
+def provenance_lines(report: Provenance, source_label: str, indent: str = "  ", lead: str = "") -> list[str]:
+    """Kalimat provenans yang KEKUATANNYA mengikuti hasil pemeriksaan, bukan niat baik penulisnya.
+
+    Ini satu-satunya tempat kalimat "salinan apa adanya" boleh lahir, dan ia hanya lahir untuk
+    `source_id` yang sha256 envelopenya benar-benar cocok. Yang tidak bisa diperiksa dicetak
+    sebagai PENGAKUAN berkas dengan kata "TIDAK DIVERIFIKASI": klaim kuat yang verifikasinya
+    tidak bisa dijalankan lebih buruk daripada diam.
+
+    `source_label` sudah harus dibersihkan pemanggilnya (teks berkas): modul ini tidak tahu
+    sanitizer mana yang dipakai layar tujuan. `lead` hanya kata pengantar milik pemanggil
+    (mis. "yang TIDAK dibentuk: ") dan menempel pada baris pertama yang benar-benar tercetak.
+    """
+
+    def wrap(first: str, rest: str) -> list[str]:
+        """Satu kalimat, dibungkus supaya daftar id yang panjang tidak keluar layar."""
+        body = textwrap.wrap(rest, width=88) or [""]
+        return [f"{indent}{first}"] + [f"{indent}  {chunk}" for chunk in body]
+
+    def ids(values: tuple[int, ...]) -> str:
+        return ", ".join(str(value) for value in values) or "-"
+
+    lines: list[str] = []
+    if report.mismatched:
+        lines.extend(
+            wrap(
+                "KETIDAKCOCOKAN ISI — envelope yang MENJAWAB tidak cocok dengan sha256 baris asal",
+                f"yang direkam berkas ini (`{SOURCE_HASH_KEY}`): source_id {ids(report.mismatched)}. "
+                "Isinya sudah berubah sejak disalin, jadi ia BUKAN salinan apa adanya bukti nyata.",
+            )
+        )
+    if report.verified:
+        lines.extend(
+            wrap(
+                f"{lead}{len(report.verified)} envelope yang MENJAWAB DIVERIFIKASI salinan apa adanya",
+                f"bukti nyata {source_label} id {ids(report.verified)} — sha256 kanonik tiap envelope "
+                f"sama dengan `{SOURCE_HASH_KEY}` yang direkam saat penyalinan, jadi angka yang "
+                "dinilai di bawah adalah angka RYO, bukan angka yang diketik tangan.",
+            )
+        )
+        lead = ""
+    if report.unverified:
+        lines.extend(
+            wrap(
+                f"{lead}{len(report.unverified)} envelope yang MENJAWAB: berkas MENGAKU menyalinnya,",
+                f"dari {source_label} id {ids(report.unverified)} — TIDAK DIVERIFIKASI di sini: "
+                f"barisnya tidak membawa `{SOURCE_HASH_KEY}` yang bisa dibandingkan.",
+            )
+        )
+    if not report.answering:
+        lines.append(f"{indent}nol envelope yang menjawab di berkas ini — tidak ada isi yang bisa diperiksa.")
+    return lines
+
+
 # --- membangun berkas --------------------------------------------------------------------
 
 
@@ -207,6 +382,9 @@ def build(mode: str, source_path: str | Path = SOURCE_FIXTURE_PATH) -> dict[str,
         if tool in down:
             row["envelope"] = outage_envelope(envelope if isinstance(envelope, Mapping) else {})
             row["synthetic"] = True
+            # Hash baris asal DIBUANG bersama envelopenya: baris ini bukan lagi salinan apa pun,
+            # dan hash yang tertinggal akan menjadi klaim provenans atas envelope yang dikarang.
+            row.pop(SOURCE_HASH_KEY, None)
             synthetic.append(f"{tool} (source_id {source_id})")
         else:
             row["synthetic"] = False
@@ -372,13 +550,20 @@ def verified_confession(fixture: Mapping[str, Any]) -> dict[str, Any]:
 
     Dua arah diperiksa, karena keduanya adalah cara berbohong yang berbeda:
 
-    * setiap envelope ber-`status: unavailable` WAJIB ditandai `synthetic: true` dan disebut
-      di blok `synthetic` — RYO belum pernah mengirim status itu (0/3645, `id <= 3645`,
-      6 Sep 2026), jadi envelope padam yang tidak mengaku dibentuk adalah klaim yang tidak
-      bisa diperiksa siapa pun;
+    * setiap envelope yang BERBENTUK padam (:func:`is_shaped`: `status: unavailable`, atau
+      `warnings` memuat `SYNTHETIC`) WAJIB ditandai `synthetic: true` dan disebut di blok
+      `synthetic` — RYO belum pernah mengirim status itu (0/3645, `id <= 3645`, 6 Sep 2026),
+      jadi envelope padam yang tidak mengaku dibentuk adalah klaim yang tidak bisa diperiksa
+      siapa pun. Predikatnya SAMA dengan yang dipakai `agent/demo.py`; sebelumnya fungsi ini
+      hanya menguji `status`, sehingga berkas ber-warning `SYNTHETIC` + `status: ok` membuat
+      demo mencetak KETIDAKCOCOKAN sementara CLI ini keluar rc=0 atas berkas yang sama;
     * daftar `envelopes_rewritten_to_unavailable` WAJIB persis sama dengan baris yang ditandai —
       blok pengakuan yang menyebut lebih sedikit (atau lebih banyak) dari yang benar-benar
-      ditulis ulang sama menyesatkannya dengan tidak mengaku sama sekali.
+      ditulis ulang sama menyesatkannya dengan tidak mengaku sama sekali;
+    * setiap envelope yang MENJAWAB dan membawa :data:`SOURCE_HASH_KEY` wajib COCOK dengan hash
+      itu (:func:`verify_provenance`). Bentuk envelope yang rapi tidak menjamin apa-apa tentang
+      ISInya: satu angka yang diketik ulang di dalam envelope nyata menggeser keputusan tanpa
+      satu peringatan pun, dan berkasnya tetap menyebut dirinya salinan bukti nyata.
 
     Fixture tanpa satu pun baris sintetis sah: yang dikembalikan blok kosong.
     """
@@ -388,15 +573,22 @@ def verified_confession(fixture: Mapping[str, Any]) -> dict[str, Any]:
         f"{row.get('tool')} (source_id {row.get('source_id')})"
         for row in rows
         if isinstance(row, Mapping)
-        and isinstance(row.get("envelope"), Mapping)
-        and row["envelope"].get("status") == "unavailable"
+        and is_shaped(row.get("envelope") if isinstance(row.get("envelope"), Mapping) else None)
         and row.get("synthetic") is not True
     ]
     if unconfessed:
         raise OutageFixtureError(
-            "envelope `status: unavailable` yang TIDAK mengaku dibentuk: "
-            f"{', '.join(unconfessed)}. RYO belum pernah mengirim status itu (0/3645, "
-            "`id <= 3645`, 6 Sep 2026), jadi envelope ini tidak bisa dicetak sebagai bukti."
+            "envelope berbentuk padam (status unavailable atau warning SYNTHETIC) yang TIDAK "
+            f"mengaku dibentuk: {', '.join(unconfessed)}. RYO belum pernah mengirim status itu "
+            "(0/3645, `id <= 3645`, 6 Sep 2026), jadi envelope ini tidak bisa dicetak sebagai bukti."
+        )
+    provenance = verify_provenance(fixture)
+    if provenance.mismatched:
+        raise OutageFixtureError(
+            "isi envelope tidak cocok dengan sha256 baris asal yang direkam berkas ini "
+            f"(`{SOURCE_HASH_KEY}`): source_id "
+            f"{', '.join(str(entry) for entry in provenance.mismatched)}. Berkas ini menyebut "
+            "dirinya salinan bukti nyata, padahal isinya sudah berubah sejak disalin."
         )
     labels = _labels(fixture)
     if not labels:
@@ -424,22 +616,25 @@ def confession_lines(fixture: Mapping[str, Any], path: str | Path) -> list[str]:
 
     Kalimatnya tidak dikarang di sini; yang ditambah CLI hanyalah kerangkanya. Teks berkas
     dibersihkan :func:`core.skill.clean_text` seperti teks luar lainnya (`--fixture` argv).
+
+    Yang TIDAK dikutip dari berkas: kalimat tentang envelope yang MENJAWAB. Ia datang dari
+    :func:`provenance_lines` atas hasil :func:`verify_provenance`, jadi "salinan apa adanya"
+    hanya tercetak untuk baris yang sha256 envelopenya benar-benar cocok dengan hash baris asal;
+    sisanya tercetak sebagai pengakuan yang TIDAK DIVERIFIKASI.
     """
     note = verified_confession(fixture)
-    rows = fixture.get("snapshots")
-    rows = rows if isinstance(rows, list) else []
-    answered = [
-        str(row.get("source_id"))
-        for row in rows
-        if isinstance(row, Mapping) and row.get("synthetic") is not True
-    ]
 
     def safe(text: Any) -> str:
         return clean_text(str(text), CONFESSION_TEXT_LIMIT)
 
     head = f"PENGAKUAN — dibaca dari blok `synthetic` berkas {safe(path)}:"
+    label = safe(fixture.get("source_db") or "?")
     if not note:
-        return [head, "  berkas ini tidak menyatakan satu pun envelope sintetis."]
+        return [
+            head,
+            "  berkas ini tidak menyatakan satu pun envelope sintetis.",
+            *provenance_lines(verify_provenance(fixture), label),
+        ]
     lines = [
         head,
         f"  envelope PADAM di bawah SINTETIS: ditulis ulang menjadi status=unavailable oleh "
@@ -449,10 +644,7 @@ def confession_lines(fixture: Mapping[str, Any], path: str | Path) -> list[str]:
     lines += [f"    {safe(label)}" for label in _labels(fixture)]
     lines.append("  alasannya, apa adanya dari berkas itu:")
     lines.append(f"    {safe(note.get('why'))}")
-    lines.append(
-        f"  yang TIDAK dibentuk: {len(answered)} envelope yang MENJAWAB adalah salinan apa adanya "
-        f"bukti nyata data/ryo.db id {', '.join(answered) or '—'}."
-    )
+    lines.extend(provenance_lines(verify_provenance(fixture), label))
     lines.append(
         "  envelope JSON di stdout TIDAK membawa kata ini: `preflight` tidak meneruskan "
         "`warnings` envelope padam ke envelope hasil (lihat agent/demo.py)."

@@ -29,6 +29,7 @@ from pathlib import Path
 
 import pytest
 
+import agent.demo as agent_demo_module
 from agent.demo import (
     BANNER,
     DATA_DIR,
@@ -44,6 +45,8 @@ from agent.demo import (
     main,
 )
 from agent.demo_fixture import DEMO_FIXTURE_PATH, load_fixture
+from core.store import sha256_hex
+from preflight.outage_fixture import SOURCE_HASH_KEY
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -164,8 +167,11 @@ def test_step_two_admits_on_screen_that_the_outage_envelope_is_synthetic(script:
     assert "monitor_market_sentiment_shift (source_id 2492)" in disclosure
     assert "has never been observed from RYO" in disclosure
     assert "0/3645 (id <= 3645, 6 Sep 2026" in disclosure
-    # Yang MENJAWAB adalah bukti nyata: tujuh item hijau dinilai atas angka RYO, bukan karangan.
-    assert "4 envelope yang MENJAWAB adalah salinan apa adanya" in disclosure
+    # Yang MENJAWAB adalah bukti nyata — dan itu DIPERIKSA, bukan disimpulkan sebagai komplemen:
+    # sha256 kanonik tiap envelope dibandingkan dengan hash baris asal yang direkam saat penyalinan.
+    assert "4 envelope yang MENJAWAB DIVERIFIKASI salinan apa adanya" in disclosure
+    assert SOURCE_HASH_KEY in disclosure
+    assert "KETIDAKCOCOKAN" not in disclosure
     for source_id in ("2491", "2494", "2495", "2544"):
         assert source_id in disclosure
     # Ringkasan akhir mengulang pengakuannya: juri yang hanya membaca ekor naskah tetap melihatnya.
@@ -405,8 +411,15 @@ def _tiny_step2_fixture(
     source_db: str = "data/ryo.db",
     tool: str = "outage_tool",
     shaped: bool = True,
+    hashed: bool = True,
+    drift: bool = False,
 ) -> Path:
-    """Fixture langkah 2 kecil milik tes ini: satu envelope menjawab, satu berbentuk padam."""
+    """Fixture langkah 2 kecil milik tes ini: satu envelope menjawab, satu berbentuk padam.
+
+    `hashed` menanam `source_payload_hash` baris yang menjawab (yang ditanam
+    `agent.demo_fixture.capture` saat penyalinan nyata); `drift` mengubah ISI envelope itu
+    SESUDAH hashnya direkam — persis bentuk pemalsuan yang tidak menyentuh `status`/`warnings`.
+    """
     answering = {
         "status": "ok",
         "as_of": "2026-09-05T02:45:02Z",
@@ -451,6 +464,12 @@ def _tiny_step2_fixture(
             },
         ],
     }
+    if hashed:
+        raw["snapshots"][0][SOURCE_HASH_KEY] = sha256_hex(answering)
+    if drift:
+        # Angka diketik ulang di dalam envelope NYATA: bentuknya tetap sah, isinya bukan lagi
+        # salinan. Hash direkam SEBELUM baris ini, sama seperti di dunia nyata.
+        answering["data"] = {"breadth": 0.0001}
     if note is not None:
         raw["synthetic"] = note
     target = tmp_path / "step2-tiny.json"
@@ -472,6 +491,7 @@ def test_the_disclosure_is_computed_from_the_envelopes_not_from_the_files_claim(
     assert "KETIDAKCOCOKAN" not in text
     copied = next(line for line in text.splitlines() if "bukti nyata" in line)
     assert "11" in copied and "22" not in copied
+    assert "1 envelope yang MENJAWAB DIVERIFIKASI salinan apa adanya" in text
     assert "KETIDAKCOCOKAN" not in _step2_summary(path)
 
 
@@ -490,9 +510,11 @@ def test_a_fixture_whose_synthetic_block_lies_is_caught_not_repeated(tmp_path: P
     text = _disclosure_of(path)
     assert "KETIDAKCOCOKAN" in text
     assert "berkas TIDAK mengaku membentuk source_id 22" in text
-    # Klaim afirmatif yang salah adalah temuannya: id 22 tidak boleh masuk daftar "salinan apa adanya".
-    copied = next(line for line in text.splitlines() if "bukti nyata" in line)
-    assert "22" not in copied
+    # Klaim afirmatif yang salah adalah temuannya: id 22 tidak boleh masuk kalimat mana pun yang
+    # menyebut "salinan apa adanya" — dan di sini kalimat itu hanya lahir untuk id yang terverifikasi.
+    for line in text.splitlines():
+        if "salinan apa adanya" in line or "bukti nyata" in line:
+            assert "22" not in line
     assert "Yang dibentuk: 1 envelope" in text
     # Ekor naskah tidak boleh lebih optimistis daripada badannya.
     assert "KETIDAKCOCOKAN" in _step2_summary(path)
@@ -517,6 +539,95 @@ def test_an_undeclared_fixture_with_a_shaped_envelope_is_not_waved_through(tmp_p
     text = _disclosure_of(path)
     assert "TIDAK DINYATAKAN" in text
     assert "berkas TIDAK mengaku membentuk source_id 22" in text
+
+
+def test_an_answering_envelope_whose_content_changed_is_never_called_a_verbatim_copy(
+    tmp_path: Path,
+) -> None:
+    """TINGGI: yang diaudit harus ISI envelope, bukan hanya BENTUKnya.
+
+    `status`/`warnings` yang rapi tidak mengatakan apa pun tentang angka di dalam envelope. Satu
+    nilai yang diketik ulang di dalam envelope NYATA menggeser keputusan dan `decision_hash` tanpa
+    satu peringatan pun, sementara baris "N envelope yang MENJAWAB adalah salinan apa adanya bukti
+    nyata" tetap tercetak — klaim afirmatif yang SALAH. Yang dituntut di sini: baris itu tidak
+    tercetak untuk envelope yang isinya bergeser, dan selisihnya disebut.
+    """
+    path = _tiny_step2_fixture(tmp_path, drift=True)
+    text = _disclosure_of(path)
+    assert "KETIDAKCOCOKAN ISI" in text
+    assert "source_id 11" in text
+    # Envelope yang bergeser TIDAK boleh muncul di kalimat mana pun yang menyebutnya salinan.
+    for line in text.splitlines():
+        if "salinan apa adanya" in line or "bukti nyata" in line:
+            assert "11" not in line
+    assert "1 envelope yang MENJAWAB DIVERIFIKASI" not in text
+    # Ekor naskah ikut menyebutkannya: juri yang hanya membaca ringkasan tetap melihatnya.
+    assert "KETIDAKCOCOKAN" in _step2_summary(path)
+
+
+def test_a_row_without_a_recorded_hash_is_downgraded_not_waved_through(tmp_path: Path) -> None:
+    """Verifikasi yang tidak bisa dijalankan diakui, bukan diganti klaim kuat yang kosong."""
+    path = _tiny_step2_fixture(tmp_path, hashed=False)
+    text = _disclosure_of(path)
+    assert "TIDAK DIVERIFIKASI" in text
+    assert "MENGAKU menyalinnya" in text
+    assert "DIVERIFIKASI salinan apa adanya" not in text
+    assert "KETIDAKCOCOKAN" not in text
+    # Baris tanpa hash bukan kebohongan: ringkasannya tidak boleh menuduh.
+    assert "KETIDAKCOCOKAN" not in _step2_summary(path)
+    assert "TIDAK DIVERIFIKASI" in _step2_summary(path)
+
+
+def test_the_head_verifies_the_main_fixture_not_only_step_two(script: str) -> None:
+    """Fixture UTAMA (yang menggerakkan langkah 1/3/4/5) ikut diperiksa, bukan hanya langkah 2."""
+    head = script.split("=== §7 langkah 1")[0]
+    fixture = load_fixture(DEMO_FIXTURE_PATH)
+    assert f"{len(fixture.snapshots)} envelope yang MENJAWAB DIVERIFIKASI salinan apa adanya" in head
+    assert SOURCE_HASH_KEY in head
+    assert "KETIDAKCOCOKAN" not in head
+    summary = script.split("=== ringkasan naskah §7 ===")[1]
+    assert "bukti fixture utama" in summary
+    assert "DIVERIFIKASI" in summary
+
+
+def test_the_main_fixture_cannot_hide_a_retyped_number_either(tmp_path: Path) -> None:
+    """Satu angka diketik ulang di fixture utama: kepala naskah DAN ringkasan menyebutnya."""
+    raw = json.loads(DEMO_FIXTURE_PATH.read_text(encoding="utf-8"))
+    target = raw["snapshots"][0]
+    target["envelope"]["warnings"] = [*target["envelope"].get("warnings", []), "diketik tangan"]
+    path = tmp_path / "utama-palsu.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    lines = "\n".join(demo_lines(path, step2_fixture=None))
+    head = lines.split("=== §7 langkah 1")[0]
+    assert "KETIDAKCOCOKAN ISI" in head
+    assert f"source_id {target['source_id']}" in head
+    summary = lines.split("=== ringkasan naskah §7 ===")[1]
+    assert "bukti fixture utama: KETIDAKCOCOKAN ISI" in summary
+
+
+def test_the_shaped_predicate_has_exactly_one_definition(tmp_path: Path) -> None:
+    """SEDANG: dua penjaga sintetis tidak boleh berselisih atas berkas yang SAMA.
+
+    Berkas ber-`warnings: [SYNTHETIC]` + `status: ok` + `synthetic: false` pernah membuat naskah
+    ini mencetak KETIDAKCOCOKAN sementara CLI `preflight.outage_fixture` keluar rc=0 dan
+    menyebutnya salinan bukti nyata. Predikatnya sekarang satu, dan diimpor.
+    """
+    from preflight import outage_fixture
+
+    assert agent_demo_module._is_shaped.__module__ == "agent.demo"
+    # Yang penting bukan letak pembungkusnya melainkan siapa yang memutuskan:
+    assert agent_demo_module.is_shaped is outage_fixture.is_shaped
+
+    path = _tiny_step2_fixture(tmp_path, shaped=False, note=_HONEST_NOTE, row_flag=False)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["snapshots"][1]["envelope"]["warnings"] = ["SYNTHETIC: shaped by this test"]
+    raw["synthetic"]["envelopes_rewritten_to_unavailable"] = []
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    assert "KETIDAKCOCOKAN" in _disclosure_of(path)
+    with pytest.raises(outage_fixture.OutageFixtureError, match="TIDAK mengaku dibentuk"):
+        outage_fixture.verified_confession(raw)
 
 
 def test_fixture_text_cannot_overwrite_or_forge_the_disclosure_line(tmp_path: Path) -> None:

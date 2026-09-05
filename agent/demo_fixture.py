@@ -53,6 +53,7 @@ from typing import Any
 from agent.main import BANNER, tick
 from agent.params import DEFAULT_AGENT_PARAMS, AgentParams
 from core.store import Store, StoreError
+from preflight.outage_fixture import SOURCE_HASH_KEY
 
 #: Versi bentuk berkas fixture. Naik bila kunci wajibnya berubah.
 FIXTURE_VERSION = 1
@@ -259,6 +260,14 @@ def capture(
             "args": json.loads(row.args_json),
             "ts_utc": row.ts_utc,
             "envelope": json.loads(row.payload_json),
+            # `snapshots.payload_hash` baris ASAL, direkam di sini dan hanya di sini. Tanpa
+            # kolom ini, "envelope ini salinan apa adanya `data/ryo.db`" adalah klaim berkas
+            # tentang dirinya sendiri: bentuknya bisa rapi sementara satu angka di dalamnya
+            # diketik ulang. `preflight.outage_fixture.verify_provenance` menghitung ulang
+            # sha256 kanonik envelope yang dimuat dan membandingkannya dengan nilai ini —
+            # perbandingannya jatuh di sini, saat penyalinan, supaya demo tidak perlu
+            # membuka `data/` lagi (penjaga `sys.addaudithook` di `agent/demo.py`).
+            SOURCE_HASH_KEY: row.payload_hash,
         }
         for row in sorted(rows, key=lambda row: row.id)
     ]

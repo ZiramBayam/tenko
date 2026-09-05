@@ -156,6 +156,7 @@
         "warnings": []
       },
       "source_id": 2491,
+      "source_payload_hash": "3695903fba106102cf3ca2068867761f38595b7784f768947032107119ddc514",
       "synthetic": false,
       "tool": "market_overview",
       "ts_utc": "2026-09-05T02:45:02.079689+00:00"
@@ -257,6 +258,7 @@
         "warnings": []
       },
       "source_id": 2494,
+      "source_payload_hash": "74c225ffa7f136b90acf73d120f24ceb5ac4f622bcaa271f48a55c50486fa2e7",
       "synthetic": false,
       "tool": "analyze_token",
       "ts_utc": "2026-09-05T02:45:05.030733+00:00"
@@ -383,6 +385,7 @@
         ]
       },
       "source_id": 2495,
+      "source_payload_hash": "f4c517d677a36c00c05301ea89a75a7064a432bd7ae366b50a9530a0594e252d",
       "synthetic": false,
       "tool": "deep_analysis",
       "ts_utc": "2026-09-05T02:45:39.012971+00:00"
@@ -547,6 +550,7 @@
         ]
       },
       "source_id": 2544,
+      "source_payload_hash": "4d268dfdc0987df8a15f411572d0c9f0d3d5e769b717507fcb03b6182e922ab1",
       "synthetic": false,
       "tool": "compare_tokens",
       "ts_utc": "2026-09-05T03:01:06.016207+00:00"

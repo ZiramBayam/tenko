@@ -26,22 +26,26 @@ from typing import Any
 import pytest
 
 from core.skill import SkillResult
+from core.store import sha256_hex
 from preflight.outage_fixture import (
     ALL_TOOLS_FIXTURE_PATH,
     DOWN_TOOL,
     MODES,
     ONE_TOOL_FIXTURE_PATH,
     SOURCE_FIXTURE_PATH,
+    SOURCE_HASH_KEY,
     SOURCE_IDS,
     OutageFixtureError,
     build,
     confession_lines,
+    is_shaped,
     main,
     materialize,
     observed,
     outage_envelope,
     run,
     verified_confession,
+    verify_provenance,
 )
 from preflight.params import ITEM_COMPLETENESS, ITEM_DERIVATIVES, ITEM_SENTIMENT_SHIFT, REQUIRED_TOOLS
 
@@ -189,6 +193,92 @@ def test_every_answering_envelope_is_copied_verbatim_from_real_evidence() -> Non
             assert row["envelope"] == original["envelope"]
     assert rewritten == [DOWN_TOOL]
     assert fixture["params_hash"] == _fixture(SOURCE_FIXTURE_PATH)["params_hash"]
+
+
+def test_every_answering_row_carries_the_hash_of_the_row_it_was_copied_from() -> None:
+    """ "Salinan apa adanya" harus bisa DIPERIKSA, bukan sekadar diklaim berkasnya sendiri.
+
+    Tanpa `source_payload_hash`, satu angka yang diketik ulang di dalam envelope nyata (mis.
+    `risk_reward`) lolos tanpa sepatah kata: `status` dan `warnings`-nya tetap sah. Hash-nya
+    direkam saat PENYALINAN (`agent.demo_fixture.capture` membaca kolom `snapshots.payload_hash`),
+    jadi memeriksanya tidak perlu membuka `data/` lagi.
+    """
+    for path in (SOURCE_FIXTURE_PATH, ONE_TOOL_FIXTURE_PATH):
+        fixture = _fixture(path)
+        report = verify_provenance(fixture)
+        assert not report.mismatched, path
+        assert not report.unverified, f"{path}: baris yang menjawab tanpa {SOURCE_HASH_KEY}"
+        assert report.verified
+        for row in fixture["snapshots"]:
+            if row["source_id"] in report.verified:
+                assert sha256_hex(row["envelope"]) == row[SOURCE_HASH_KEY]
+            else:
+                # Baris yang DIBENTUK tidak boleh membawa hash: ia bukan salinan apa pun, dan
+                # hash yang tertinggal akan menjadi klaim provenans atas envelope karangan.
+                assert SOURCE_HASH_KEY not in row
+
+
+def test_the_command_refuses_to_print_an_envelope_whose_content_drifted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """TINGGI: bentuk envelope yang rapi tidak menjamin ISInya — dan CLI ini tidak boleh diam.
+
+    Sebelumnya hanya `status`/`warnings` yang diaudit, jadi mengedit `risk_reward` pada envelope
+    NYATA menggeser item 09 menjadi merah dan `decision_hash` ikut bergeser, sementara stdout tetap
+    keluar rc=0 dan stderr tetap menyebutnya "salinan apa adanya bukti nyata".
+    """
+    fixture = _fixture(ONE_TOOL_FIXTURE_PATH)
+    for row in fixture["snapshots"]:
+        if row["source_id"] == 2495:
+            row["envelope"]["data"]["risk_reward"] = [0.4, 0.8]
+    path = tmp_path / "isi-bergeser.json"
+    path.write_text(json.dumps(fixture), encoding="utf-8")
+
+    assert main(["--fixture", str(path)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert SOURCE_HASH_KEY in captured.err
+    assert "source_id 2495" in captured.err
+
+
+def test_a_fixture_without_recorded_hashes_is_downgraded_not_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Yang tidak bisa diverifikasi diakui apa adanya: berkas MENGAKU menyalin, bukan "terbukti"."""
+    fixture = _fixture(ONE_TOOL_FIXTURE_PATH)
+    for row in fixture["snapshots"]:
+        row.pop(SOURCE_HASH_KEY, None)
+    path = tmp_path / "tanpa-hash.json"
+    path.write_text(json.dumps(fixture), encoding="utf-8")
+
+    assert main(["--fixture", str(path)]) == 0
+    captured = capsys.readouterr()
+    err = captured.err
+    assert "TIDAK DIVERIFIKASI" in err
+    assert "MENGAKU menyalinnya" in err
+    assert "DIVERIFIKASI salinan apa adanya" not in err
+    assert json.loads(captured.out)["status"] == "partial"
+
+
+def test_one_predicate_decides_what_counts_as_shaped(tmp_path: Path) -> None:
+    """SEDANG: berkas ber-warning `SYNTHETIC` + `status: ok` tidak boleh lolos di sini saja.
+
+    `agent/demo.py` sudah memvonisnya KETIDAKCOCOKAN; fungsi ini dulu hanya menguji `status`,
+    sehingga berkas yang SAMA keluar rc=0 dari CLI ini dan disebut salinan bukti nyata.
+    """
+    assert is_shaped({"status": "ok", "warnings": ["SYNTHETIC: shaped by a test"]})
+    assert is_shaped({"status": "unavailable", "warnings": []})
+    assert not is_shaped({"status": "ok", "warnings": []})
+    assert not is_shaped(None)
+
+    fixture = _fixture(ONE_TOOL_FIXTURE_PATH)
+    for row in fixture["snapshots"]:
+        if row.get("synthetic"):
+            row["synthetic"] = False
+            row["envelope"]["status"] = "ok"
+    fixture["synthetic"]["envelopes_rewritten_to_unavailable"] = []
+    with pytest.raises(OutageFixtureError, match="TIDAK mengaku dibentuk"):
+        verified_confession(fixture)
 
 
 def test_the_synthetic_envelopes_admit_that_ryo_has_never_sent_one() -> None:

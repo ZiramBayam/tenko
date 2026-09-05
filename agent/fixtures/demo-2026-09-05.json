@@ -181,7 +181,8 @@
         },
         "tool": "market_overview",
         "warnings": []
-      }
+      },
+      "source_payload_hash": "3695903fba106102cf3ca2068867761f38595b7784f768947032107119ddc514"
     },
     {
       "source_id": 2492,
@@ -272,7 +273,8 @@
         },
         "tool": "monitor_market_sentiment_shift",
         "warnings": []
-      }
+      },
+      "source_payload_hash": "3524194a34da627c778075e36f306dfe607d746d1deba1177a23b34d766e19fa"
     },
     {
       "source_id": 2494,
@@ -339,7 +341,8 @@
         },
         "tool": "analyze_token",
         "warnings": []
-      }
+      },
+      "source_payload_hash": "74c225ffa7f136b90acf73d120f24ceb5ac4f622bcaa271f48a55c50486fa2e7"
     },
     {
       "source_id": 2495,
@@ -464,7 +467,8 @@
           "Optional Skill Hub token-profile evidence is incomplete or unavailable.",
           "Derivatives analysis is unavailable or was not requested."
         ]
-      }
+      },
+      "source_payload_hash": "f4c517d677a36c00c05301ea89a75a7064a432bd7ae366b50a9530a0594e252d"
     },
     {
       "source_id": 2496,
@@ -531,7 +535,8 @@
         },
         "tool": "analyze_token",
         "warnings": []
-      }
+      },
+      "source_payload_hash": "7669bde5280b3e978bbe8fc98c6955ebdc497df06391e07dec2a5600ca49665d"
     },
     {
       "source_id": 2497,
@@ -656,7 +661,8 @@
           "Optional Skill Hub token-profile evidence is incomplete or unavailable.",
           "Derivatives analysis is unavailable or was not requested."
         ]
-      }
+      },
+      "source_payload_hash": "4f47dfc93354701492bce2071309c4cd25182aa95fe3aa61ee0c787fdd282a59"
     },
     {
       "source_id": 2498,
@@ -723,7 +729,8 @@
         },
         "tool": "analyze_token",
         "warnings": []
-      }
+      },
+      "source_payload_hash": "f0a290dab5b50b870b4978f5b3e57d61291643eb9c9e69d686ec0ad6fc2727a4"
     },
     {
       "source_id": 2499,
@@ -848,7 +855,8 @@
           "Optional Skill Hub token-profile evidence is incomplete or unavailable.",
           "Derivatives analysis is unavailable or was not requested."
         ]
-      }
+      },
+      "source_payload_hash": "a28afd8c16de884b300acec81e6706888b9d1ebda311ae3b5097647ba4e72d9f"
     },
     {
       "source_id": 2500,
@@ -915,7 +923,8 @@
         },
         "tool": "analyze_token",
         "warnings": []
-      }
+      },
+      "source_payload_hash": "20718c677cd8f91f37e18aea2687c25fd8b2720e279fe4f72a9e75e749e09b63"
     },
     {
       "source_id": 2501,
@@ -1040,7 +1049,8 @@
           "Optional Skill Hub token-profile evidence is incomplete or unavailable.",
           "Derivatives analysis is unavailable or was not requested."
         ]
-      }
+      },
+      "source_payload_hash": "702ccae6874b70a1a489de8bb5d3edb51ea646cff7ce5044407b7b3823c92e08"
     },
     {
       "source_id": 2544,
@@ -1203,7 +1213,8 @@
           "Optional Skill Hub token-profile evidence is incomplete or unavailable for one or more tokens.",
           "The conclusion was calculated from the returned factors; no narrative model was used."
         ]
-      }
+      },
+      "source_payload_hash": "4d268dfdc0987df8a15f411572d0c9f0d3d5e769b717507fcb03b6182e922ab1"
     },
     {
       "source_id": 2545,
@@ -1366,7 +1377,8 @@
           "Optional Skill Hub token-profile evidence is incomplete or unavailable for one or more tokens.",
           "The conclusion was calculated from the returned factors; no narrative model was used."
         ]
-      }
+      },
+      "source_payload_hash": "ad2550dbbee255877188c3762f15446397dd60f2d8d01edefc8dccb1684409f8"
     },
     {
       "source_id": 2546,
@@ -1500,7 +1512,8 @@
           "Optional Skill Hub token-profile evidence is incomplete or unavailable for one or more tokens.",
           "The conclusion was calculated from the returned factors; no narrative model was used."
         ]
-      }
+      },
+      "source_payload_hash": "eef988a70d5b25ed6c4bb2d9089d4cdacb944508571989ec2fbb8c1e55f3a6e0"
     },
     {
       "source_id": 2547,
@@ -1634,7 +1647,8 @@
           "Optional Skill Hub token-profile evidence is incomplete or unavailable for one or more tokens.",
           "The conclusion was calculated from the returned factors; no narrative model was used."
         ]
-      }
+      },
+      "source_payload_hash": "f33313ea1a982c37fcea48f7cf1081475beb9b27563d6dd6b72264bd2a70efc5"
     }
   ]
 }
