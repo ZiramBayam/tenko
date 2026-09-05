@@ -2295,3 +2295,126 @@ def test_the_ui_readme_carries_the_a11y_checklist_and_admits_the_missing_recordi
     assert "Skrip rekaman 30 detik" in readme
     for key in ("`Tab` ×2", "`Enter`", "`Esc`", "`Shift+Tab` lalu `Tab`"):
         assert key in readme, key
+
+
+# --- penyegaran tampilan: yang berubah bentuk, dan yang TIDAK boleh ikut berubah ------------
+#: Palet yang diukur TASKS 4.6, dipatok sebagai LITERAL. Tes pasangan warna di atas menjamin
+#: setiap warna di CSS ikut terukur; yang dijamin di sini adalah warnanya masih warna yang SAMA,
+#: sehingga penyegaran tampilan berikutnya tidak bisa menggeser satu nilai lalu "mengukur ulang"
+#: pasangannya menjadi angka lain yang kebetulan juga lulus. `--line` khususnya: ia baru saja
+#: dinaikkan dari #2c3442 (1.52:1, GAGAL 1.4.11) dan tidak boleh diredupkan kembali demi rasa.
+MEASURED_PALETTE = {
+    "bg": "#0d1016",
+    "panel": "#161b24",
+    "line": "#646e84",
+    "ink": "#f3f5f9",
+    "dim": "#c3cad6",
+    "go": "#7ff0a0",
+    "nogo": "#ff9a90",
+    "warn": "#ffd479",
+    "link": "#9fd0ff",
+    "row": "#11151d",
+}
+
+
+def test_the_restyle_did_not_move_a_single_measured_colour(client: TestClient) -> None:
+    """Tipografi, spasi, dan bentuk boleh berubah; dua belas warna yang diukur 4.6 tidak."""
+    css = client.get("/ui/tenko.css").text
+    assert dict(re.findall(r"--([a-z]+): (#[0-9a-f]{6})", css)) == MEASURED_PALETTE
+    assert "#2c3442" not in css  # garis redup yang GAGAL 1.4.11, dan tidak boleh kembali
+    assert set(re.findall(r"#[0-9a-f]{6}", css)) == set(MEASURED_PALETTE.values()) | {
+        "#3a1d1d",
+        "#ffe8e5",
+    }
+
+
+def test_the_card_table_has_one_header_for_every_column_it_renders(client: TestClient) -> None:
+    """Judul kolom yang bergeser adalah tabel yang salah menyebut sumber tiap nilai.
+
+    `CARD_COLUMNS` dulu berisi TUJUH judul untuk SEMBILAN sel: "sumber: tool.field · snapshot ·
+    as_of" berdiri di atas tiga kolom sekaligus, sehingga `narasi model` jatuh di atas kolom
+    `snapshot` dan dua kolom terakhir tidak berjudul sama sekali. Itu bukan sekadar cacat
+    tampilan: `<th scope="col">` adalah nama yang dibacakan pembaca layar untuk tiap sel.
+    """
+    payload = card_payload(client)
+    html = render_card(payload, BANNER, render_clock())
+    table = html.split("<table class='card'>")[1].split("</table>")[0]
+    headers = re.findall(r"<th scope='col'>", table)
+    assert len(headers) == len(ui_screens.CARD_COLUMNS) == 9
+    rows = aria_rows(table)
+    assert rows, "kartu fixture tidak merender satu baris pun"
+    for row in rows:
+        assert len(re.findall(r"<t[dh][ >]", row)) == len(headers)
+    readable = strip_tags(table)
+    for name in ("sumber: tool.field", "snapshot", "as_of bukti"):
+        assert name in readable, name
+
+
+def test_the_watchlist_table_has_one_header_for_every_column_it_renders(client: TestClient) -> None:
+    payload = client.get("/api/watchlist").json()
+    html = render_watchlist(payload, BANNER, render_clock())
+    table = html.split("<table id='watchlist'>")[1].split("</table>")[0]
+    headers = re.findall(r"<th scope='col'>", table)
+    assert len(headers) == 9
+    for row in aria_rows(table):
+        assert len(re.findall(r"<t[dh][ >]", row)) == len(headers)
+
+
+def test_screen_b_puts_the_ten_rows_above_the_hashes_not_below_them(client: TestClient) -> None:
+    """Uji 30 detik: yang di bawah kalimat jawaban adalah BUKTInya, bukan delapan baris hash.
+
+    Daftar `dl.meta` (delapan baris, sebagian berparagraf penjelas) sebelumnya berdiri di antara
+    kalimat jawaban dan tabel tunjuk→sebut, mendorong tabel itu ke bawah lipatan 1280x720.
+    Urutannya dibalik; tidak ada satu pun isi yang dihapus, dan tes ini menahannya tetap begitu.
+    """
+    html = render_card(card_payload(client), BANNER, render_clock())
+    assert html.index('<h2 id="panggilan">') < html.index('<dl class="meta">')
+    assert html.index("<h2>Hash, jam, dan pemutaran ulang</h2>") < html.index('<dl class="meta">')
+    # Tidak ada yang hilang saat dipindahkan: hash, vonis replay, dan tombolnya tetap di kartu.
+    readable = strip_tags(html)
+    for kept in ("decision_hash", "computed_hash", "params_hash", "putar ulang sekarang"):
+        assert kept in readable, kept
+
+
+def test_the_banner_stays_in_frame_without_becoming_an_overlay(client: TestClient) -> None:
+    """Banner SIMULATED melekat (`sticky`) supaya ia ada di SETIAP frame video, bukan hanya di
+    frame pertama — tetapi `sticky` tetap mengalir di dalam dokumen, jadi ia tidak menjadi
+    overlay, tidak menutupi apa pun, dan tidak bisa menjebak fokus (`position: fixed` tetap nol).
+    """
+    css = client.get("/ui/tenko.css").text
+    assert "position: sticky" in css
+    assert "position: fixed" not in css and "position:fixed" not in css
+    assert "scroll-margin-top" in css  # sasaran tautan lompat tidak mendarat di balik banner
+    for path in ("/ui", "/ui/decision/1", "/ui/decision/999999"):
+        text = client.get(path).text
+        assert '<p class="banner" role="note">' in text
+        assert BANNER in unescape(text)
+
+
+def test_the_only_icon_on_the_screens_is_embedded_and_says_nothing_by_itself(client: TestClient) -> None:
+    """Ikon banner ditulis sendiri dan TERTANAM: nol berkas, nol permintaan jaringan, nol CDN.
+
+    Ia juga `aria-hidden`: kalimat di sebelahnya membawa seluruh maknanya, jadi ikon ini hanya
+    menambah satu kanal BENTUK dan tidak pernah menjadi satu-satunya pembawa informasi.
+    """
+    for path in ("/ui", "/ui/decision/1", "/ui/decision/999999"):
+        text = client.get(path).text
+        (icon,) = re.findall(r"<svg .*?</svg>", text, re.S)
+        assert 'aria-hidden="true"' in icon and 'focusable="false"' in icon
+        for forbidden in ("href", "xlink", "url(", "data:", "http", "<image", "<use"):
+            assert forbidden not in icon, forbidden
+        assert text.count("<svg") == 1  # satu ikon, bukan set ikon yang diam-diam tumbuh
+
+
+def test_the_stylesheet_loads_nothing_from_anywhere_including_itself(client: TestClient) -> None:
+    """Nol aset eksternal ditarik: nol webfont, nol gambar, nol URI tertanam.
+
+    Ini bukan selera melainkan syarat: domain aset mana pun harus lebih dulu `approved: true` di
+    `sources.yaml` dengan barisnya sendiri di `DISCLOSURE.md`, dan demo spec §7 harus jalan
+    tanpa jaringan. CSP `img-src 'none'` melarang setengahnya; sisanya dijaga di sini.
+    """
+    css = client.get("/ui/tenko.css").text
+    for forbidden in ("url(", "data:", "@font-face", "@import", "http", "//"):
+        assert forbidden not in css, forbidden
+    # Font-stack sistem: nama keluarga, bukan berkas yang diunduh.
+    assert "system-ui" in css and "ui-monospace" in css

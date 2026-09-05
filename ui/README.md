@@ -13,6 +13,45 @@ Dua layar, dua pertanyaan:
 Keduanya dirender **di server**, tanpa satu pun `<script>`, tanpa CDN, tanpa npm (ADR-001).
 Satu-satunya aset adalah `/ui/tenko.css`, yang lahir dari `ui/screens.py:STYLESHEET`;
 `Content-Security-Policy: default-src 'none'; style-src 'self'` melarang sisanya.
+Satu-satunya ikon adalah SVG **tertanam di HTML** (`ui/screens.py:BANNER_ICON`) — nol berkas,
+nol permintaan jaringan, jadi demo spec §7 tetap jalan tanpa jaringan dan tidak ada domain baru
+yang butuh baris `DISCLOSURE.md`.
+→ `test_the_only_icon_on_the_screens_is_embedded_and_says_nothing_by_itself`,
+`test_the_stylesheet_loads_nothing_from_anywhere_including_itself`
+
+---
+
+## Penyegaran tampilan (5 Sep 2026) — apa yang berubah, dan apa yang sengaja tidak
+
+Yang dinilai di layar ini adalah **keterbacaan dalam 30 detik**, bukan kemewahan. Yang berubah:
+
+- **Tipografi punya dua peran.** Prosa memakai font sans **sistem** (`system-ui`, dst.), angka /
+  hash / id / nilai asal-RYO tetap monospace supaya kolomnya sejajar. Nol webfont diunduh.
+- **Satu tangga spasi** (`--s1`…`--s6`) dan dua radius (`--r1`, `--r2`) menggantikan jarak yang
+  dulu dikarang per aturan; halaman dibatasi 1240px dan dipusatkan.
+- **Kalimat jawaban dinaikkan menjadi kartu** (`.answer`): panel + garis, elevasi lewat
+  border/background — bukan bayangan tebal, bukan gradien.
+- **Layar B disusun ulang**: sepuluh baris tunjuk→sebut kini tepat di bawah kalimat jawaban, dan
+  daftar hash/jam/replay pindah ke bawahnya dengan `<h2>` sendiri. Tidak ada isi yang dihapus.
+  → `test_screen_b_puts_the_ten_rows_above_the_hashes_not_below_them`
+- **Judul kolom kartu diperbaiki**: `CARD_COLUMNS` dulu berisi tujuh judul untuk sembilan sel,
+  sehingga `<th scope="col">` menunjuk kolom yang salah — cacat tampilan sekaligus cacat pembaca
+  layar. → `test_the_card_table_has_one_header_for_every_column_it_renders`
+- **Lebar kolom Layar A ditetapkan**: kolom "apa yang menahan" (jawabannya) mendapat 30%, bukan
+  seperembilan lebar yang sama rata seperti sebelumnya.
+- **Banner SIMULATED melekat** (`position: sticky`, **bukan** `fixed`): ia ada di setiap frame
+  video, tetapi tetap mengalir di dalam dokumen — bukan overlay, tidak menutupi apa pun, tidak
+  bisa menjebak fokus. Sasaran tautan lompat diberi `scroll-margin-top` supaya tidak mendarat di
+  baliknya. → `test_the_banner_stays_in_frame_without_becoming_an_overlay`
+
+Yang **tidak** berubah, dan dijaga tes:
+
+- **Nol dari dua belas warna digeser.** Rasio di tabel bawah karena itu masih rasio yang sama;
+  tidak ada yang perlu dihitung ulang. `--line` khususnya tetap `#646e84` (3.72:1) dan tidak
+  dikembalikan ke `#2c3442` (1.52:1, GAGAL 1.4.11) demi rasa.
+  → `test_the_restyle_did_not_move_a_single_measured_colour`
+- Nol animasi, nol `transition`, nol `:hover`, nol `position: fixed`, nol `<script>`.
+- Warna tetap tidak pernah sendirian; `unspoken` tetap terbaca "tidak disebut", bukan 0.
 
 ---
 
@@ -71,8 +110,10 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
       SELALU terlihat — tidak ada tautan yang hanya muncul saat fokus, karena layar ini tidak
       menyembunyikan apa pun dari siapa pun.
       → `test_every_skip_link_points_at_an_id_that_exists_on_the_page`
-- [x] **Terbaca 1280×720.** `<meta name="viewport" content="width=1280">`, tujuh kolom kartu
-      berlebar tetap supaya kolom `reason` tidak terhimpit, teks minimum 13px.
+- [x] **Terbaca 1280×720.** `<meta name="viewport" content="width=1280">`, badan halaman
+      dibatasi 1240px, **sembilan** kolom kartu dan sembilan kolom watchlist berlebar tetap
+      supaya kolom `reason` (Layar B) dan kolom "apa yang menahan" (Layar A) tidak terhimpit,
+      teks minimum 13px. Di bawah 900px lebar tetap itu dilepas kembali (`table-layout: auto`).
 - [ ] **Rekaman 30 detik** — lihat "Batas yang belum tertutup" di bawah.
 
 ### Angka kontras (WCAG 2.1, sRGB relative luminance)
@@ -159,9 +200,9 @@ Mulai dari `http://127.0.0.1:8000/ui`. Total 30 detik.
 | 12–14 | `Esc` | **Tidak terjadi apa-apa, dan itulah buktinya** — tidak ada modal/overlay yang bisa menjebak fokus; baca kalimat keyboard di kaki halaman | Esc, tanpa perangkap fokus |
 | 14–16 | `Enter` | Layar B terbuka: judul sudah menyebut simbol + GO/NO_GO + penahan terberat | uji 30 detik Layar B |
 | 16–20 | `Shift+Tab` lalu `Tab` | Cincin fokus bolak-balik antara "kembali ke watchlist", "JSON kartu ini", dan "lompat ke sepuluh baris" — kedua arah bekerja | Shift+Tab |
-| 20–24 | `Enter` di "lompat ke sepuluh baris" | Tabel sepuluh baris tunjuk→sebut, tiap baris membawa nilai, `tool.field`, `snapshot`, `as_of` di kolom yang terlihat | nilai + sumber |
+| 20–24 | `Enter` di "lompat ke sepuluh baris" | Tabel sepuluh baris tunjuk→sebut, tiap baris membawa nilai, `tool.field`, `snapshot`, `as_of` di kolom **yang berjudul benar** — sembilan judul untuk sembilan kolom | nilai + sumber |
 | 24–27 | (diam; sorot baris `unspoken` bila ada) | Baris `unspoken` bertuliskan "tidak disebut — bukti tidak cukup, dan itu bukan nol"; hijau-netral bertuliskan "tidak menentang, bukan konfirmasi" | unspoken ≠ 0, warna tidak sendirian |
-| 27–30 | `Tab` ke "putar ulang sekarang", `Enter` | Kartu dimuat ulang dan vonis replay dihitung ULANG di server dari snapshot beku yang sama | Enter, replay keyboard-first |
+| 27–30 | `Tab` ke "putar ulang sekarang" (tepat di bawah tabel, di bagian "Hash, jam, dan pemutaran ulang"), `Enter` | Kartu dimuat ulang dan vonis replay dihitung ULANG di server dari snapshot beku yang sama; banner SIMULATED tetap melekat di puncak sepanjang gulir | Enter, replay keyboard-first, banner di setiap frame |
 
 Opsional (di luar 30 detik, kalau ada waktu rekaman kedua): nyalakan pembaca layar, arahkan ke
 satu baris kartu, dan biarkan ia membacakan `aria-label`-nya — satu kalimat itu memuat nilai

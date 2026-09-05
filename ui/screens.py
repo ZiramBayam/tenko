@@ -176,64 +176,180 @@ AGE_NOTE = (
 EMPTY_SENTENCE = "belum ada data (n=0)"
 
 #: Urutan kolom kartu; dipakai header dan sel supaya tidak bisa bergeser diam-diam.
+#:
+#: Ia SEBELUMNYA berisi tujuh judul untuk sembilan sel: satu judul, "sumber: tool.field ·
+#: snapshot · as_of", berdiri di atas TIGA kolom sekaligus, sehingga judul terakhir
+#: (:data:`NARRATION_LABEL`) jatuh di atas kolom `snapshot` dan dua kolom terakhir tidak
+#: berjudul sama sekali. Di layar itu terbaca sebagai tabel yang bergeser; bagi pembaca layar
+#: itu `<th scope="col">` yang menunjuk kolom yang salah. Judulnya kini satu per kolom, dan
+#: :func:`tests.test_ui.test_the_card_table_has_one_header_for_every_column_it_renders`
+#: menghitung keduanya supaya tidak bisa berselisih lagi.
 CARD_COLUMNS = (
     "daya veto",
     "item",
     "status",
     "reason (deterministik, bisa di-replay)",
     "nilai yang disebut",
-    "sumber: tool.field · snapshot · as_of",
+    "sumber: tool.field",
+    "snapshot",
+    "as_of bukti",
     NARRATION_LABEL,
 )
 
+#: Ikon banner: SVG **tertanam di HTML**, bukan berkas dan bukan URI tertanam — tidak ada
+#: permintaan jaringan yang dibuatnya, jadi ia tetap muncul saat demo dijalankan tanpa jaringan
+#: (spec §7) dan tidak menyentuh `sources.yaml` maupun `DISCLOSURE.md`. `aria-hidden` karena
+#: kalimat di sebelahnya sudah membawa seluruh maknanya: ikon ini menambah SATU kanal bentuk,
+#: tidak pernah menggantikan teks.
+BANNER_ICON = (
+    '<svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true" focusable="false" '
+    'fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" '
+    'stroke-linecap="round">'
+    '<path d="M10 2.6 18.6 17.4 1.4 17.4 Z"></path>'
+    '<path d="M10 8 10 12"></path>'
+    '<path d="M10 14.6 10 14.8"></path>'
+    "</svg>"
+)
+
 STYLESHEET = """/* Tenko — Layar A & B. Tanpa library, tanpa CDN, tanpa animasi (ADR-001).
-   Kontras (WCAG 2.1, dihitung `tests/test_ui.py::test_every_colour_pair_...`, bukan ditaksir):
+
+   PALET TIDAK BERUBAH pada penyegaran tampilan ini. Kedua belas warna di bawah adalah warna
+   yang sama yang diukur TASKS 4.6, dan angkanya masih dipatok
+   `tests/test_ui.py::test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`:
    teks terendah nogo #ff9a90 di atas panel #161b24 = 8.45:1 (batas 4.5:1); garis #646e84
-   di atas panel = 3.38:1 (batas non-teks 3:1). Warna tidak pernah membawa informasi sendirian:
-   tiap lencana membawa teksnya. */
+   di atas panel = 3.38:1 (batas non-teks 3:1); cincin fokus #ffd479 di atas #0d1016 = 13.55:1.
+   Yang berubah hanya tipografi, ritme spasi, bentuk, dan lebar kolom — bukan satu pun warna,
+   jadi tidak ada rasio yang perlu dihitung ulang.
+
+   Warna tidak pernah membawa informasi sendirian: tiap lencana membawa teksnya, hijau-netral
+   membawa kalimatnya, dan `unspoken` membawa "tidak disebut". Nol aset dari luar repo ini:
+   nol webfont, nol gambar yang dimuat, nol URI tertanam — CSP `img-src 'none'` juga
+   melarangnya, dan tes menolak keduanya di berkas ini. */
 :root {
   --bg: #0d1016; --panel: #161b24; --line: #646e84; --ink: #f3f5f9; --dim: #c3cad6;
   --go: #7ff0a0; --nogo: #ff9a90; --warn: #ffd479; --link: #9fd0ff;
+  /* Baris genap tabel. Dulu angka telanjang di satu aturan; sekarang bernama supaya ia ikut
+     terbaca sebagai bagian palet yang diukur, bukan warna kelima belas yang menyelinap. */
+  --row: #11151d;
+  /* Satu tangga spasi dan dua radius, dipakai ulang di seluruh layar: jarak antarblok tidak
+     lagi dikarang per tempat, dan itulah yang membuat halaman terbaca punya ritme. */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 18px; --s5: 28px; --s6: 44px;
+  --r1: 5px; --r2: 9px;
+  /* Font SISTEM saja — nol webfont dan nol permintaan ke luar. Prosa memakai sans (kalimat
+     yang harus terbaca dalam 30 detik), sedangkan angka, hash, id, dan nilai asal-RYO tetap
+     monospace supaya kolomnya sejajar dan aksara yang mirip tidak tertukar. */
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "DejaVu Sans", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace;
 }
 * { box-sizing: border-box; }
 html { background: var(--bg); }
 body {
-  margin: 0; padding: 0 16px 48px; background: var(--bg); color: var(--ink);
-  font: 15px/1.45 ui-monospace, "DejaVu Sans Mono", "Courier New", monospace;
+  margin: 0 auto; max-width: 1240px; padding: 0 var(--s4) var(--s6);
+  background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans);
 }
-a { color: var(--link); }
+a { color: var(--link); text-underline-offset: 2px; }
 /* Fokus keyboard: `:focus` ikut disebut supaya cincin ini tidak bergantung pada dukungan
    `:focus-visible`; 3px kuning di atas latar segelap ini = 13.55:1, jauh di atas 3:1 yang
    diminta 1.4.11 dan terlihat pada video 1280x720. */
 a:focus, a:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
 /* Tautan lompat memindahkan fokus ke tabel; `:target` menandai TEMPAT MENDARATNYA supaya
-   pemakai keyboard tidak kehilangan jejak. Tanpa JS, tanpa animasi. */
-:target { outline: 3px solid var(--warn); outline-offset: 3px; }
+   pemakai keyboard tidak kehilangan jejak. `scroll-margin-top` menjaga tempat itu tidak
+   mendarat di balik banner yang melekat. Tanpa JS, tanpa animasi. */
+:target { outline: 3px solid var(--warn); outline-offset: 4px; scroll-margin-top: 88px; }
+
+/* --- banner SIMULATED ------------------------------------------------------------------
+   `sticky`, BUKAN `fixed`: ia tetap mengalir di dalam dokumen (jadi tidak menutupi apa pun
+   dan tidak menjadi overlay yang bisa menjebak fokus — lihat
+   `test_escape_has_nothing_to_close_because_no_screen_traps_focus`), tetapi tidak pernah
+   keluar dari bingkai saat juri menggulir. Kewajiban `docs/rules-compliance.md` ini karena
+   itu terbukti di setiap frame video, bukan hanya di frame pertama. */
 .banner {
-  background: #3a1d1d; border: 2px solid var(--nogo); color: #ffe8e5;
-  padding: 8px 12px; margin: 0 -16px 12px; font-weight: 700; letter-spacing: .01em;
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; gap: var(--s2);
+  background: #3a1d1d; border: 2px solid var(--nogo); border-top: 0;
+  border-radius: 0 0 var(--r2) var(--r2);
+  color: #ffe8e5; padding: 10px var(--s3);
+  margin: 0 calc(var(--s4) * -1) var(--s4);
+  font: 700 14px/1.4 var(--mono); letter-spacing: .02em;
 }
-h1 { font-size: 26px; margin: 12px 0 4px; }
-h2 { font-size: 18px; margin: 24px 0 6px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
-.answer { font-size: 17px; margin: 4px 0 12px; max-width: 105ch; }
-.sub { color: var(--dim); margin: 2px 0; }
-table { border-collapse: collapse; width: 100%; margin-top: 6px; table-layout: fixed; font-size: 13px; }
-/* 1280x720: tujuh kolom kartu diberi lebar tetap supaya `reason` (kolom yang menjawab
-   pertanyaan juri) tidak terhimpit kolom nilai yang panjangnya bisa ratusan aksara. */
-table.card th:nth-child(1), table.card td:nth-child(1) { width: 5ch; }
-table.card th:nth-child(2), table.card td:nth-child(2) { width: 15ch; }
-table.card th:nth-child(3), table.card td:nth-child(3) { width: 15ch; }
-table.card th:nth-child(4), table.card td:nth-child(4) { width: 27%; }
-table.card th:nth-child(5), table.card td:nth-child(5) { width: 21%; }
-table.card th:nth-child(6), table.card td:nth-child(6) { width: 20%; }
+.banner svg { flex: 0 0 auto; }
+
+/* --- hierarki tipografi ------------------------------------------------------------------ */
+h1 { font: 700 30px/1.25 var(--sans); letter-spacing: -.01em; margin: var(--s4) 0 var(--s2); }
+h1 .badge { font-size: 17px; vertical-align: 4px; }
+h1 .sub { font: 500 15px/1.4 var(--sans); }
+h2 {
+  font: 700 19px/1.3 var(--sans); letter-spacing: .01em;
+  margin: var(--s5) 0 var(--s2); padding-bottom: var(--s2);
+  border-bottom: 2px solid var(--line);
+}
+p { margin: var(--s2) 0; }
+/* Kalimat yang harus menjawab pertanyaan juri dalam 30 detik. Ia dinaikkan menjadi kartu
+   ber-panel supaya mata mendarat di sana lebih dulu — elevasi lewat garis + latar, bukan
+   bayangan tebal. */
+.answer {
+  font-size: 18px; line-height: 1.5; max-width: 100ch;
+  background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--line);
+  border-radius: var(--r2); padding: var(--s3) var(--s4); margin: var(--s3) 0;
+}
+.sub { color: var(--dim); font-size: 14px; margin: var(--s1) 0; max-width: 108ch; }
+.dim { color: var(--dim); }
+.empty { color: var(--warn); font-weight: 700; }
+code { font-family: var(--mono); font-size: inherit; overflow-wrap: anywhere; }
+.mono { font-family: var(--mono); }
+
+/* --- tabel ------------------------------------------------------------------------------- */
+table {
+  border-collapse: collapse; width: 100%; table-layout: fixed;
+  margin: var(--s2) 0 var(--s4); font-size: 13.5px;
+}
+caption { text-align: left; padding: 0 0 var(--s2); }
 th, td {
-  border: 1px solid var(--line); padding: 5px 7px; text-align: left; vertical-align: top;
+  border: 1px solid var(--line); padding: var(--s2) 10px; text-align: left; vertical-align: top;
   overflow-wrap: anywhere;
 }
-th { background: var(--panel); color: var(--ink); font-weight: 700; }
-td.num { text-align: right; white-space: nowrap; }
-tbody tr:nth-child(even) td { background: #11151d; }
-.badge { display: inline-block; padding: 1px 6px; border: 2px solid currentColor; font-weight: 700; }
+thead th {
+  background: var(--panel); color: var(--ink);
+  font: 700 13px/1.35 var(--sans); letter-spacing: .03em; border-bottom-width: 2px;
+}
+tbody th { background: var(--panel); color: var(--ink); font-weight: 700; }
+tbody tr:nth-child(even) td { background: var(--row); }
+td.num {
+  font-family: var(--mono); text-align: right; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* 1280x720, Layar B: sembilan kolom diberi lebar tetap supaya `reason` (kolom yang menjawab
+   pertanyaan juri) tidak terhimpit kolom nilai yang panjangnya bisa ratusan aksara. */
+table.card tr > *:nth-child(1) { width: 5%; }
+table.card tr > *:nth-child(2) { width: 10%; }
+table.card tr > *:nth-child(3) { width: 10%; }
+table.card tr > *:nth-child(4) { width: 22%; }
+table.card tr > *:nth-child(5) { width: 14%; }
+table.card tr > *:nth-child(6) { width: 11%; }
+table.card tr > *:nth-child(7) { width: 6%; }
+table.card tr > *:nth-child(8) { width: 10%; }
+table.card tr > *:nth-child(9) { width: 12%; }
+/* Layar A: kolom "apa yang menahan" adalah jawabannya, jadi ia mendapat sepertiga lebar —
+   sebelumnya sembilan kolom dibagi rata dan kalimat penahan terperas menjadi satu kata per
+   baris. */
+table#watchlist tr > *:nth-child(1) { width: 10%; }
+table#watchlist tr > *:nth-child(2) { width: 8%; }
+table#watchlist tr > *:nth-child(3) { width: 6%; }
+table#watchlist tr > *:nth-child(4) { width: 30%; }
+table#watchlist tr > *:nth-child(5) { width: 8%; }
+table#watchlist tr > *:nth-child(6) { width: 7%; }
+table#watchlist tr > *:nth-child(7) { width: 9%; }
+table#watchlist tr > *:nth-child(8) { width: 10%; }
+table#watchlist tr > *:nth-child(9) { width: 12%; }
+
+/* --- lencana ----------------------------------------------------------------------------- */
+.badge {
+  display: inline-block; padding: 2px 10px; border: 2px solid currentColor; border-radius: 999px;
+  font: 700 13px/1.5 var(--mono); letter-spacing: .03em; white-space: nowrap;
+}
+/* Satu-satunya lencana yang juga tautan ("putar ulang sekarang"): bentuk tombol, bukan pil,
+   supaya afordansinya terbaca tanpa warna dan tanpa hover. */
+a.badge { padding: 7px 14px; border-radius: var(--r2); text-decoration: none; }
 .d-GO { color: var(--go); }
 .d-NO_GO { color: var(--nogo); }
 .s-green { color: var(--go); }
@@ -245,18 +361,46 @@ tbody tr:nth-child(even) td { background: #11151d; }
 .tone-not_assessed { color: var(--warn); }
 .tone-no_evidence { color: var(--warn); }
 .tone-unknown { color: var(--dim); }
-.mark { display: block; color: var(--dim); font-size: 13px; }
+.mark { display: block; color: var(--dim); font-size: 13px; line-height: 1.45; margin-top: var(--s1); }
 .narr { color: var(--dim); }
-.narr-label { color: var(--warn); font-weight: 700; display: block; font-size: 13px; }
-dl.meta { display: grid; grid-template-columns: 22ch 1fr; gap: 2px 12px; margin: 8px 0; }
-dl.meta dt { color: var(--dim); }
-dl.meta dd { margin: 0; overflow-wrap: anywhere; }
-ul.notes { margin: 6px 0; padding-left: 20px; color: var(--dim); max-width: 110ch; }
-ul.notes li { margin-bottom: 4px; }
-.dim { color: var(--dim); }
-code, .mono { font-family: inherit; overflow-wrap: anywhere; }
-.empty { color: var(--warn); font-weight: 700; }
-footer { margin-top: 28px; color: var(--dim); border-top: 1px solid var(--line); padding-top: 8px; }
+.narr-label {
+  display: block; color: var(--warn); font-weight: 700; font-size: 13px;
+  letter-spacing: .02em; margin-bottom: var(--s1);
+}
+
+/* --- daftar definisi (hash, jam, replay) -------------------------------------------------- */
+dl.meta {
+  display: grid; grid-template-columns: 24ch 1fr; gap: 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r2);
+  overflow: hidden; margin: var(--s3) 0 var(--s4);
+}
+dl.meta dt {
+  color: var(--dim); font-weight: 700; font-size: 14px;
+  padding: var(--s2) var(--s3); border-top: 1px solid var(--line);
+}
+dl.meta dd {
+  margin: 0; padding: var(--s2) var(--s3); border-top: 1px solid var(--line);
+  font-family: var(--mono); font-size: 13.5px; overflow-wrap: anywhere;
+}
+dl.meta dt:first-of-type, dl.meta dd:first-of-type { border-top: 0; }
+
+ul.notes { margin: var(--s2) 0 var(--s4); padding-left: 22px; color: var(--dim); max-width: 104ch; }
+ul.notes li { margin-bottom: var(--s2); line-height: 1.55; }
+footer {
+  margin-top: var(--s6); padding-top: var(--s3); border-top: 1px solid var(--line);
+  color: var(--dim); font-size: 13px;
+}
+footer p { max-width: 108ch; }
+
+/* Layar sempit: lebar kolom tetap berhenti membantu ketika tidak ada lebar untuk dibagi. */
+@media (max-width: 900px) {
+  body { padding: 0 var(--s3) var(--s5); }
+  .banner { margin: 0 calc(var(--s3) * -1) var(--s3); }
+  table { table-layout: auto; }
+  h1 { font-size: 25px; }
+  dl.meta { grid-template-columns: 1fr; }
+  dl.meta dd { border-top: 0; padding-top: 0; }
+}
 """
 
 
@@ -384,7 +528,7 @@ def _shell(title: str, banner: str, body: str, now: datetime) -> str:
         f"<title>{escape(title, quote=True)}</title>"
         '<link rel="stylesheet" href="/ui/tenko.css">'
         "</head><body>"
-        f'<p class="banner" role="note">{escape(banner, quote=True)}</p>'
+        f'<p class="banner" role="note">{BANNER_ICON}<span>{escape(banner, quote=True)}</span></p>'
         f'<main id="isi">{body}</main>'
         "<footer><p>Semua jam JST. Halaman ini dirender di server, tanpa satu pun skrip: "
         f"dirender {escape(_now_jst(now), quote=True)}. Tenko membaca store BACA-SAJA; "
@@ -985,8 +1129,14 @@ def render_card(payload: dict[str, Any], banner: str, now: datetime) -> str:
         f"generasi {_bdi(payload.get('generation'), KEY_LIMIT)})</span></h1>"
         f"{_card_answer(payload, items)}"
         f'<p class="sub">{_text(payload.get("headline"))}</p>'
-        f"{_card_meta(payload, now)}"
+        # Sepuluh baris tunjuk→sebut mendahului daftar hash/jam: uji 30 detik menuntut isi
+        # produk, bukan metadatanya, yang berada tepat di bawah kalimat jawaban. Daftar meta
+        # sebelumnya berdiri di antara keduanya — delapan baris, sebagian berparagraf —
+        # sehingga tabel yang menjawab "buktinya dari mana" terdorong ke bawah lipatan pada
+        # 1280x720. Tidak ada isi yang hilang; yang berubah hanya urutannya, dan bagian meta
+        # kini punya `<h2>` sendiri sehingga bisa dituju pembaca layar sebagai bagian.
         f'<h2 id="panggilan">Sepuluh baris tunjuk→sebut</h2>{table}'
+        f"<h2>Hash, jam, dan pemutaran ulang</h2>{_card_meta(payload, now)}"
         f"{_narration_block(payload)}"
         f"{warnings_block}"
         f"{_bundle_table(payload, now)}"
