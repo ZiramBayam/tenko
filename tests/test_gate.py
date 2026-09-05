@@ -199,6 +199,12 @@ def _sandbox(tmp_path: Path, body: str, test_body: str = PASSING_TEST) -> Path:
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_sandbox.py").write_text(test_body)
     (tmp_path / "mod.py").write_text(body)
+    # Sandbox dijadikan repo git supaya `CHANGED_PY` gate punya arti di sini: `mod.py` dan
+    # `tests/` menjadi berkas `.py` yang belum dilacak, jadi `git ls-files --others` menemukan
+    # mereka dan leg pytest terpicu SEPERTI di repo nyata. Tanpa ini `CHANGED_PY` selalu kosong
+    # dan satu-satunya cara memicu leg pytest adalah `TENKO_GATE_FULL=1` — yang membuat cabang
+    # "berkas .py bergerak" tidak pernah teruji sama sekali (temuan TINGGI security-reviewer).
+    subprocess.run([_exe("git"), "init", "-q"], cwd=tmp_path, check=True, capture_output=True, text=True)
     return tmp_path / "scripts" / "gate.sh"
 
 
@@ -284,10 +290,31 @@ def test_gate_pytest_leg_is_skipped_inside_a_running_suite(tmp_path: Path) -> No
 
     Satu-satunya beda dengan (a) adalah variabel itu, jadi ini mengunci artinya: gate melewati
     leg pytest ketika sebuah pytest sudah berjalan di atasnya — dan hanya leg itu.
+
+    Sengaja TANPA `TENKO_GATE_FULL`: sejak temuan TINGGI security-reviewer (6 Sep 2026) `FULL`
+    diperiksa LEBIH DULU dan mengalahkan `SELFTEST`, jadi memakainya di sini justru akan
+    menjalankan leg pytest dan menguji kebalikan dari yang dimaksud. Yang memicu leg pytest di
+    sini adalah `CHANGED_PY` — sandbox kini repo git ber-`mod.py` yang belum dilacak.
+    """
+    gate = _sandbox(tmp_path, FORMATTED, test_body=FAILING_TEST)
+    result = _run_gate(gate, selftest=True).proc
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "pytest" not in result.stderr
+
+
+@skip_if_nested
+def test_gate_full_beats_selftest_so_one_knob_always_wins(tmp_path: Path) -> None:
+    """`TENKO_GATE_FULL=1` menjalankan leg pytest MESKI `TENKO_GATE_SELFTEST=1` ada.
+
+    Temuan TINGGI security-reviewer 6 Sep 2026: sebelumnya `SELFTEST` mematikan leg pytest tanpa
+    syarat dan `FULL` tidak bisa mengalahkannya, sehingga variabel yang bocor ke shell operator
+    berarti stop hook HIJAU di atas suite MERAH, tanpa suara. Ini pasangan langsung dari tes di
+    atas: sandbox dan suite yang sama, hanya `FULL` yang ditambahkan.
     """
     gate = _sandbox(tmp_path, FORMATTED, test_body=FAILING_TEST)
     result = _run_gate(gate, env={"TENKO_GATE_FULL": "1"}, selftest=True).proc
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "pytest" in result.stderr
 
 
 @skip_if_nested
