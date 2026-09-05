@@ -41,8 +41,23 @@ Batas yang diakui (baca sebelum mengutip angkanya; gaya ``core/replay.py``)
   bertahan karena batasnya disembunyikan.
 * **Ini BUKAN akurasi.** "Merah" di sini berarti item itu menahan keberangkatan, bukan bahwa
   menahan itu benar. Apakah veto membayar (outcome ≥24 j) adalah TASKS 3.3 (`grading/`).
-* **Bukan sampel acak.** Jangkarnya adalah jadwal perekam atas empat simbol inti selama
-  jendela yang tercetak di header — satu rezim pasar, bukan populasi.
+* **Bukan sampel acak, dan amatannya TIDAK independen.** Jangkarnya adalah jadwal perekam atas
+  empat simbol inti selama jendela yang tercetak di header — satu rezim pasar, bukan populasi.
+  Lebih tajam lagi: ``market_overview`` dan ``monitor_market_sentiment_shift`` dipanggil dengan
+  argumen ``{}``, jadi keempat simbol memakai **satu `args_hash` yang sama** dan membaca baris
+  yang sama. Item yang hanya membaca keduanya (3, 4, 8) karena itu mencacah **satu peristiwa
+  pasar sampai 4x**: 32 merah item 8 lahir dari **8 snapshot** di dalam satu jendela 8 jam.
+  Header mencetak seri yang dibagi itu, dan tabelnya punya kolom ``snapshot merah``
+  (``<snapshot berbeda>/<merah>``) supaya cacah merah tidak pernah dibaca sebagai cacah
+  peristiwa. ``n`` di sini adalah cacah amatan, **bukan** ukuran sampel efektif — memakainya
+  untuk selang kepercayaan akan melebih-lebihkan bukti (itu urusan TASKS 3.3, dan
+  ``grading/stats.py`` harus tahu soal duplikasi ini).
+* **Teks di dalam `ItemResult.value` adalah teks pihak lain.** ``core/skill.py`` membersihkan
+  ``id`` dan ``reason`` saja; ``value`` dideklarasikan ``Any`` **tanpa validator**. Jadi setiap
+  string dan setiap kunci yang dicetak modul ini lewat :func:`core.skill.clean_text` lebih
+  dulu (:func:`_scalar`, :func:`_flatten`, :func:`_safe` untuk argv/path). Tanpa itu satu
+  ``data_date`` berisi escape ANSI bisa memindahkan kursor dan menimpa baris tabel yang alat
+  ini sendiri hitung — angka palsu di layar, ditandatangani oleh alat ukur.
 * **Baris ber-`ts_utc` yang bertengkar dengan `as_of`** (fixture TASKS 0.19) dibuang oleh
   ``latest_fresh`` sendiri, sesuai jalur produksi. Modul ini tidak menambah pengecualian ber-id
   untuknya — ia hanya mencacahnya (``skew-skipped``) supaya `unspoken` yang lahir dari sana
@@ -68,6 +83,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from core.skill import TEXT_LIMIT, ItemResult, clean_text
 from core.store import (
     EVIDENCE_SKEW_TOLERANCE_S,
     FRESH_SCAN_LIMIT,
@@ -97,6 +113,8 @@ STATUSES: tuple[str, ...] = (GREEN, RED, UNSPOKEN)
 #: Batas panjang satu nilai teks di dalam kunci penyebab merah (nilai mentah dipotong, bukan
 #: dibulatkan — pemotongannya ditandai `…` supaya tidak terbaca sebagai nilai penuh).
 CAUSE_TEXT_LIMIT = 48
+#: Batas panjang satu KUNCI (nama field) di dalam sidik jari itu.
+CAUSE_KEY_LIMIT = 64
 #: Kedalaman perataan `ItemResult.value`; lebih dalam dari ini diringkas jadi `…`.
 CAUSE_DEPTH = 3
 #: Daftar skalar sampai panjang ini dicetak utuh; lebih panjang jadi `n=<len>` (item 9 pernah
@@ -112,6 +130,10 @@ SKEW_NOTE = re.compile(r"snapshot_id=(\d+) skipped, ts_utc and as_of disagree")
 log = logging.getLogger(__name__)
 
 
+class VetoTableError(Exception):
+    """Alat ukur dipakai di luar batasnya (koneksi bisa menulis / SQL bukan SELECT)."""
+
+
 # --- pencacah -----------------------------------------------------------------------------
 @dataclass
 class ItemTally:
@@ -120,16 +142,32 @@ class ItemTally:
     item_id: str
     status: Counter[str] = field(default_factory=Counter)
     red_causes: Counter[str] = field(default_factory=Counter)
+    #: Snapshot BERBEDA di balik cacah merah. Ini yang membedakan "32 peristiwa" dari
+    #: "8 peristiwa dihitung empat kali" — lihat `Sweep.shared_series`.
+    red_sources: set[int] = field(default_factory=set)
+    #: Merah yang itemnya tidak menunjuk satu snapshot pun (item agregat 1/2): tidak bisa
+    #: dihitung sebagai bukti berbeda, jadi dicacah terpisah alih-alih ditaksir.
+    red_without_source: int = 0
+    red_first: str = ""
+    red_last: str = ""
 
     @property
     def n(self) -> int:
         """Cacah amatan yang menilai item ini (green+red+unspoken) — selalu dicetak."""
         return sum(self.status[name] for name in STATUSES)
 
-    def add(self, status: str, value: Any) -> None:
-        self.status[status] += 1
-        if status == RED:
-            self.red_causes[cause_key(value)] += 1
+    def add(self, result: ItemResult, stamp: str) -> None:
+        self.status[result.status] += 1
+        if result.status != RED:
+            return
+        self.red_causes[cause_key(result.value)] += 1
+        snapshot_id = result.source.snapshot_id if result.source is not None else None
+        if snapshot_id is None:
+            self.red_without_source += 1
+        else:
+            self.red_sources.add(snapshot_id)
+        self.red_first = min(self.red_first, stamp) if self.red_first else stamp
+        self.red_last = max(self.red_last, stamp)
 
     def never_held_back(self) -> bool:
         """0× merah DAN 0× unspoken atas `n` penuh — kalimat AC(3) lahir dari sini."""
@@ -162,6 +200,10 @@ class Sweep:
     window_last: str = ""
     tallies: dict[str, ItemTally] = field(default_factory=dict)
     anchors_per_symbol: Counter[str] = field(default_factory=Counter)
+    #: tool -> simbol yang BERBAGI satu `args_hash` (mis. `market_overview` ber-args `{}`
+    #: dipakai keempat simbol). Item yang hanya membaca tool itu mencacah satu peristiwa
+    #: berkali-kali; tanpa baris ini `n` terdengar lebih kuat daripada buktinya.
+    shared_series: dict[str, tuple[str, ...]] = field(default_factory=dict)
     log_future_rows: int = 0
     log_skew_rows: int = 0
     log_other: Counter[str] = field(default_factory=Counter)
@@ -169,10 +211,19 @@ class Sweep:
 
 # --- perataan nilai penyebab --------------------------------------------------------------
 def _scalar(value: Any) -> str | None:
-    """Bentuk teks untuk skalar JSON; None bila `value` bukan skalar."""
+    """Bentuk teks untuk skalar JSON, DIBERSIHKAN; None bila `value` bukan skalar.
+
+    Setiap `str` lewat :func:`core.skill.clean_text` — sanitizer tunggal repo (TASKS 1.5b).
+    Bukan kehati-hatian berlebih: `ItemResult.value` TIDAK dibersihkan siapa pun
+    (`core/skill.py` hanya menjaga `id` dan `reason`), jadi teks di dalamnya tetap teks pihak
+    lain sampai di sini. Tanpa escape, satu `data_date` berisi `\x1b[10A\x1b[1G…` memindahkan
+    kursor terminal ke atas dan MENIMPA baris tabel yang alat ini sendiri hitung — angka palsu
+    di layar yang dihasilkan oleh payload tool (temuan KRITIS security-reviewer 2.1b,
+    dibuktikan jalan, bukan diduga). `clean_text` mengubahnya menjadi `\\u001b[10A…`: inert
+    dan TERLIHAT.
+    """
     if isinstance(value, str):
-        text = value[:CAUSE_TEXT_LIMIT]
-        return text + "…" if len(value) > CAUSE_TEXT_LIMIT else text
+        return clean_text(value, CAUSE_TEXT_LIMIT)
     if value is None or isinstance(value, bool | int | float):
         return json.dumps(value)
     return None
@@ -185,7 +236,10 @@ def _flatten(value: Any, prefix: str, depth: int, out: dict[str, str]) -> None:
                 out[prefix] = "{}"
             return
         for raw_key, item in value.items():
-            key = f"{prefix}.{raw_key}" if prefix else str(raw_key)
+            # Kunci ikut dibersihkan, bukan hanya nilainya: nama field bisa datang dari
+            # envelope (mis. simbol token di item 10) dan ia dicetak sebagai label baris.
+            safe_key = clean_text(str(raw_key), CAUSE_KEY_LIMIT)
+            key = f"{prefix}.{safe_key}" if prefix else safe_key
             if depth >= CAUSE_DEPTH:
                 out[key] = "…"
             else:
@@ -230,7 +284,14 @@ def _rows(store: Store, sql: str, params: Sequence[Any] = ()) -> list[Any]:
     `PRAGMA query_only=ON`, authorizer allowlist). Salinan lapisan itu di modul ini akan
     menjadi salinan yang bisa melenceng — dan yang melenceng dari pola baca-saja adalah persis
     temuan TINGGI TASKS 0.10.
+
+    **`Store._select` TIDAK menyaring SQL**: ia mengeksekusi apa pun langsung ke koneksi, dan
+    pada koneksi mode tulis satu `INSERT` lewat fungsi ini akan benar-benar menambah baris
+    (temuan SEDANG security-reviewer 2.1b). Karena itu bentuk SQL-nya dipagari DI SINI: hanya
+    `SELECT`, dan hanya lewat `sweep()` yang menuntut `store.read_only`.
     """
+    if not sql.lstrip().upper().startswith("SELECT"):
+        raise VetoTableError(f"alat ukur hanya menjalankan SELECT, bukan: {sql.split(maxsplit=1)[0]!r}")
     return store._select(sql, params)
 
 
@@ -287,6 +348,12 @@ class _LogSink(logging.Handler):
     tercetak berarti ribuan baris kebisingan; membuangnya diam-diam berarti alat ukur yang
     menyembunyikan keberatan lapisan di bawahnya. Jadi: dicacah, dan yang BUKAN "baris masa
     depan" dicetak contohnya di header.
+
+    **Batas yang diakui:** selama sapuan, SELURUH log logger ``core`` (termasuk ``ERROR``)
+    berhenti di sini dan hanya muncul sebagai satu baris cacah di header. Itu tepat untuk
+    proses CLI yang tidak berbagi logger dengan siapa pun; bila :func:`sweep` kelak dipanggil
+    in-process bersama perekam/agen, keberatan mereka ikut tertelan. `propagate` dipulihkan di
+    ``finally`` (terbukti juga untuk ``KeyboardInterrupt``/``SystemExit``).
     """
 
     def __init__(self, sweep: Sweep) -> None:
@@ -315,7 +382,19 @@ def sweep(
     params: Params = DEFAULT_PARAMS,
     intent: str = "swing",
 ) -> Sweep:
-    """Jalankan jalur produksi atas tiap (simbol, jangkar) dan cacah hasilnya."""
+    """Jalankan jalur produksi atas tiap (simbol, jangkar) dan cacah hasilnya.
+
+    Raises:
+        VetoTableError: `store` bisa menulis. "Baca-saja" harus jadi sifat FUNGSI ini, bukan
+            sifat `main()` saja: `Store._select` mengeksekusi SQL apa pun ke koneksinya, jadi
+            alat ukur yang menerima koneksi mode tulis kehilangan satu-satunya jaminan yang
+            membuatnya aman dijalankan atas DB hidup (temuan SEDANG security-reviewer 2.1b).
+    """
+    if not getattr(store, "read_only", False):
+        raise VetoTableError(
+            "sweep() menuntut Store(read_only=True): alat ukur tidak boleh memegang koneksi "
+            "yang bisa menulis ke DB hidup"
+        )
     result = Sweep(db_path=store.path, until=until, symbols=tuple(symbols), params=params)
     result.tallies = {item.id: ItemTally(item_id=item.id) for item in ITEMS}
 
@@ -332,6 +411,16 @@ def sweep(
     result.rows_until, result.max_id_until = counted, max_id_until
 
     series_cache: dict[tuple[str, str], tuple[list[datetime], int]] = {}
+    # Simbol mana berbagi `args_hash` yang mana, dihitung dari `tool_args` — bukan diasumsikan.
+    users: dict[str, dict[str, list[str]]] = {}
+    for symbol in symbols:
+        for tool, value in tool_args(symbol, intent, params).items():
+            users.setdefault(tool, {}).setdefault(sha256_hex(value), []).append(symbol)
+    result.shared_series = {
+        tool: tuple(sorted({s for shared in by_hash.values() if len(shared) > 1 for s in shared}))
+        for tool, by_hash in users.items()
+        if any(len(shared) > 1 for shared in by_hash.values())
+    }
     sink = _LogSink(result)
     core_log = logging.getLogger("core")
     core_log.addHandler(sink)
@@ -387,14 +476,14 @@ def _observe(
     evidence = Evidence.from_envelopes(
         symbol, gathered.envelopes, params=params, snapshot_ids=gathered.snapshot_ids
     )
+    stamp = anchor.replace(microsecond=0).isoformat().replace("+00:00", "Z")
     for item in results_of(evaluate_all(evidence)):
         tally = result.tallies.get(item.id)
         if tally is None:  # pragma: no cover - id item di luar ITEMS tidak mungkin dari evaluate_all
             tally = result.tallies.setdefault(item.id, ItemTally(item_id=item.id))
-        tally.add(item.status, item.value)
+        tally.add(item, stamp)
     result.anchors_used += 1
     result.anchors_per_symbol[symbol] += 1
-    stamp = anchor.replace(microsecond=0).isoformat().replace("+00:00", "Z")
     if not result.window_first:
         result.window_first = stamp
     result.window_first = min(result.window_first, stamp)
@@ -405,6 +494,25 @@ def _observe(
 
 
 # --- laporan ------------------------------------------------------------------------------
+def _safe(text: str) -> str:
+    """Teks yang bukan milik kami (argv, path) → :func:`core.skill.clean_text` sebelum dicetak."""
+    return clean_text(text, TEXT_LIMIT)
+
+
+def _sources(tally: ItemTally) -> str:
+    """`<snapshot berbeda>/<merah>` — angka agregat tidak pernah tampil telanjang."""
+    reds = tally.status[RED]
+    if reds == 0:
+        return "-"
+    distinct = len(tally.red_sources)
+    if distinct == 0 and tally.red_without_source:
+        # Item agregat (1 & 2) membaca SEMUA envelope dan tidak menunjuk satu snapshot pun,
+        # jadi "bukti berbeda" tidak terdefinisi untuknya. Ditulis, bukan ditaksir jadi 0.
+        return f"agregat/{reds}"
+    tail = f"+{tally.red_without_source}?" if tally.red_without_source else ""
+    return f"{distinct}{tail}/{reds}"
+
+
 def _iso(moment: datetime) -> str:
     return moment.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -417,7 +525,9 @@ def render(result: Sweep, *, max_causes: int = 4) -> str:
     add("")
     add("provenance")
     add(f"  --until               : {_iso(result.until)}")
-    add(f"  db                    : {result.db_path} (read_only=True, PRAGMA query_only=ON)")
+    # Path DB dan daftar simbol datang dari argv: dibersihkan seperti teks luar lainnya
+    # (`--symbols "BTC<U+202E>"` pernah menaruh kontrol arah teks mentah di header).
+    add(f"  db                    : {_safe(str(result.db_path))} (read_only=True, PRAGMA query_only=ON)")
     add(f"  max(snapshots.id)     : {result.max_snapshot_id} (SELURUH db; bergerak — perekam hidup)")
     add(
         f"  baris <= --until      : {result.rows_until} dari {result.rows_total}; "
@@ -428,14 +538,19 @@ def render(result: Sweep, *, max_causes: int = 4) -> str:
         f"({result.skew_skipped_hits} kali dibuang saat merakit; |ts_utc - as_of| > "
         f"{EVIDENCE_SKEW_TOLERANCE_S} dtk)"
     )
-    add(f"  simbol                : {', '.join(result.symbols)} (jangkar = ts_utc tiap baris {ANCHOR_TOOL})")
+    add(
+        f"  simbol                : {_safe(', '.join(result.symbols))} "
+        f"(jangkar = ts_utc tiap baris {ANCHOR_TOOL})"
+    )
     add(
         f"  jangkar               : {result.anchors_used} dipakai / {result.anchors_scan_limited} dibuang "
         f"batas pindai / {result.anchors_no_bundle} gagal merakit bundel / "
         f"{result.anchors_unreadable_ts} ts_utc tak terbaca / {result.anchors_after_until} setelah --until "
         f"(= {result.anchors_seen} baris jangkar)"
     )
-    per_symbol = ", ".join(f"{symbol}={result.anchors_per_symbol[symbol]}" for symbol in result.symbols)
+    per_symbol = ", ".join(
+        f"{_safe(symbol)}={result.anchors_per_symbol[symbol]}" for symbol in result.symbols
+    )
     add(f"  jangkar per simbol    : {per_symbol or '-'}")
     add(f"  jendela terpakai      : {result.window_first or '-'} .. {result.window_last or '-'}")
     add(
@@ -443,6 +558,12 @@ def render(result: Sweep, *, max_causes: int = 4) -> str:
         f"{FRESH_SCAN_LIMIT} (core.store.FRESH_SCAN_LIMIT)"
         + (f", di {result.deepest_scan_at}" if result.deepest_scan_at else "")
     )
+    for tool, shared in sorted(result.shared_series.items()):
+        add(
+            f"  seri dipakai bersama  : {tool} → SATU args_hash untuk {len(shared)} simbol "
+            f"({_safe(', '.join(shared))}); amatan atas tool ini TIDAK independen — satu "
+            f"peristiwa dicacah sampai {len(shared)}x"
+        )
     add(f"  params_hash           : {result.params.params_hash()} (max_age_min={result.params.max_age_min})")
     add(
         f"  log core.* ditekan    : {result.log_future_rows} baris masa depan relatif jangkar "
@@ -453,8 +574,11 @@ def render(result: Sweep, *, max_causes: int = 4) -> str:
         add(f"      {count}x {message}")
     add("")
 
-    add(f"{'item':<20}{'n':>5}{'green':>7}{'red':>6}{'unspoken':>10}  nilai penyebab merah")
-    add("-" * 100)
+    add(
+        f"{'item':<20}{'n':>5}{'green':>7}{'red':>6}{'unspoken':>10}{'snapshot merah':>16}"
+        "  nilai penyebab merah"
+    )
+    add("-" * 110)
     for item in ITEMS:
         tally = result.tallies[item.id]
         causes = tally.red_causes
@@ -465,8 +589,27 @@ def render(result: Sweep, *, max_causes: int = 4) -> str:
             column = f"{len(causes)} nilai berbeda; teratas {top_count}x (rincian di bawah)"
         add(
             f"{item.id:<20}{tally.n:>5}{tally.status[GREEN]:>7}{tally.status[RED]:>6}"
-            f"{tally.status[UNSPOKEN]:>10}  {column}"
+            f"{tally.status[UNSPOKEN]:>10}{_sources(tally):>16}  {column}"
         )
+    add("")
+    add(
+        "kolom `snapshot merah` = cacah snapshot sumber BERBEDA di balik cacah merah "
+        "(`ItemResult.source.snapshot_id`)."
+    )
+    add(
+        "  `8/32` berarti 32 merah lahir dari 8 bukti: cacah merah BUKAN cacah peristiwa. "
+        "Item yang hanya membaca"
+    )
+    add(
+        "  envelope market-wide dibagi oleh semua simbol (lihat 'seri dipakai bersama' di atas); "
+        "`n` di kolom kedua"
+    )
+    add("  adalah cacah amatan, bukan ukuran sampel efektif — jangan pakai untuk selang kepercayaan.")
+    add(
+        "  `agregat/116` = item 1 & 2 membaca SELURUH envelope dan tidak menunjuk satu snapshot "
+        "tunggal, jadi angka"
+    )
+    add("  bukti berbeda tidak terdefinisi untuk keduanya; ia ditulis begitu, bukan ditaksir nol.")
     add("")
 
     add("nilai penyebab merah — MENTAH, dari ItemResult.value (dipotong per field, bukan dipilih)")
@@ -476,7 +619,11 @@ def render(result: Sweep, *, max_causes: int = 4) -> str:
         if not tally.red_causes:
             continue
         any_red = True
-        add(f"  {item.id} ({tally.status[RED]}x merah, {len(tally.red_causes)} nilai berbeda)")
+        span = f"{tally.red_first} .. {tally.red_last}" if tally.red_first else "-"
+        add(
+            f"  {item.id} ({tally.status[RED]}x merah, {len(tally.red_causes)} nilai berbeda, "
+            f"{_sources(tally)} snapshot sumber, jendela merah {span})"
+        )
         for cause, count in sorted(tally.red_causes.items(), key=lambda pair: (-pair[1], pair[0]))[
             :max_causes
         ]:

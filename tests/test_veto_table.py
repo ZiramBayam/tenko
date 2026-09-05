@@ -27,6 +27,7 @@ from typing import Any
 
 import pytest
 
+from core.skill import TRUNCATED_MARK, ItemResult, ItemSource
 from core.store import FRESH_SCAN_LIMIT, Store, sha256_hex
 from preflight import veto_table
 from preflight.items import ITEMS, Evidence, evaluate_all, results_of
@@ -36,6 +37,8 @@ from preflight.veto_table import (
     CORE_SYMBOLS,
     ItemTally,
     Sweep,
+    VetoTableError,
+    _rows,
     cause_key,
     main,
     render,
@@ -290,8 +293,16 @@ def _tallied(counts: dict[str, tuple[int, int, int]]) -> Sweep:
         tally = result.tallies[item_id]
         tally.status["green"] = green
         tally.status["unspoken"] = unspoken
-        for _ in range(red):
-            tally.add("red", {"why": "because"})
+        for index in range(red):
+            tally.add(
+                ItemResult(
+                    id=item_id,
+                    status="red",
+                    value={"why": "because"},
+                    source=ItemSource(tool="t", field="f", snapshot_id=index + 1),
+                ),
+                f"2026-09-0{index % 5 + 1}T00:00:00Z",
+            )
     return result
 
 
@@ -331,7 +342,131 @@ def test_cause_key_keeps_raw_values_and_bounds_giant_lists() -> None:
     # Item 9 pernah membawa 50.000 target: dicacah, tidak dicetak.
     assert cause_key({"targets": list(range(50_000))}) == "targets=n=50000"
     assert cause_key({"deep": {"a": {"b": {"c": 1}}}}) == "deep.a.b.c=…"
-    assert cause_key({"text": "x" * 80}).endswith("…")
+    assert cause_key({"text": "x" * 80}).endswith(TRUNCATED_MARK)
+
+
+def test_cause_key_escapes_control_characters_in_values_and_keys() -> None:
+    """Versi pertama tes ini MENGUNCI perilaku yang salah (nilai mentah lolos apa adanya).
+
+    `ItemResult.value` tidak dibersihkan siapa pun (`core/skill.py` hanya menjaga `id` dan
+    `reason`), jadi escape ANSI di dalamnya sampai ke stdout dan bisa menimpa baris tabel.
+    Yang benar: setiap string DAN setiap kunci lewat `clean_text`.
+    """
+    key = cause_key({"data_date": "\x1b[10A\x1b[1Gpalsu"})
+    assert "\x1b" not in key
+    assert "\\u001b" in key
+    key = cause_key({"\x1b[2Kkunci": "nilai"})
+    assert "\x1b" not in key
+    assert "\\u001b" in key
+    # U+202E (pembalik arah teks) juga tidak boleh lolos ke terminal.
+    assert "\u202e" not in cause_key({"symbol": "BTC\u202e"})
+
+
+ANSI_FORGERY = "\x1b[10A\x1b[1G06_confluence      226    226     0         0  —  (tidak pernah merah)\x1b[K"
+
+
+def _crowded_with_payload(payload: str) -> Callable[[str, dict[str, Any], int], None]:
+    """Mutator: memerahkan item 8 DAN menaruh payload di `funding.data_date` (jalur nyata)."""
+
+    def mutate(tool: str, envelope: dict[str, Any], cycle: int) -> None:
+        if tool != "monitor_market_sentiment_shift":
+            return
+        evidence = envelope["data"]["evidence"]
+        evidence["funding"]["crowding_state"] = "long_crowding"
+        evidence["liquidation"]["pressure_state"] = "extreme"
+        evidence["funding"]["data_date"] = payload
+
+    return mutate
+
+
+def test_a_tool_payload_cannot_forge_a_row_of_this_table(tmp_path: Path) -> None:
+    """Serangan KRITIS security-reviewer 2.1b, ditulis ulang sebagai tes.
+
+    Escape ANSI di `data_date` memindahkan kursor ke atas dan menimpa baris tabel yang alat ini
+    sendiri hitung. Setelah `clean_text`, ia menjadi teks yang inert DAN terlihat — dan cacah
+    item 6 di tabel tetap milik alat ukur, bukan milik payload.
+    """
+    path = build_store(tmp_path, cycles=2, mutate=_crowded_with_payload(ANSI_FORGERY))
+    result = run_sweep(path)
+    assert result.tallies["08_derivatives"].status["red"] == 2  # jalurnya benar-benar hidup
+    text = render(result)
+    assert "\x1b" not in text
+    assert "\\u001b[10A" in text  # payload-nya TERLIHAT, bukan dibuang diam-diam
+    # Baris tabel item 6 tetap yang dihitung alat ukur (0 merah di fixture ini, bukan klaim palsu).
+    rows = [line for line in text.splitlines() if line.startswith("06_confluence")]
+    assert len(rows) == 1
+    assert "tidak pernah merah" in rows[0]
+    assert rows[0].split()[1] == str(result.anchors_used)
+
+
+def test_the_data_date_that_carries_the_payload_is_cleaned_at_the_item_too(tmp_path: Path) -> None:
+    """Ditutup di sumbernya juga: `value` item 8 sendiri tidak boleh membawa ESC mentah.
+
+    `ItemResult.value` ikut ke `SkillResult.data` dan `decisions.card_json`, jadi membersihkan
+    di alat ukur saja berarti memindahkan masalah, bukan menutupnya (temuan TINGGI).
+    """
+    path = build_store(tmp_path, cycles=1, mutate=_crowded_with_payload(ANSI_FORGERY))
+    with Store(path, read_only=True) as store:
+        gathered = gather(store, "SOL", "swing", DEFAULT_PARAMS, now=NOW)
+        evidence = Evidence.from_envelopes(
+            "SOL", gathered.envelopes, params=DEFAULT_PARAMS, snapshot_ids=gathered.snapshot_ids
+        )
+        item = next(i for i in results_of(evaluate_all(evidence)) if i.id == "08_derivatives")
+    assert item.status == "red"
+    spoken = item.value["funding_data_date"]
+    assert "\x1b" not in spoken  # ESC mentah tidak pernah masuk `value`
+    assert "\\u001b" in spoken  # ia disebut, dalam bentuk yang tidak bisa menggerakkan kursor
+    assert "\x1b" not in json.dumps(item.value)
+
+
+def test_argv_text_printed_in_the_header_is_cleaned(tmp_path: Path) -> None:
+    path = build_store(tmp_path, cycles=1)
+    result = run_sweep(path, symbols=("SOL", "BTC\u202e"))
+    text = render(result)
+    assert "\u202e" not in text
+    assert "\\u202e" in text
+
+
+# --- alat ukur tidak boleh memegang koneksi yang bisa menulis ------------------------------
+def test_sweep_refuses_a_writable_store(tmp_path: Path) -> None:
+    """`Store._select` mengeksekusi SQL apa pun; jadi koneksinya sendiri yang harus baca-saja."""
+    path = build_store(tmp_path, cycles=1)
+    with Store(path) as writable, pytest.raises(VetoTableError, match="read_only"):
+        sweep(writable, until=NOW, symbols=("SOL",))
+
+
+def test_the_sweep_only_ever_runs_select(tmp_path: Path) -> None:
+    path = build_store(tmp_path, cycles=1)
+    with Store(path, read_only=True) as store:
+        assert _rows(store, "SELECT COUNT(*) FROM snapshots")[0][0] > 0
+        with pytest.raises(VetoTableError, match="hanya menjalankan SELECT"):
+            _rows(store, "INSERT INTO snapshots (tool) VALUES ('x')")
+
+
+# --- independensi amatan --------------------------------------------------------------------
+def test_red_counts_are_reported_next_to_the_distinct_evidence_behind_them(tmp_path: Path) -> None:
+    """Dua simbol, satu envelope market-wide: 2 merah TAPI hanya 1 snapshot sumber.
+
+    Ini yang membuat `n` tidak terdengar lebih kuat daripada buktinya (temuan TINGGI).
+    """
+    for symbol in ("SOL", "BTC"):
+        build_store(
+            tmp_path,
+            cycles=1,
+            symbol=symbol,
+            name="shared.db",
+            mutate=lambda tool, envelope, cycle: (
+                envelope["data"].__setitem__("regime", "risk_off") if tool == "market_overview" else None
+            ),
+        )
+    result = run_sweep(tmp_path / "shared.db", symbols=("SOL", "BTC"))
+    tally = result.tallies["03_regime"]
+    assert tally.status["red"] == 2
+    assert len(tally.red_sources) == 1
+    text = render(result)
+    assert "1/2" in text
+    assert "market_overview → SATU args_hash untuk 2 simbol" in text
+    assert "TIDAK independen" in text
 
 
 def test_cause_distribution_counts_identical_values_together(tmp_path: Path) -> None:

@@ -698,6 +698,23 @@ def test_item8_says_how_many_days_behind_the_evidence_is() -> None:
     assert outcome.result.value["funding_data_date"] == "2026-09-04"
 
 
+def test_item8_escapes_control_characters_inside_data_date() -> None:
+    """`data_date` adalah string envelope seperti yang lain: ia lewat batas kepercayaan modul.
+
+    Sampai 5 Sep 2026 ia satu-satunya yang tidak (temuan TINGGI security-reviewer 2.1b). Ia
+    mendarat di `value` item 8 — yang merah 32x di DB nyata — lalu ikut ke `decisions.card_json`
+    dan ke stdout alat ukur `preflight/veto_table.py`, di mana escape ANSI bisa memindahkan
+    kursor dan menimpa baris yang alat itu sendiri hitung.
+    """
+    outcome = run(mutate={f"{MONITOR}:data.evidence.funding.data_date": "\x1b[10A\x1b[1Gpalsu"})[
+        ITEM_DERIVATIVES
+    ]
+    spoken = outcome.result.value["funding_data_date"]
+    assert "\x1b" not in spoken
+    assert spoken.startswith("\\u001b[10A")
+    assert "\x1b" not in outcome.result.reason
+
+
 def test_item8_does_not_call_a_missing_date_today(caplog: pytest.LogCaptureFixture) -> None:
     """`data_date` null TIDAK boleh dibaca "hari ini" dan tidak boleh didiamkan (null ≠ default)."""
     outcome = run(mutate={f"{MONITOR}:data.evidence.funding.data_date": None})[ITEM_DERIVATIVES]

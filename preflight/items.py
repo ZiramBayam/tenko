@@ -62,31 +62,55 @@ Bukan sifat kode, melainkan apa yang BENAR-BENAR terjadi atas ``data/ryo.db``. D
 ``preflight/veto_table.py`` lewat jalur produksi yang sama persis (:func:`preflight.skill.gather`
 → :func:`evaluate_all`), nol panggilan RYO, nol tulisan (``Store(read_only=True)``). Reproduksi::
 
-    uv run python -m preflight.veto_table --until 2026-09-05T12:32:00Z
+    cp data/ryo.db /tmp/frozen.db      # WAJIB — lihat peringatan di bawah
+    uv run python -m preflight.veto_table --db /tmp/frozen.db --until 2026-09-05T12:32:00Z
+
+.. warning::
+
+   ``--until`` SAJA TIDAK cukup untuk mengulang angka ini, dan tabel di bawah adalah buktinya.
+   ``core.store.FRESH_SCAN_LIMIT`` (=64) memindai 64 baris TERBARU per ``(tool, args_hash)``
+   **tanpa batas SQL atas** ``ts_utc``, jadi batas pindai bergerak relatif terhadap ujung DB,
+   bukan terhadap ``--until``. Selama perekam menambah baris, jangkar tertua jatuh keluar
+   jangkauan pindai walau ``--until`` dipatok. Terukur: perintah yang SAMA PERSIS memberi
+   ``n=226`` dengan 0 jangkar dibuang saat ditulis pertama kali, lalu ``n=201`` dengan
+   **25 jangkar dibuang** ~5 jam kemudian. Karena itu **jalankan atas SALINAN BEKU**; dua run
+   atas salinan yang sama terbukti byte-identik. Angka di bawah adalah run 2026-09-05T19:21Z.
+   Alat ukurnya melaporkan sendiri jangkar yang dibuang dan kedalaman pindai di headernya —
+   percayai header run-mu sendiri, bukan tabel yang ditempel di sini.
 
 Amatan = satu (simbol inti, jangkar), jangkar = ``ts_utc`` tiap baris ``analyze_token``;
-226 jangkar dipakai (SOL=59, BTC=59, ETH=55, BNB=53), 0 dibuang batas pindai, 0 gagal merakit
-bundel; jendela ``2026-09-01T03:51:46Z .. 2026-09-05T12:15:26Z``; ``params_hash``
+201 jangkar dipakai (SOL=52, BTC=52, ETH=49, BNB=48), **25 dibuang batas pindai**, 0 gagal
+merakit bundel; jendela ``2026-09-01T06:29:28Z .. 2026-09-05T12:15:26Z``; kedalaman pindai
+terdalam **62 dari 64**; ``params_hash``
 ``3d39fb1bd1a03b7f…``; ``max_age_min=120``; 14 snapshot dibuang karena ``ts_utc``-nya
 bertengkar dengan ``as_of`` (fixture TASKS 0.19)::
 
-    item                    n  green   red  unspoken  nilai penyebab merah
-    ----------------------------------------------------------------------------------------
-    01_freshness          226    226     0         0  —  (tidak pernah merah)
-    02_completeness       226    110   116         0  4 nilai berbeda; teratas 110x
-    03_regime             226    190    30         6  8 nilai berbeda; teratas 4x
-    04_sentiment_shift    226    203    20         3  3 nilai berbeda; teratas 8x
-    05_verdict_quick      226    176    47         3  5 nilai berbeda; teratas 19x
-    06_confluence         226    129    93         4  3 nilai berbeda; teratas 77x
-    07_verdict_deep       226    222     0         4  —  (tidak pernah merah)
-    08_derivatives        226    191    32         3  1 nilai berbeda; teratas 32x
-    09_plan               226    222     0         4  —  (tidak pernah merah)
-    10_relative           226    109     1       116  1 nilai berbeda; teratas 1x
+    item                    n  green   red  unspoken  snapshot merah  nilai penyebab merah
+    -------------------------------------------------------------------------------------------
+    01_freshness          201    201     0         0               -  —  (tidak pernah merah)
+    02_completeness       201    110    91         0      agregat/91  4 nilai berbeda; teratas 86x
+    03_regime             201    166    30         5            8/30  8 nilai berbeda; teratas 4x
+    04_sentiment_shift    201    178    20         3            5/20  3 nilai berbeda; teratas 8x
+    05_verdict_quick      201    158    40         3           39/40  4 nilai berbeda; teratas 13x
+    06_confluence         201    116    82         3           77/82  3 nilai berbeda; teratas 66x
+    07_verdict_deep       201    198     0         3               -  —  (tidak pernah merah)
+    08_derivatives        201    166    32         3            8/32  1 nilai berbeda; teratas 32x
+    09_plan               201    198     0         3               -  —  (tidak pernah merah)
+    10_relative           201    109     1        91             1/1  1 nilai berbeda; teratas 1x
+
+``snapshot merah`` = ``<snapshot sumber BERBEDA>/<cacah merah>``. **Cacah merah BUKAN cacah
+peristiwa**: ``market_overview`` dan ``monitor_market_sentiment_shift`` dipanggil dengan argumen
+``{}``, jadi keempat simbol membaca baris yang SAMA dan item 3/4/8 mencacah satu peristiwa pasar
+sampai 4x. Konkretnya: 32 merah item 8 lahir dari **8 snapshot** dalam satu jendela **7 j 59 mnt**
+(2026-09-04T11:21Z..19:21Z), 30 merah item 3 dari 8 snapshot, 20 merah item 4 dari 5. ``n=201``
+adalah cacah amatan, **bukan** ukuran sampel efektif — jangan dipakai untuk selang kepercayaan
+(TASKS 3.3 harus memperhitungkan duplikasi ini). Item 1 & 2 tidak menunjuk satu snapshot tunggal
+(keduanya membaca SELURUH envelope), jadi angkanya ditulis ``agregat``, bukan ditaksir nol.
 
 Yang dikatakan angka itu, apa adanya (kalimatnya digenerasi alat ukur dari cacahnya, bukan
 ditulis di muka):
 
-* **``01_freshness`` belum pernah menahan apa pun dalam n=226 amatan.** Konsisten dengan aturan
+* **``01_freshness`` belum pernah menahan apa pun dalam n=201 amatan.** Konsisten dengan aturan
   5 di atas: pada jalur store-first yang basi tidak ikut terbaca, jadi item ini praktis hanya
   bisa merah lewat bukti yang saling bertengkar di dalam satu bundle.
 * ``07_verdict_deep`` dan ``09_plan`` **0× merah**, tetapi masing-masing 4× ``unspoken`` —
@@ -99,7 +123,9 @@ ditulis di muka):
   direkam 2026-09-03), bukan sifat pasar. Sumber yang sama membuat ``10_relative``
   ``unspoken`` 116×.
 * ``08_derivatives`` (opsional, tidak pernah masuk ``blocking``) merah 32× dengan satu nilai
-  saja: ``funding_crowding_state=long_crowding`` + ``liquidation_pressure_state=extreme``.
+  saja: ``funding_crowding_state=long_crowding`` + ``liquidation_pressure_state=extreme`` —
+  tetapi dari **8 snapshot** dalam **satu** jendela 8 jam, jadi bacalah "satu episode funding",
+  bukan "32 kejadian".
 * "Merah" = item ini menahan keberangkatan, BUKAN bahwa menahannya benar; apakah veto membayar
   adalah TASKS 3.3.
 
@@ -1270,7 +1296,13 @@ def _data_date_note(monitor: Any, *blocks: str) -> tuple[dict[str, str | None], 
     reference = _as_date(monitor.as_of)
     for block in blocks:
         raw = _dig(monitor.data, "evidence", block, "data_date")
-        text = raw if isinstance(raw, str) else None
+        # Lewat `_text_value`, bukan `isinstance` telanjang: ini string envelope seperti yang
+        # lain, dan ia mendarat di `value` item 8 (lalu ke `decisions.card_json`, stdout alat
+        # ukur 2.1b, dan layar). Sampai 5 Sep 2026 ia SATU-SATUNYA string RYO di modul ini yang
+        # melewati batas kepercayaan yang dieja di docstring modul — escape ANSI di
+        # `data_date` bisa menimpa baris tabel/kartu di terminal (temuan KRITIS/TINGGI
+        # security-reviewer 2.1b). Tanggal yang sah tidak berubah sedikit pun oleh `clean_text`.
+        text = _text_value(raw)
         dates[block] = text
         day = _as_date(text)
         if day is None:
