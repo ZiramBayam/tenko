@@ -113,6 +113,10 @@ STATUSES: tuple[str, ...] = (GREEN, RED, UNSPOKEN)
 #: Batas panjang satu nilai teks di dalam kunci penyebab merah (nilai mentah dipotong, bukan
 #: dibulatkan — pemotongannya ditandai `…` supaya tidak terbaca sebagai nilai penuh).
 CAUSE_TEXT_LIMIT = 48
+
+#: Batas pesan log `core.*` yang dicontohkan di header (dulu `[:120]` mentah).
+LOG_TEXT_LIMIT = 120
+
 #: Batas panjang satu KUNCI (nama field) di dalam sidik jari itu.
 CAUSE_KEY_LIMIT = 64
 #: Kedalaman perataan `ItemResult.value`; lebih dalam dari ini diringkas jadi `…`.
@@ -371,7 +375,9 @@ class _LogSink(logging.Handler):
             self.sweep.log_skew_rows += 1
         else:
             # Sisa kategori = kejutan. Contohnya dicetak di header, bukan ditelan.
-            self.sweep.log_other[f"{record.name}: {message[:120]}"] += 1
+            # `getMessage()` bisa memuat teks pihak lain (payload tool yang ikut ke pesan
+            # `core.store`): dibersihkan seperti sink lain modul ini, bukan hanya dipotong.
+            self.sweep.log_other[f"{record.name}: {clean_text(message, LOG_TEXT_LIMIT)}"] += 1
 
 
 def sweep(
@@ -705,12 +711,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         store = Store(args.db, read_only=True)
     except StoreError as exc:
-        print(f"tidak bisa membuka store baca-saja: {exc}", file=sys.stderr)
+        # `exc` mengulang `--db` dari argv apa adanya (ANSI/CR di path akan tercetak mentah).
+        print(f"tidak bisa membuka store baca-saja: {_safe(str(exc))}", file=sys.stderr)
         return 2
     try:
         result = sweep(store, until=until, symbols=symbols)
     except StoreError as exc:
-        print(f"gagal membaca store: {exc}", file=sys.stderr)
+        print(f"gagal membaca store: {_safe(str(exc))}", file=sys.stderr)
         return 2
     finally:
         store.close()

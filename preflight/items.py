@@ -65,6 +65,12 @@ Bukan sifat kode, melainkan apa yang BENAR-BENAR terjadi atas ``data/ryo.db``. D
     cp data/ryo.db /tmp/frozen.db      # WAJIB — lihat peringatan di bawah
     uv run python -m preflight.veto_table --db /tmp/frozen.db --until 2026-09-05T12:32:00Z
 
+Salinan beku yang MANA: tabel di bawah lahir dari keadaan ``data/ryo.db`` s.d.
+``2026-09-05T19:21Z``: **3608 baris ``snapshots``, ``id <= 3608``** (dihitung ulang 6 Sep 2026
+atas ``data/ryo.db`` yang sama). Perekam hidup, jadi salinan yang diambil
+hari lain memuat lebih banyak baris dan — lewat batas pindai di peringatan berikut —
+memberi ``n`` yang lain. Sebutkan keadaan DB salinanmu saat mengutip angka apa pun dari sini.
+
 .. warning::
 
    ``--until`` SAJA TIDAK cukup untuk mengulang angka ini, dan tabel di bawah adalah buktinya.

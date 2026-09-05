@@ -18,11 +18,12 @@ Karena itu modul ini melahirkan DUA berkas, bukan satu:
 
 **Envelope `unavailable`-nya SINTETIS, dan itu ditulis di berkasnya sendiri.** `docs/api-facts.md`
 (tabel "Tipe & kosakata envelope") mencatat `status: unavailable` **BELUM PERNAH TERAMATI**
-(0/476 envelope): enumnya berasal dari RYO Builder MCP Guide, bukan dari sampel. Jadi bentuk
-envelope padam di sini adalah **hipotesis dari enum yang terdokumentasi**, bukan bukti yang
-pernah kami terima. Konsekuensinya ditandai eksplisit di setiap envelope sintetis (`warnings`
-membawa kata `SYNTHETIC`, `summary.headline` menyebut TASKS 2.2c) dan di blok `synthetic` berkas
-fixture — supaya tidak ada yang membacanya sebagai perilaku RYO yang terverifikasi.
+(0/3645 envelope; sapuan `id <= 3645`, 6 Sep 2026): enumnya berasal dari RYO Builder MCP
+Guide, bukan dari sampel. Jadi bentuk envelope padam di sini adalah **hipotesis dari enum
+yang terdokumentasi**, bukan bukti yang pernah kami terima. Konsekuensinya ditandai eksplisit
+di setiap envelope sintetis (`warnings` membawa kata `SYNTHETIC`, `summary.headline` menyebut
+TASKS 2.2c) dan di blok `synthetic` berkas fixture — supaya tidak ada yang membacanya sebagai
+perilaku RYO yang terverifikasi.
 
 **Yang TIDAK disintesis:** keempat envelope yang MENJAWAB adalah salinan apa adanya dari bukti
 nyata `data/ryo.db` (id 2491/2492/2494/2495/2544, jendela 2026-09-05T02:45Z..03:01Z) lewat
@@ -33,6 +34,15 @@ tetap `3d39fb1b…` (TASKS 5.0).
 **Fixture ini tidak boleh bisa masuk ke store bukti.** Penjaganya bukan penjaga baru:
 :func:`core.recorder.fixture_refusal` (TASKS 0.19) dipanggil SEBELUM `Store` dibuka, sama seperti
 `agent.demo_fixture` — satu definisi, bukan salinan kedua yang bisa menyimpang.
+
+**CLI-nya mengaku sebelum mencetak.** `preflight` tidak meneruskan `warnings` envelope padam ke
+envelope hasil, jadi byte kanonik di stdout — byte yang SAMA dengan `make skill`, yang di-screenshot
+dan masuk submission — tidak memuat satu jejak pun bahwa padamnya dibuat-buat. Karena itu
+:func:`main` mencetak :func:`confession_lines` ke **stderr** lebih dulu (stdout tetap satu baris
+JSON kanonik yang bisa di-pipe, bentuknya tidak disentuh) DAN menolak mencetak sama sekali bila
+:func:`verified_confession` menemukan envelope `unavailable` yang tidak mengaku dibentuk. Dua-duanya,
+bukan salah satu: pengakuan saja bisa hilang saat stderr dibuang, penolakan saja membuat pemakai
+tidak pernah membaca alasannya.
 
 Pemakaian::
 
@@ -58,7 +68,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from core.skill import SkillResult
+from core.skill import SkillResult, clean_text
 from core.store import Store, StoreError
 from preflight.params import DEFAULT_PARAMS, REQUIRED_TOOLS, Params
 from preflight.skill import preflight
@@ -146,7 +156,8 @@ def outage_envelope(envelope: Mapping[str, Any]) -> dict[str, Any]:
             "key_points": [
                 "status=unavailable with data=null: nothing here may be read as a number",
                 "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable "
-                "has never been observed from RYO (0/476), so this envelope is a hypothesis",
+                "has never been observed from RYO: 0/3645 (id <= 3645, 6 Sep 2026), so this "
+                "envelope is a hypothesis",
             ],
         },
         "availability": {section: "unavailable" for section in sections},
@@ -217,7 +228,8 @@ def build(mode: str, source_path: str | Path = SOURCE_FIXTURE_PATH) -> dict[str,
             "envelopes_rewritten_to_unavailable": synthetic,
             "why": (
                 "spec §7 step 2 needs one required tool unavailable while the others answer; "
-                "status=unavailable has never been observed from RYO (docs/api-facts.md: 0/476), "
+                "status=unavailable has never been observed from RYO: 0/3645 "
+                "(id <= 3645, 6 Sep 2026, docs/api-facts.md), "
                 "so these envelopes are shaped from the documented enum, not from evidence"
             ),
         },
@@ -337,6 +349,117 @@ def write(mode: str, path: str | Path | None = None, source_path: str | Path = S
     return target
 
 
+# --- pengakuan (CLI) ---------------------------------------------------------------------
+
+#: Batas panjang tiap potong teks fixture yang dicetak ke stderr (teks berkas = teks pihak lain:
+#: `--fixture` datang dari argv).
+CONFESSION_TEXT_LIMIT = 400
+
+
+def _labels(fixture: Mapping[str, Any]) -> list[str]:
+    """`tool (source_id N)` untuk tiap baris snapshot yang MENGAKU ditulis ulang."""
+    rows = fixture.get("snapshots")
+    rows = rows if isinstance(rows, list) else []
+    return [
+        f"{row.get('tool')} (source_id {row.get('source_id')})"
+        for row in rows
+        if isinstance(row, Mapping) and row.get("synthetic") is True
+    ]
+
+
+def verified_confession(fixture: Mapping[str, Any]) -> dict[str, Any]:
+    """Blok `synthetic` fixture, DIPERIKSA terhadap snapshotnya; lempar bila tidak cocok.
+
+    Dua arah diperiksa, karena keduanya adalah cara berbohong yang berbeda:
+
+    * setiap envelope ber-`status: unavailable` WAJIB ditandai `synthetic: true` dan disebut
+      di blok `synthetic` — RYO belum pernah mengirim status itu (0/3645, `id <= 3645`,
+      6 Sep 2026), jadi envelope padam yang tidak mengaku dibentuk adalah klaim yang tidak
+      bisa diperiksa siapa pun;
+    * daftar `envelopes_rewritten_to_unavailable` WAJIB persis sama dengan baris yang ditandai —
+      blok pengakuan yang menyebut lebih sedikit (atau lebih banyak) dari yang benar-benar
+      ditulis ulang sama menyesatkannya dengan tidak mengaku sama sekali.
+
+    Fixture tanpa satu pun baris sintetis sah: yang dikembalikan blok kosong.
+    """
+    rows = fixture.get("snapshots")
+    rows = rows if isinstance(rows, list) else []
+    unconfessed = [
+        f"{row.get('tool')} (source_id {row.get('source_id')})"
+        for row in rows
+        if isinstance(row, Mapping)
+        and isinstance(row.get("envelope"), Mapping)
+        and row["envelope"].get("status") == "unavailable"
+        and row.get("synthetic") is not True
+    ]
+    if unconfessed:
+        raise OutageFixtureError(
+            "envelope `status: unavailable` yang TIDAK mengaku dibentuk: "
+            f"{', '.join(unconfessed)}. RYO belum pernah mengirim status itu (0/3645, "
+            "`id <= 3645`, 6 Sep 2026), jadi envelope ini tidak bisa dicetak sebagai bukti."
+        )
+    labels = _labels(fixture)
+    if not labels:
+        return {}
+    note = fixture.get("synthetic")
+    if not isinstance(note, Mapping):
+        raise OutageFixtureError(
+            f"{len(labels)} envelope ditandai `synthetic: true` tetapi berkasnya tidak punya blok "
+            "`synthetic` yang menerangkannya"
+        )
+    listed = note.get("envelopes_rewritten_to_unavailable")
+    listed = [str(entry) for entry in listed] if isinstance(listed, list) else []
+    if listed != labels:
+        raise OutageFixtureError(
+            f"blok `synthetic` menyebut {listed or 'nol'} envelope ditulis ulang, sementara "
+            f"snapshotnya menandai {labels}"
+        )
+    if not str(note.get("why") or "").strip():
+        raise OutageFixtureError("blok `synthetic` tidak menyebut ALASAN envelope itu dibentuk")
+    return dict(note)
+
+
+def confession_lines(fixture: Mapping[str, Any], path: str | Path) -> list[str]:
+    """Pengakuan asal-usul envelope padam — DIBACA dari blok `synthetic` berkasnya sendiri.
+
+    Kalimatnya tidak dikarang di sini; yang ditambah CLI hanyalah kerangkanya. Teks berkas
+    dibersihkan :func:`core.skill.clean_text` seperti teks luar lainnya (`--fixture` argv).
+    """
+    note = verified_confession(fixture)
+    rows = fixture.get("snapshots")
+    rows = rows if isinstance(rows, list) else []
+    answered = [
+        str(row.get("source_id"))
+        for row in rows
+        if isinstance(row, Mapping) and row.get("synthetic") is not True
+    ]
+
+    def safe(text: Any) -> str:
+        return clean_text(str(text), CONFESSION_TEXT_LIMIT)
+
+    head = f"PENGAKUAN — dibaca dari blok `synthetic` berkas {safe(path)}:"
+    if not note:
+        return [head, "  berkas ini tidak menyatakan satu pun envelope sintetis."]
+    lines = [
+        head,
+        f"  envelope PADAM di bawah SINTETIS: ditulis ulang menjadi status=unavailable oleh "
+        f"{safe(note.get('task'))}, dari {safe(note.get('derived_from'))}. "
+        f"Yang dibentuk: {len(_labels(fixture))} envelope, yaitu",
+    ]
+    lines += [f"    {safe(label)}" for label in _labels(fixture)]
+    lines.append("  alasannya, apa adanya dari berkas itu:")
+    lines.append(f"    {safe(note.get('why'))}")
+    lines.append(
+        f"  yang TIDAK dibentuk: {len(answered)} envelope yang MENJAWAB adalah salinan apa adanya "
+        f"bukti nyata data/ryo.db id {', '.join(answered) or '—'}."
+    )
+    lines.append(
+        "  envelope JSON di stdout TIDAK membawa kata ini: `preflight` tidak meneruskan "
+        "`warnings` envelope padam ke envelope hasil (lihat agent/demo.py)."
+    )
+    return lines
+
+
 # --- CLI ---------------------------------------------------------------------------------
 
 
@@ -361,10 +484,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"ditulis: {write(mode).relative_to(ROOT)}")
             return 0
         path = args.fixture or PATHS[args.mode]
+        # Pengakuan LEBIH DULU, dan ia bisa menolak: envelope padam yang tidak mengaku dibentuk
+        # tidak pernah sampai ke stdout.
+        confession = confession_lines(_read_json(path), path)
         result = run(path)
     except OutageFixtureError as exc:
         print(f"outage_fixture: {exc}", file=sys.stderr)
         return 2
+    for line in confession:
+        print(line, file=sys.stderr)
     print(_envelope_text(result))
     return 0
 

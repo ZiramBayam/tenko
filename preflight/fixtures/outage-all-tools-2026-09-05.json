@@ -56,7 +56,7 @@
           "headline": "market_overview is unavailable; no data was returned for this call (SYNTHETIC outage fixture, TASKS 2.2c)",
           "key_points": [
             "status=unavailable with data=null: nothing here may be read as a number",
-            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO (0/476), so this envelope is a hypothesis"
+            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO: 0/3645 (id <= 3645, 6 Sep 2026), so this envelope is a hypothesis"
           ]
         },
         "tool": "market_overview",
@@ -89,7 +89,7 @@
           "headline": "monitor_market_sentiment_shift is unavailable; no data was returned for this call (SYNTHETIC outage fixture, TASKS 2.2c)",
           "key_points": [
             "status=unavailable with data=null: nothing here may be read as a number",
-            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO (0/476), so this envelope is a hypothesis"
+            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO: 0/3645 (id <= 3645, 6 Sep 2026), so this envelope is a hypothesis"
           ]
         },
         "tool": "monitor_market_sentiment_shift",
@@ -124,7 +124,7 @@
           "headline": "analyze_token is unavailable; no data was returned for this call (SYNTHETIC outage fixture, TASKS 2.2c)",
           "key_points": [
             "status=unavailable with data=null: nothing here may be read as a number",
-            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO (0/476), so this envelope is a hypothesis"
+            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO: 0/3645 (id <= 3645, 6 Sep 2026), so this envelope is a hypothesis"
           ]
         },
         "tool": "analyze_token",
@@ -163,7 +163,7 @@
           "headline": "deep_analysis is unavailable; no data was returned for this call (SYNTHETIC outage fixture, TASKS 2.2c)",
           "key_points": [
             "status=unavailable with data=null: nothing here may be read as a number",
-            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO (0/476), so this envelope is a hypothesis"
+            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO: 0/3645 (id <= 3645, 6 Sep 2026), so this envelope is a hypothesis"
           ]
         },
         "tool": "deep_analysis",
@@ -201,7 +201,7 @@
           "headline": "compare_tokens is unavailable; no data was returned for this call (SYNTHETIC outage fixture, TASKS 2.2c)",
           "key_points": [
             "status=unavailable with data=null: nothing here may be read as a number",
-            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO (0/476), so this envelope is a hypothesis"
+            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO: 0/3645 (id <= 3645, 6 Sep 2026), so this envelope is a hypothesis"
           ]
         },
         "tool": "compare_tokens",
@@ -236,6 +236,6 @@
       "compare_tokens (source_id 2544)"
     ],
     "task": "TASKS 2.2c",
-    "why": "spec \u00a77 step 2 needs one required tool unavailable while the others answer; status=unavailable has never been observed from RYO (docs/api-facts.md: 0/476), so these envelopes are shaped from the documented enum, not from evidence"
+    "why": "spec \u00a77 step 2 needs one required tool unavailable while the others answer; status=unavailable has never been observed from RYO: 0/3645 (id <= 3645, 6 Sep 2026, docs/api-facts.md), so these envelopes are shaped from the documented enum, not from evidence"
   }
 }

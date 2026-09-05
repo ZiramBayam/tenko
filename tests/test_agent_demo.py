@@ -160,7 +160,7 @@ def test_step_two_admits_on_screen_that_the_outage_envelope_is_synthetic(script:
     # Tool mana yang ditulis ulang, dan alasannya apa adanya dari berkas fixture.
     assert "monitor_market_sentiment_shift (source_id 2492)" in disclosure
     assert "has never been observed from RYO" in disclosure
-    assert "0/476" in disclosure
+    assert "0/3645 (id <= 3645, 6 Sep 2026" in disclosure
     # Yang MENJAWAB adalah bukti nyata: tujuh item hijau dinilai atas angka RYO, bukan karangan.
     assert "4 envelope yang MENJAWAB adalah salinan apa adanya" in disclosure
     for source_id in ("2491", "2494", "2495", "2544"):

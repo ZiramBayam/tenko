@@ -12,7 +12,7 @@
       ],
       "data_is_null": false,
       "decision": "NO_GO",
-      "decision_hash": "0e2ea43792ff74d0029890ebe70b6d3c47f3c4f0a08d93170252b94e87b936ac",
+      "decision_hash": "b5000bd314e8ccca4355b82df7a38da05fcf4fd6450862ca8eea8093efe1daf0",
       "envelope_status": "partial",
       "item_status": {
         "01_freshness": "green",
@@ -180,7 +180,7 @@
           "headline": "monitor_market_sentiment_shift is unavailable; no data was returned for this call (SYNTHETIC outage fixture, TASKS 2.2c)",
           "key_points": [
             "status=unavailable with data=null: nothing here may be read as a number",
-            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO (0/476), so this envelope is a hypothesis"
+            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO: 0/3645 (id <= 3645, 6 Sep 2026), so this envelope is a hypothesis"
           ]
         },
         "tool": "monitor_market_sentiment_shift",
@@ -569,6 +569,6 @@
       "monitor_market_sentiment_shift (source_id 2492)"
     ],
     "task": "TASKS 2.2c",
-    "why": "spec \u00a77 step 2 needs one required tool unavailable while the others answer; status=unavailable has never been observed from RYO (docs/api-facts.md: 0/476), so these envelopes are shaped from the documented enum, not from evidence"
+    "why": "spec \u00a77 step 2 needs one required tool unavailable while the others answer; status=unavailable has never been observed from RYO: 0/3645 (id <= 3645, 6 Sep 2026, docs/api-facts.md), so these envelopes are shaped from the documented enum, not from evidence"
   }
 }

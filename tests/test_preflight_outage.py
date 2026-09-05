@@ -11,7 +11,8 @@ dua AC-nya dipaku di dua tes yang namanya menyebut bedanya:
 
 Sisa tes di berkas ini menjaga bahwa fixturenya sendiri jujur: envelope yang MENJAWAB adalah
 salinan apa adanya dari bukti nyata (TASKS 3.4a), envelope yang padam mengaku SINTETIS (RYO
-belum pernah mengeluarkan `status: unavailable` — `docs/api-facts.md` 0/476), fixture tidak
+belum pernah mengeluarkan `status: unavailable` — `docs/api-facts.md` 0/3645, `id <= 3645`
+per 6 Sep 2026), fixture tidak
 bisa masuk ke store bukti (penjaga TASKS 0.19), dan `make demo` benar-benar memakai fixture (1)
 untuk langkah 2 — bukan fixture (2), yang memperagakan kalimat lain.
 """
@@ -34,11 +35,13 @@ from preflight.outage_fixture import (
     SOURCE_IDS,
     OutageFixtureError,
     build,
+    confession_lines,
     main,
     materialize,
     observed,
     outage_envelope,
     run,
+    verified_confession,
 )
 from preflight.params import ITEM_COMPLETENESS, ITEM_DERIVATIVES, ITEM_SENTIMENT_SHIFT, REQUIRED_TOOLS
 
@@ -189,7 +192,7 @@ def test_every_answering_envelope_is_copied_verbatim_from_real_evidence() -> Non
 
 
 def test_the_synthetic_envelopes_admit_that_ryo_has_never_sent_one() -> None:
-    """`status: unavailable` belum pernah teramati (api-facts 0/476) — fixture harus mengakuinya."""
+    """`status: unavailable` belum pernah teramati (api-facts 0/3645) — fixture harus mengakuinya."""
     for path in (ONE_TOOL_FIXTURE_PATH, ALL_TOOLS_FIXTURE_PATH):
         fixture = _fixture(path)
         note = fixture["synthetic"]
@@ -267,6 +270,70 @@ def test_the_module_runs_as_a_command_and_exits_zero_for_both_fixtures(
     assert envelope["tool"] == "preflight"
     assert envelope["simulated"] is True
     assert envelope["status"] == ("partial" if mode == "one" else "unavailable")
+
+
+@pytest.mark.parametrize("mode", sorted(MODES))
+def test_the_command_confesses_on_stderr_while_stdout_stays_the_canonical_envelope(
+    mode: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Byte di stdout sama dengan `make skill` — jadi pengakuannya harus ada, tapi bukan di sana.
+
+    `preflight` tidak meneruskan `warnings` envelope padam, jadi envelope hasil tidak memuat
+    satu kata pun tentang asal-usul padamnya (`agent/demo.py` sudah menutup itu untuk jalur
+    demo; CLI ini punya lubang yang sama). Yang dituntut: stderr mengaku dengan kalimat milik
+    berkas fixture sendiri, stdout tetap satu baris JSON yang bisa di-pipe.
+    """
+    assert main(["--mode", mode]) == 0
+    captured = capsys.readouterr()
+    envelope = json.loads(captured.out.strip())
+    assert captured.out.count("\n") == 1
+    assert "PENGAKUAN" not in captured.out and "SINTETIS" not in captured.out
+    err = captured.err
+    assert "PENGAKUAN" in err
+    assert "envelope PADAM di bawah SINTETIS" in err
+    assert "TASKS 2.2c" in err
+    assert "0/3645 (id <= 3645, 6 Sep 2026" in err
+    assert f"{DOWN_TOOL} (source_id 2492)" in err
+    assert envelope["status"] == ("partial" if mode == "one" else "unavailable")
+
+
+def test_the_command_refuses_to_print_an_outage_that_does_not_confess(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Envelope `unavailable` tanpa pengakuan = klaim yang tidak bisa diperiksa: exit 2, stdout kosong."""
+    fixture = _fixture(ONE_TOOL_FIXTURE_PATH)
+    fixture.pop("synthetic")
+    for row in fixture["snapshots"]:
+        row["synthetic"] = False
+    path = tmp_path / "diam-diam.json"
+    path.write_text(json.dumps(fixture), encoding="utf-8")
+
+    assert main(["--fixture", str(path)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "TIDAK mengaku dibentuk" in captured.err
+    assert f"{DOWN_TOOL} (source_id 2492)" in captured.err
+
+
+def test_the_confession_must_match_the_snapshots_it_claims_to_describe(tmp_path: Path) -> None:
+    """Blok `synthetic` yang menyebut lebih sedikit dari yang ditulis ulang juga ditolak."""
+    fixture = _fixture(ALL_TOOLS_FIXTURE_PATH)
+    assert len(fixture["synthetic"]["envelopes_rewritten_to_unavailable"]) == len(SOURCE_IDS)
+    fixture["synthetic"]["envelopes_rewritten_to_unavailable"] = ["market_overview (source_id 2491)"]
+    with pytest.raises(OutageFixtureError, match="menandai"):
+        verified_confession(fixture)
+
+    honest = _fixture(ONE_TOOL_FIXTURE_PATH)
+    honest["synthetic"]["why"] = "   "
+    with pytest.raises(OutageFixtureError, match="ALASAN"):
+        verified_confession(honest)
+
+    # Fixture tanpa satu pun baris sintetis sah: pengakuannya kosong, bukan karangan.
+    plain = _fixture(SOURCE_FIXTURE_PATH)
+    assert verified_confession(plain) == {}
+    assert "tidak menyatakan satu pun envelope sintetis" in "\n".join(
+        confession_lines(plain, SOURCE_FIXTURE_PATH)
+    )
 
 
 def test_make_demo_uses_the_one_tool_fixture_for_step_two() -> None:

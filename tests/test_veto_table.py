@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import logging
 import subprocess
 import sys
 from collections.abc import Callable
@@ -417,6 +418,50 @@ def test_the_data_date_that_carries_the_payload_is_cleaned_at_the_item_too(tmp_p
     assert "\x1b" not in spoken  # ESC mentah tidak pernah masuk `value`
     assert "\\u001b" in spoken  # ia disebut, dalam bentuk yang tidak bisa menggerakkan kursor
     assert "\x1b" not in json.dumps(item.value)
+
+
+def test_the_store_error_that_repeats_argv_is_cleaned_before_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`StoreError` mengulang `--db` apa adanya; escape ANSI di path tidak boleh mentah di stderr.
+
+    `render()` sudah membersihkan nilai yang SAMA (`_safe(str(result.db_path))`); jalur gagal
+    membuka store melewatkannya, jadi satu path ber-ANSI mencetak dirinya ke terminal lewat
+    exit yang justru dianggap "aman karena gagal".
+    """
+    bogus = tmp_path / "\x1b[31mPWNED\x1b[0m" / "hilang.db"
+    assert main(["--db", str(bogus), "--until", NOW.isoformat()]) == 2
+    err = capsys.readouterr().err
+    assert "tidak bisa membuka store baca-saja" in err
+    assert "\x1b" not in err
+    assert "\\u001b" in err
+
+
+def test_a_core_log_message_cannot_smuggle_ansi_into_the_header(tmp_path: Path) -> None:
+    """Contoh log `core.*` di header lewat `clean_text`, bukan hanya dipotong `[:120]`.
+
+    `_LogSink` menampung SELURUH log logger `core` selama sapuan, dan `record.getMessage()`
+    bisa memuat teks pihak lain. Header alat ukur mencetak contohnya; ESC mentah di sana
+    memindahkan kursor dan menimpa baris tabel yang alat ini sendiri hitung.
+    """
+    result = Sweep(db_path=tmp_path / "x.db", until=NOW, symbols=("SOL",), params=DEFAULT_PARAMS)
+    sink = veto_table._LogSink(result)
+    sink.emit(
+        logging.LogRecord(
+            "core.store",
+            logging.WARNING,
+            __file__,
+            1,
+            "kejutan \x1b[10A\x1b[1G%s",
+            ("palsu\u202e",),
+            None,
+        )
+    )
+    (key,) = result.log_other
+    assert "\x1b" not in key
+    assert "\u202e" not in key
+    assert "\\u001b" in key and "\\u202e" in key
+    assert key.startswith("core.store: kejutan ")
 
 
 def test_argv_text_printed_in_the_header_is_cleaned(tmp_path: Path) -> None:
