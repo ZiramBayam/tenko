@@ -323,7 +323,10 @@ Ulangi: `python3 -c 'import sqlite3,json,collections;c=sqlite3.connect("file:dat
 
 **Yang benar-benar membuat harga tidak ada BUKAN field null, melainkan KESEGARAN.** `agent/trade.py:latest_price` memakai
 `Store.latest_fresh(..., max_age_min=120)`; harga "tidak ada" bila perekam tidak menulis baris `analyze_token` untuk simbol itu
-dalam 120 menit terakhir. Sapuan `id <= 1727` atas 4 simbol inti (jendela 2026-09-01T03:51Z–2026-09-03T20:32Z, ≈64,7 jam):
+dalam 120 menit terakhir.
+
+##### Sapuan A — 4 Sep 2026 (TASKS 0.8), `id 3..1723`, jendela `2026-09-01T03:51:43Z..2026-09-03T20:32:21Z` (64,7 j)
+Angka ini TETAP BERLAKU untuk jendela itu dan **tidak dihapus**; ia dipakai sebagai KONTROL metodologi di sapuan 5 Sep.
 | simbol | n baris analyze_token | jarak antar-baris median | jarak maksimum | jarak > 120 mnt | % waktu ada harga ≤ 120 mnt |
 |---|---|---|---|---|---|
 | SOL | 36 | 62 mnt | **1194 mnt (19,9 j)** | 7 | 57,5 % |
@@ -334,6 +337,128 @@ Artinya: pada DB ini, sebuah posisi terbuka menghadapi harga "tidak diketahui" k
 **24 jam berturut-turut** — sama panjang dengan `DEFAULT_TIMEOUT_MIN` agen, sehingga `timeout` pun (yang wajib punya harga) bisa
 gagal tercatat tepat saat ia jatuh tempo. Penyebabnya perekam kami (proses berhenti/macet, mis. macet ~3 jam 3 Sep 2026), BUKAN RYO.
 Ulangi: `python3 -c 'import sqlite3,json,collections,datetime;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);r=list(c.execute("SELECT id,args_json,ts_utc FROM snapshots WHERE tool=\'analyze_token\' ORDER BY id"));print("max id",r[-1][0]);d=collections.defaultdict(list);[d[json.loads(a)["symbol"]].append(datetime.datetime.fromisoformat(t)) for _,a,t in r];print({s:(len(v),round(max((v[k+1]-v[k]).total_seconds()/60 for k in range(len(v)-1)))) for s,v in d.items() if s in ("SOL","BTC","ETH","BNB")})'`
+
+##### Sapuan B — 5 Sep 2026 (TASKS 0.8b), DB 3100 baris, baris terbaru `2026-09-05T11:38:55.512961+00:00`
+Diverifikasi ulang oleh `api-verifier` 5 Sep 2026 dari `data/ryo.db` yang dibuka **read-only**
+(`sqlite3.connect("file:"+quote(path)+"?mode=ro", uri=True)` + `PRAGMA query_only=ON`; nol byte ditulis).
+Definisi `% segar` sama persis dengan sapuan 4 Sep: Σ min(jarak, 120 mnt) + min(sisa dari baris terakhir ke ujung jendela, 120 mnt),
+dibagi panjang jendela (= gabungan interval `[t, t+120 mnt]` dipotong jendela).
+
+**KONTROL — replikasi jendela 4 Sep** (`2026-09-01T03:51:43Z..2026-09-03T20:32:21Z`, id 3..1723):
+SOL 36 / 62 mnt / 1194 mnt / 7 / 57,5 % · BTC 36/63/1193/7/57,5 % · ETH 33/63/1455/6/54,5 % · BNB 31/63/1455/5/51,8 %
+— **identik dengan tabel Sapuan A di atas**, jadi metodologi kedua sapuan terbukti sama.
+
+**B1 — jendela "pasca-pendaratan commit"** (commit `e06256e` `2026-09-04T11:38:57Z` = 18:38:57 WIB)
+`..2026-09-05T11:13:22.083896Z`, **23,57 j**, id `analyze_token` inti 2049..3060, n total 70.
+Tepi terpotong: awal 53–56 mnt, akhir 0–26 mnt.
+
+> **ANGKA 77 % DI BAWAH INI TIDAK BOLEH DIATRIBUSIKAN KE 0.8a.** Anchor "sejak commit mendarat" **keliru**:
+> pendaratan commit ≠ kode itu berjalan. Perekam yang sedang hidup saat commit mendarat sudah mulai 03:27 WIB dan
+> **tidak pernah di-restart** sampai mati; ia menjalankan kode LAMA sepanjang sisa hidupnya. Anchor yang benar adalah
+> **baris `perekam mulai` terakhir** (→ B3). Jendela B1 adalah **campuran tiga rezim**, terverifikasi dari `logs/recorder.log`:
+> | rezim | dari → sampai (UTC) | durasi | porsi B1 |
+> |---|---|---|---|
+> | kode **LAMA** (proses mulai 03:27 WIB, tak pernah restart) | `11:38:57Z` → `2026-09-04T19:22:48Z` | **7,73 j** (7:43:51) | 32,8 % |
+> | perekam **MATI** (senyap, tak ada proses) | → `2026-09-05T01:44:59Z` | **6,37 j** (6:22:11) | 27,0 % |
+> | kode **0.8a** (`perekam mulai` 08:44:59 WIB) | → `2026-09-05T11:13:22Z` | **9,47 j** (9:28:23) | 40,2 % |
+> | total | | **23,57 j** | 100 % |
+> Jadi 77,4 % adalah rata-rata tertimbang atas 7,7 j kode lama + 6,4 j mati total + 9,5 j kode baru — **bukan** ukuran 0.8a.
+| simbol | n | jarak median | jarak maks | jarak > 120 mnt | % segar |
+|---|---|---|---|---|---|
+| SOL | 18 | 60 mnt | 387 mnt (6,4 j) | 1 | 77,4 % |
+| BTC | 18 | 60 mnt | 387 mnt (6,4 j) | 1 | 77,4 % |
+| ETH | 17 | 60 mnt | 386 mnt (6,4 j) | 1 | 77,2 % |
+| BNB | 17 | 60 mnt | 387 mnt (6,4 j) | 1 | 77,2 % |
+
+**B2 — 64,70 j sampai 5 Sep 2026 11:13Z** (`2026-09-02T18:31:22Z..2026-09-05T11:13:22.083896Z`, id 1210..3060),
+panjang jendela sama dengan Sapuan A tetapi **letaknya bergeser** — lihat peringatan artefak di bawah:
+| simbol | n | jarak median | jarak maks | jarak > 120 mnt | % segar |
+|---|---|---|---|---|---|
+| SOL | 32 | 60 mnt | 714 mnt (11,9 j) | 3 | 51,0 % |
+| BTC | 32 | 60 mnt | 714 mnt | 3 | 51,0 % |
+| ETH | 30 | 61 mnt | 714 mnt | 3 | 50,9 % |
+| BNB | 30 | 60 mnt | 714 mnt | 3 | 50,9 % |
+
+**B3 — sejak baris `perekam mulai` terakhir, yakni perekam berkode 0.8a** (`2026-09-05T01:44:59Z` = 08:44:59 WIB
+`..2026-09-05T11:13:22.083896Z`, **hanya 9,47 j — BUKAN 24 j**):
+SOL 11/60/**60 mnt**/**0**/100,0 % · BTC 11/60/60/**0**/99,9 % · ETH 10/60/60/**0**/99,6 % · BNB 10/60/60/**0**/99,5 %.
+
+**PERINGATAN ARTEFAK JENDELA (jangan kutip "max gap turun" tanpa kalimat ini).**
+Jarak maksimum dibatasi oleh panjang jendela: sebuah jendela sepanjang **<24,3 j secara struktural TIDAK BISA memunculkan
+jarak maksimum 1455 mnt (24,3 j)**. Jendela B1 (23,57 j = 1414 mnt) dan B3 (9,47 j = 568 mnt) keduanya lebih pendek dari 1455 mnt,
+jadi sebagian penurunan "max gap 1455 → 387 → 60 mnt" adalah **artefak jendela, bukan hanya perbaikan**.
+
+**Max gap dan jumlah celah B2 JUGA artefak — artefak LETAK tepi, bukan panjang jendela.** Panjang B2 memang sama dengan
+Sapuan A (64,7 j), tetapi letaknya bergeser, dan dua celah terbesar Sapuan A **hilang dari daftar celah B2 semata-mata karena
+keduanya MULAI sebelum tepi awal `2026-09-02T18:31:22Z`**: celah 1194 mnt SOL `2026-09-02T14:43:28Z→2026-09-03T10:37:03Z`
+dan celah 1455 mnt ETH `2026-09-02T10:24:21Z→2026-09-03T10:39:22Z`. Sebuah celah yang menembus tepi awal tidak terhitung
+sebagai "celah" sama sekali — ia jadi **waktu mati di tepi**. Konsekuensinya, angka yang jujur:
+**rentang tanpa-data TERPANJANG yang benar-benar dialami di dalam jendela B2 adalah ≥966 mnt (16,1 j) di tepi awal, BUKAN 714 mnt**
+(tepi awal 966–969 mnt untuk keempat simbol). Hal yang sama menjelaskan 7→3 celah: 6 dari 7 celah SOL di Sapuan A mulai sebelum
+`18:31:22Z`, jadi jatuh di luar B2. **Jangan kutip "max gap 1455 → 714 mnt" atau "7 → 3 celah" sebagai perbaikan.**
+
+Bukti bahwa itu artefak, bukan perbaikan: **% segar B2 (50,9–51,0 %) justru LEBIH RENDAH daripada Sapuan A (51,8–57,5 %)**
+meski max gap dan jumlah celah "turun". Untuk BNB selisihnya hanya **51,8 % → 50,9 % = 0,9 pp**, di dalam sensitivitas letak tepi
+yang diperingatkan paragraf ini sendiri; untuk SOL/BTC 57,5 % → 51,0 % = 6,5 pp. (Rentang Sapuan A dibaca langsung dari tabelnya
+di atas: BNB 51,8 % terendah, SOL/BTC 57,5 % tertinggi.)
+
+Kesimpulan jujur: **satu-satunya angka yang tidak dipengaruhi letak maupun panjang tepi adalah B3** — 9,47 j sejak baris
+`perekam mulai` terakhir, tanpa satu pun celah > 120 mnt, dengan setiap celah terhitung penuh di dalam jendela. Dan ia
+menutupi 9,47 j saja. B1 dan B2 tidak boleh dipakai untuk mengklaim perbaikan.
+
+**Atribusi 3 celah > 120 mnt di jendela B2** (angka SOL, mewakili keempat simbol; log `logs/recorder.log` zona lokal WIB = UTC+7):
+1. **196 mnt** `2026-09-03T17:10:52Z → 20:26:43Z` (id 1647→1711).
+2. **714 mnt (11,9 j)** `2026-09-03T23:27:26Z → 2026-09-04T11:21:26Z` (id 1912→1978).
+   **TEROBSERVASI** (pola log, bukan catatan sistem): baris terakhir sebelum senyap
+   `2026-09-04 06:45:31,655 core.recorder siklus selesai: 66 snapshot ... durasi=1086s`, baris pertama sesudahnya
+   `2026-09-04 18:21:23,097 ... market_overview ... 200 OK` — **11 j 35 mnt 51 dtk tanpa satu baris log**; dan
+   **tidak ada baris `perekam mulai`** di antara `2026-09-04 03:27:27,731` dan `2026-09-05 08:44:59,297`, jadi proses yang sama
+   menembus celah itu: ia tidak mati dan tidak di-restart.
+   **INFERENSI TERBAIK, BELUM DIVERIFIKASI:** host tersuspend. Kami **tidak** punya catatan sistem (dmesg/journal/wtmp) yang
+   melihatnya. Pola log yang sama konsisten dengan **request menggantung tanpa timeout**, **`SIGSTOP`**, atau **oversleep
+   penjadwal**. Jangan kutip "suspend" sebagai fakta terobservasi.
+   Yang **pasti** dan cukup untuk keputusan: proses itu mulai 03:27 WIB dan tidak pernah di-restart, sedangkan perbaikan 0.8a
+   baru mendarat 18:38:57 WIB → **celah ini terjadi di bawah kode LAMA**, bukan kode 0.8a.
+3. **387 mnt (6,4 j)** `2026-09-04T19:18:29Z → 2026-09-05T01:45:04Z` (id 2419→2435).
+   **TEROBSERVASI:** baris log terakhir `2026-09-05 02:22:48,376 ... analyze_token ... 200 OK` **tanpa `siklus selesai`
+   sesudahnya** — **senyap 6 j 22 mnt 11 dtk** — lalu `2026-09-05 08:44:59,297 core.recorder perekam mulai: ...`,
+   yaitu **proses BARU** (baris `perekam mulai` = start baru), dihidupkan manual.
+   **INFERENSI TERBAIK, BELUM DIVERIFIKASI:** proses lama mati di tengah siklus. Tidak ada traceback, exit code, atau catatan
+   OOM/sinyal yang kami lihat; yang terobservasi hanya senyap-lalu-proses-baru.
+   Terlepas dari sebabnya, remedinya sama dan bukan di `core/`: **supervisi proses + auto-restart (0.8c, manusia)**.
+
+**Baris fixture `id 1597–1643` (TASKS 0.19) ikut terhitung di kedua sapuan.** Rentang itu memuat 4 baris simbol inti
+(1600 SOL, 1602 BTC, 1604 ETH, 1606 BNB — semuanya `2026-09-03T16:31:16Z`) dan jendela Sapuan A pun memuatnya.
+Mengecualikan `id 1597..1643` mengubah n B2 dari 32/32/30/30 → 31/31/29/29 dan n Sapuan A dari 36/36/33/31 → 35/35/32/30,
+tetapi **% segar tidak bergeser sama sekali** (B2 51,0/51,0/50,9/50,9 %; Sapuan A 57,5/57,5/54,5/51,8 %) dan max gap juga tidak;
+yang bergeser hanya median (+1–2 mnt). Jadi fixture tidak mengarang kesegaran.
+
+Ketiga jendela **tertutup** (ujung tetap `2026-09-05T11:13:22.083896Z`), jadi tabel di atas **tetap reproducible walau DB terus tumbuh**:
+perekam hidup menambah baris ber-`ts_utc` di atas ujung itu, di luar semua jendela. Diuji: DB tumbuh 3100 → 3134 baris
+saat verifikasi berlangsung dan keluaran resep di bawah tidak berubah sedikit pun.
+
+**Ujung jendela WAJIB ditulis lengkap dengan mikrodetik `...11:13:22.083896`.** id 3060 (BTC) ber-`ts_utc`
+`2026-09-05T11:13:22.083896+00:00`; memotongnya jadi `11:13:22` membuang baris itu dan resep ini **tidak** mereproduksi
+tabel di atas — BTC menjadi n=17/31/10 (bukan 18/32/11) dengan id terakhir 2995 (bukan 3060) di B1/B2/B3.
+
+Ulangi (ganti jendela sesuai B1/B2/B3):
+```
+python3 -c 'import sqlite3,json,statistics,datetime as D
+from urllib.parse import quote
+c=sqlite3.connect("file:"+quote("data/ryo.db",safe="/")+"?mode=ro",uri=True);c.execute("PRAGMA query_only=ON")
+W=(D.datetime.fromisoformat("2026-09-04T11:38:57+00:00"),D.datetime.fromisoformat("2026-09-05T11:13:22.083896+00:00"))
+d={}
+for i,a,t in c.execute("SELECT id,args_json,ts_utc FROM snapshots WHERE tool=\"analyze_token\" ORDER BY id"):
+ s=json.loads(a).get("symbol");t=D.datetime.fromisoformat(t)
+ if s in ("SOL","BTC","ETH","BNB") and W[0]<=t<=W[1]: d.setdefault(s,[]).append((i,t))
+for s in ("SOL","BTC","ETH","BNB"):
+ v=[t for _,t in d[s]];g=[(v[k+1]-v[k]).total_seconds()/60 for k in range(len(v)-1)]
+ cov=(sum(min(x,120) for x in g)+min((W[1]-v[-1]).total_seconds()/60,120))/((W[1]-W[0]).total_seconds()/60)*100
+ print(s,d[s][0][0],d[s][-1][0],len(v),round(statistics.median(g)),round(max(g)),sum(1 for x in g if x>120),"%.1f"%cov)'
+```
+Kolom DB yang dipakai hanya `snapshots.id/tool/args_json/ts_utc` dan `args.symbol` — **tidak ada field, endpoint, atau paket baru**
+(skema nyata: `id, tool, args_json, args_hash, ts_utc, as_of, status, payload_json, payload_hash`).
+`max_age_min=120` di `agent/trade.py`/`preflight` **tidak diubah** oleh sapuan ini.
 
 **Tidak ada field harga yang lebih baik di envelope** (dicek 4 Sep 2026, `id <= 1727`):
 `deep_analysis.data.market.price_usd` sama-sama 100 % terisi tetapi barisnya LEBIH SEDIKIT (653 vs 929) dan ditulis pada siklus
