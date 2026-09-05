@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Naskah demo docs/spec.md §7 langkah 1-6 dari fixture offline (TASKS 3.4).
 # Pakai: make demo   ·   make demo ARGS="--step2-fixture path.json"   ·   bash scripts/demo.sh
+# Langkah 2 memakai fixture kegagalan TASKS 2.2c secara BAWAAN (lihat di bawah).
 #
 # Kontrak yang dijaga tes (tests/test_agent_demo.py):
 #   * `make demo > a; make demo > b; diff a b` KOSONG — seluruh naskah deterministik.
@@ -17,4 +18,18 @@
 # menambah satu jalan lagi bagi kredensial untuk sampai ke keluaran yang di-screenshot.
 set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
-exec uv run python -m agent.demo "$@"
+
+# §7 langkah 2 menuntut item 02 MERAH, dan itu hanya lahir bila SATU tool wajib menjawab
+# `unavailable` sementara yang lain menjawab. Fixture berbentuk itu sekarang ada (TASKS 2.2c),
+# jadi `make demo` memakainya SECARA BAWAAN — bukan hanya bila dilewatkan tangan. Fixture
+# kegagalan yang KEDUA (semua tool padam) sengaja tidak dipakai di sini: ia menghasilkan
+# envelope `unavailable` + item 02 `unspoken`, kalimat lain, bukan naskah langkah 2.
+# Penelepon yang menyebut --step2-fixture sendiri tetap menang.
+step2=(--step2-fixture "preflight/fixtures/outage-one-tool-2026-09-05.json")
+for arg in "$@"; do
+  case "$arg" in
+    --step2-fixture | --step2-fixture=*) step2=() ;;
+  esac
+done
+
+exec uv run python -m agent.demo ${step2[@]+"${step2[@]}"} "$@"

@@ -1,0 +1,241 @@
+{
+  "captured_at": "2026-09-05T14:48:18.741118+00:00",
+  "fixture_version": 1,
+  "name": "outage-all-tools-2026-09-05",
+  "now": "2026-09-05T03:03:19.707701+00:00",
+  "params_hash": "3d39fb1bd1a03b7f5269f53fec347d34645d2b402ff1c2de47e53f19d69616b7",
+  "recorded": {
+    "SOL": {
+      "blocking": [
+        "01_freshness",
+        "02_completeness",
+        "03_regime",
+        "04_sentiment_shift",
+        "05_verdict_quick",
+        "06_confluence",
+        "07_verdict_deep",
+        "09_plan",
+        "10_relative"
+      ],
+      "data_is_null": true,
+      "decision": "NO_GO",
+      "decision_hash": null,
+      "envelope_status": "unavailable",
+      "item_status": {
+        "01_freshness": "unspoken",
+        "02_completeness": "unspoken",
+        "03_regime": "unspoken",
+        "04_sentiment_shift": "unspoken",
+        "05_verdict_quick": "unspoken",
+        "06_confluence": "unspoken",
+        "07_verdict_deep": "unspoken",
+        "08_derivatives": "unspoken",
+        "09_plan": "unspoken",
+        "10_relative": "unspoken"
+      }
+    }
+  },
+  "snapshots": [
+    {
+      "args": {},
+      "envelope": {
+        "as_of": "2026-09-05T02:45:02Z",
+        "availability": {
+          "market_breadth": "unavailable",
+          "market_regime": "unavailable",
+          "market_sentiment": "unavailable",
+          "market_totals": "unavailable",
+          "top_movers": "unavailable"
+        },
+        "data": null,
+        "data_mode": "unknown",
+        "request": {},
+        "schema_version": "1.0",
+        "status": "unavailable",
+        "summary": {
+          "headline": "market_overview is unavailable; no data was returned for this call (SYNTHETIC outage fixture, TASKS 2.2c)",
+          "key_points": [
+            "status=unavailable with data=null: nothing here may be read as a number",
+            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO (0/476), so this envelope is a hypothesis"
+          ]
+        },
+        "tool": "market_overview",
+        "warnings": [
+          "SYNTHETIC: market_overview did not answer; this envelope was written by preflight/outage_fixture.py, it is not RYO output"
+        ]
+      },
+      "source_id": 2491,
+      "synthetic": true,
+      "tool": "market_overview",
+      "ts_utc": "2026-09-05T02:45:02.079689+00:00"
+    },
+    {
+      "args": {},
+      "envelope": {
+        "as_of": "2026-09-05T02:45:03Z",
+        "availability": {
+          "diagnostics": "unavailable",
+          "evidence": "unavailable",
+          "research": "unavailable"
+        },
+        "data": null,
+        "data_mode": "unknown",
+        "request": {
+          "time_window": "7d"
+        },
+        "schema_version": "1.0",
+        "status": "unavailable",
+        "summary": {
+          "headline": "monitor_market_sentiment_shift is unavailable; no data was returned for this call (SYNTHETIC outage fixture, TASKS 2.2c)",
+          "key_points": [
+            "status=unavailable with data=null: nothing here may be read as a number",
+            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO (0/476), so this envelope is a hypothesis"
+          ]
+        },
+        "tool": "monitor_market_sentiment_shift",
+        "warnings": [
+          "SYNTHETIC: monitor_market_sentiment_shift did not answer; this envelope was written by preflight/outage_fixture.py, it is not RYO output"
+        ]
+      },
+      "source_id": 2492,
+      "synthetic": true,
+      "tool": "monitor_market_sentiment_shift",
+      "ts_utc": "2026-09-05T02:45:03.276488+00:00"
+    },
+    {
+      "args": {
+        "symbol": "SOL"
+      },
+      "envelope": {
+        "as_of": "2026-09-05T02:45:05Z",
+        "availability": {
+          "market_data": "unavailable",
+          "market_intelligence": "unavailable",
+          "technical_analysis": "unavailable"
+        },
+        "data": null,
+        "data_mode": "unknown",
+        "request": {
+          "symbol": "SOL"
+        },
+        "schema_version": "1.0",
+        "status": "unavailable",
+        "summary": {
+          "headline": "analyze_token is unavailable; no data was returned for this call (SYNTHETIC outage fixture, TASKS 2.2c)",
+          "key_points": [
+            "status=unavailable with data=null: nothing here may be read as a number",
+            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO (0/476), so this envelope is a hypothesis"
+          ]
+        },
+        "tool": "analyze_token",
+        "warnings": [
+          "SYNTHETIC: analyze_token did not answer; this envelope was written by preflight/outage_fixture.py, it is not RYO output"
+        ]
+      },
+      "source_id": 2494,
+      "synthetic": true,
+      "tool": "analyze_token",
+      "ts_utc": "2026-09-05T02:45:05.030733+00:00"
+    },
+    {
+      "args": {
+        "include_perp": true,
+        "symbol": "SOL"
+      },
+      "envelope": {
+        "as_of": "2026-09-05T02:45:39Z",
+        "availability": {
+          "derivatives": "unavailable",
+          "market_data": "unavailable",
+          "technical_analysis": "unavailable",
+          "token_profile": "unavailable",
+          "trade_plan": "unavailable"
+        },
+        "data": null,
+        "data_mode": "unknown",
+        "request": {
+          "include_perp": true,
+          "symbol": "SOL"
+        },
+        "schema_version": "1.0",
+        "status": "unavailable",
+        "summary": {
+          "headline": "deep_analysis is unavailable; no data was returned for this call (SYNTHETIC outage fixture, TASKS 2.2c)",
+          "key_points": [
+            "status=unavailable with data=null: nothing here may be read as a number",
+            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO (0/476), so this envelope is a hypothesis"
+          ]
+        },
+        "tool": "deep_analysis",
+        "warnings": [
+          "SYNTHETIC: deep_analysis did not answer; this envelope was written by preflight/outage_fixture.py, it is not RYO output"
+        ]
+      },
+      "source_id": 2495,
+      "synthetic": true,
+      "tool": "deep_analysis",
+      "ts_utc": "2026-09-05T02:45:39.012971+00:00"
+    },
+    {
+      "args": {
+        "intent": "swing",
+        "symbols": "SOL, BNB, ETH"
+      },
+      "envelope": {
+        "as_of": "2026-09-05T03:01:06Z",
+        "availability": {
+          "comparison_factors": "unavailable",
+          "conclusion": "unavailable",
+          "token_market_data": "unavailable",
+          "token_profiles": "unavailable"
+        },
+        "data": null,
+        "data_mode": "unknown",
+        "request": {
+          "intent": "swing",
+          "symbols": "SOL, BNB, ETH"
+        },
+        "schema_version": "1.0",
+        "status": "unavailable",
+        "summary": {
+          "headline": "compare_tokens is unavailable; no data was returned for this call (SYNTHETIC outage fixture, TASKS 2.2c)",
+          "key_points": [
+            "status=unavailable with data=null: nothing here may be read as a number",
+            "shape follows the RYO envelope enum in docs/api-facts.md; status=unavailable has never been observed from RYO (0/476), so this envelope is a hypothesis"
+          ]
+        },
+        "tool": "compare_tokens",
+        "warnings": [
+          "SYNTHETIC: compare_tokens did not answer; this envelope was written by preflight/outage_fixture.py, it is not RYO output"
+        ]
+      },
+      "source_id": 2544,
+      "synthetic": true,
+      "tool": "compare_tokens",
+      "ts_utc": "2026-09-05T03:01:06.016207+00:00"
+    }
+  ],
+  "source_db": "data/ryo.db",
+  "source_ids": [
+    2491,
+    2492,
+    2494,
+    2495,
+    2544
+  ],
+  "symbols": [
+    "SOL"
+  ],
+  "synthetic": {
+    "derived_from": "agent/fixtures/demo-2026-09-05.json",
+    "envelopes_rewritten_to_unavailable": [
+      "market_overview (source_id 2491)",
+      "monitor_market_sentiment_shift (source_id 2492)",
+      "analyze_token (source_id 2494)",
+      "deep_analysis (source_id 2495)",
+      "compare_tokens (source_id 2544)"
+    ],
+    "task": "TASKS 2.2c",
+    "why": "spec \u00a77 step 2 needs one required tool unavailable while the others answer; status=unavailable has never been observed from RYO (docs/api-facts.md: 0/476), so these envelopes are shaped from the documented enum, not from evidence"
+  }
+}
