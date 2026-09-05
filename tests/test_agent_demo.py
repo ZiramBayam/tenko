@@ -10,8 +10,12 @@ Yang dipatok di sini, dan alasannya:
   menyala (dengan membuka satu berkas di bawah `data/` dengan sengaja).
 * **`decision_hash` dicetak apa adanya.** Naskah yang menormalkan hash akan lulus `diff` tanpa
   membuktikan apa pun; hash yang muncul harus hash yang sama dengan yang tercatat di fixture.
-* **Langkah 2 tidak dipalsukan.** Sampai fixture TASKS 2.2c ada, langkah 2 wajib mengaku MENUNGGU.
-  Tes ini akan MERAH begitu seseorang menutupinya dengan fixture "semua tool gagal".
+* **Langkah 2 berjalan, dan padamnya diakui SINTETIS.** Fixture TASKS 2.2c sekarang ada dan
+  dipakai secara bawaan — oleh modul, bukan hanya oleh `scripts/demo.sh`. Karena `status:
+  unavailable` belum pernah teramati dari RYO (`docs/api-facts.md`: 0/476) envelope padam itu
+  DIBENTUK, dan naskah wajib mengakuinya di layar. Tes di sini memaku kedua arahnya: fixture yang
+  mengaku dibentuk tidak boleh disembunyikan, fixture yang TIDAK mengaku tidak boleh dicap
+  sintetis. Tanpa fixture, langkah 2 tetap wajib mengaku MENUNGGU, bukan dipalsukan.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ import pytest
 from agent.demo import (
     BANNER,
     DATA_DIR,
+    DEFAULT_STEP2_FIXTURE,
     STEP2_TASK,
     DemoError,
     _tamper_one_byte,
@@ -42,8 +47,24 @@ ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture(scope="module")
 def script() -> str:
-    """Satu run naskah, dipakai bersama oleh tes yang hanya membaca keluarannya."""
+    """Satu run naskah BAWAAN (langkah 2 ikut), dipakai bersama oleh tes yang membaca keluarannya."""
     return "\n".join(demo_lines())
+
+
+@pytest.fixture(scope="module")
+def script_without_step2() -> str:
+    """Naskah tanpa fixture langkah 2 — jalur `--step2-fixture ""`, yang wajib mengaku MENUNGGU."""
+    return "\n".join(demo_lines(step2_fixture=None))
+
+
+@pytest.fixture(scope="module")
+def script_with_undeclared_fixture() -> str:
+    """Naskah dengan fixture langkah 2 yang TIDAK menyatakan asal-usulnya (tanpa blok `synthetic`).
+
+    Fixture demo biasa dipakai di sini SEBAGAI KABEL, bukan sebagai peragaan langkah 2: ia tidak
+    memuat tool `unavailable`, dan tes ini tidak berpura-pura ia memuatnya.
+    """
+    return "\n".join(demo_lines(step2_fixture=DEMO_FIXTURE_PATH))
 
 
 def test_two_runs_of_the_script_are_byte_identical() -> None:
@@ -106,15 +127,84 @@ def test_step_one_prints_ten_items_a_decision_and_the_frozen_snapshot_ids(script
     assert len(payload["data"]["items"]) == 10
 
 
-def test_step_two_admits_it_is_waiting_and_does_not_fake_a_red_item_two(script: str) -> None:
-    """Langkah 2 menunggu TASKS 2.2c. Menutupinya dengan fixture 'semua tool gagal' = tes merah."""
+def test_step_two_runs_by_default_and_shows_a_red_item_two(script: str) -> None:
+    """§7 langkah 2 berjalan tanpa argumen apa pun: satu tool wajib padam -> item 02 MERAH.
+
+    Bawaannya harus hidup di modul, bukan hanya di `scripts/demo.sh`: `python -m agent.demo` polos
+    dan `make demo` memperagakan naskah yang SAMA, atau salah satunya berbohong tentang yang lain.
+    """
     block = script.split("=== §7 langkah 2")[1].split("=== §7 langkah 3")[0]
+    assert "outage-one-tool-2026-09-05" in block
+    assert f"MENUNGGU {STEP2_TASK}" not in block
+    assert "decision=NO_GO" in block
+    assert "blocking=02_completeness, 04_sentiment_shift" in block
+    assert re.search(r"^    02_completeness\s+red\s", block, re.MULTILINE)
+    assert "n_items=10 (green 7, red 1, unspoken 2)" in block
+    # `status=partial`, bukan `unavailable`: fixture 'semua tool gagal' memperagakan kalimat LAIN.
+    assert "status=partial" in block
+    assert "envelope kanonik" in block
+
+
+def test_step_two_admits_on_screen_that_the_outage_envelope_is_synthetic(script: str) -> None:
+    """Kepatuhan: padam yang DIBENTUK harus mengaku dibentuk, di layar yang dilihat juri.
+
+    `preflight` tidak meneruskan `warnings` envelope padam ke envelope hasil, jadi kata `SYNTHETIC`
+    milik fixture tidak pernah sampai ke keluaran. Memperagakan pemadaman yang dikarang tanpa
+    mengaku dikarang adalah klaim menyesatkan (`docs/rules-compliance.md`).
+    """
+    block = script.split("=== §7 langkah 2")[1].split("=== §7 langkah 3")[0]
+    disclosure = block.split("--- make skill")[0]
+    assert "PENGAKUAN" in disclosure
+    assert "envelope PADAM di bawah SINTETIS" in disclosure
+    assert "TASKS 2.2c" in disclosure
+    # Tool mana yang ditulis ulang, dan alasannya apa adanya dari berkas fixture.
+    assert "monitor_market_sentiment_shift (source_id 2492)" in disclosure
+    assert "has never been observed from RYO" in disclosure
+    assert "0/476" in disclosure
+    # Yang MENJAWAB adalah bukti nyata: tujuh item hijau dinilai atas angka RYO, bukan karangan.
+    assert "4 envelope yang MENJAWAB adalah salinan apa adanya" in disclosure
+    for source_id in ("2491", "2494", "2495", "2544"):
+        assert source_id in disclosure
+    # Ringkasan akhir mengulang pengakuannya: juri yang hanya membaca ekor naskah tetap melihatnya.
+    summary = script.split("=== ringkasan naskah §7 ===")[1]
+    assert "envelope PADAMNYA SINTETIS" in summary
+
+
+def test_step_two_does_not_reprint_the_step_one_heading(script: str) -> None:
+    """Judul langkah 1 hanya boleh muncul sekali; langkah 2 tidak boleh mencuri namanya."""
+    assert script.count("=== §7 langkah 1") == 1
+    block = script.split("=== §7 langkah 2")[1].split("=== §7 langkah 3")[0]
+    assert "langkah 1" not in block
+    assert '--- make skill ARGS="preflight SOL" atas fixture langkah 2 ---' in block
+
+
+def test_step_two_never_calls_a_fixture_synthetic_unless_the_fixture_says_so(
+    script_with_undeclared_fixture: str,
+) -> None:
+    """Fixture tanpa blok `synthetic` tidak dicap sintetis — dan tidak dijamin bukan sintetis."""
+    lines = script_with_undeclared_fixture
+    block = lines.split("=== §7 langkah 2")[1].split("=== §7 langkah 3")[0]
+    assert "TIDAK DINYATAKAN" in block
+    assert "SINTETIS" not in block.upper().replace("SYNTHETIC", "")
+    assert "PENGAKUAN" not in block
+    summary = lines.split("=== ringkasan naskah §7 ===")[1]
+    assert "tidak menyatakan asal-usul envelopenya" in summary
+
+
+def test_step_two_still_admits_it_is_waiting_when_no_fixture_is_given(
+    script_without_step2: str,
+) -> None:
+    """Tanpa fixture, langkah 2 mengaku MENUNGGU: tidak ada peragaan yang dipalsukan."""
+    block = script_without_step2.split("=== §7 langkah 2")[1].split("=== §7 langkah 3")[0]
     assert f"MENUNGGU {STEP2_TASK}" in block
     assert "TIDAK dijalankan, dan tidak dipalsukan" in block
     assert "--step2-fixture" in block
     # Tidak ada envelope yang dicetak untuk langkah ini: tidak ada yang diperagakan.
     assert "envelope kanonik" not in block
-    assert f"langkah 2 MENUNGGU {STEP2_TASK}" in script.split("=== ringkasan naskah §7 ===")[1]
+    assert "SINTETIS" not in block
+    assert (
+        f"langkah 2 MENUNGGU {STEP2_TASK}" in (script_without_step2.split("=== ringkasan naskah §7 ===")[1])
+    )
 
 
 def test_step_three_runs_three_ticks_with_one_go_and_one_no_go(script: str) -> None:
@@ -209,18 +299,15 @@ def test_a_missing_step_two_fixture_fails_honestly_and_fast(capsys: pytest.Captu
     assert "demo:" in captured.err and "tidak bisa dibaca" in captured.err
 
 
-def test_the_step_two_hook_runs_the_fixture_it_is_given() -> None:
-    """Titik sambung TASKS 2.2c benar-benar tersambung — diuji dengan fixture yang ADA.
-
-    Fixture demo biasa dipakai di sini SEBAGAI KABEL, bukan sebagai peragaan langkah 2: ia tidak
-    memuat tool yang `unavailable`, dan tes ini tidak berpura-pura ia memuatnya. Yang dibuktikan
-    hanyalah bahwa `--step2-fixture` menjalankan fixture yang ditunjuk dan mencetak envelopenya.
-    """
-    lines = "\n".join(demo_lines(step2_fixture=str(DEMO_FIXTURE_PATH)))
+def test_the_step_two_hook_runs_the_fixture_it_is_given(script_with_undeclared_fixture: str) -> None:
+    """`--step2-fixture PATH` menjalankan fixture yang DITUNJUK, bukan bawaannya."""
+    lines = script_with_undeclared_fixture
     block = lines.split("=== §7 langkah 2")[1].split("=== §7 langkah 3")[0]
     assert "envelope kanonik" in block
     assert f"MENUNGGU {STEP2_TASK}" not in block
-    assert "langkah 2 dijalankan dari fixture yang diberikan" in lines
+    assert DEMO_FIXTURE_PATH.stem in block
+    assert DEFAULT_STEP2_FIXTURE.stem not in block
+    assert f"langkah 2 dijalankan dari {DEMO_FIXTURE_PATH.name}" in lines
 
 
 def test_main_prints_the_script_and_exits_zero(capsys: pytest.CaptureFixture) -> None:
@@ -231,10 +318,16 @@ def test_main_prints_the_script_and_exits_zero(capsys: pytest.CaptureFixture) ->
     assert captured.out.endswith("\n")
 
 
-def test_the_parser_exposes_both_connection_points() -> None:
+def test_the_parser_carries_the_step_two_default_so_the_module_matches_the_shell() -> None:
+    """Bawaan langkah 2 hidup di argparse: modul dan `scripts/demo.sh` tidak boleh berbeda naskah."""
     args = build_parser().parse_args([])
     assert args.fixture == str(DEMO_FIXTURE_PATH)
-    assert args.step2_fixture is None
+    assert args.step2_fixture == str(DEFAULT_STEP2_FIXTURE)
+    assert DEFAULT_STEP2_FIXTURE.is_file(), "fixture bawaan langkah 2 (TASKS 2.2c) harus ada"
+    # Fixture 'semua tool gagal' TIDAK boleh jadi bawaan: ia memperagakan kalimat lain.
+    assert "all-tools" not in args.step2_fixture
+    # String kosong = melewati langkah 2 dengan jujur, bukan memalsukannya.
+    assert build_parser().parse_args(["--step2-fixture", ""]).step2_fixture == ""
 
 
 def test_the_one_byte_tamper_keeps_the_length_and_refuses_a_payload_without_digits() -> None:

@@ -20,19 +20,23 @@ dinding. Yang dicetak apa adanya dan WAJIB identik antar-run: `decision_hash`, `
 `decision_id`, `blocking`, status kesepuluh item, dan vonis replay. Menyembunyikan `decision_hash`
 akan membuat "dua run identik" tidak berarti apa-apa.
 
-**Batas yang tidak bisa ditutup di sini: §7 langkah 2 belum bisa dijalankan.** Langkah 2 menuntut
-item 2 MERAH, dan itu hanya terjadi bila SATU tool wajib menjawab `unavailable` sementara yang lain
-menjawab. Fixture "semua tool gagal" menghasilkan envelope `unavailable` + item 2 `unspoken` — itu
-kalimat lain, dan memakainya berarti memperagakan sesuatu yang bukan naskahnya. Fixture yang benar
-adalah TASKS 2.2c (milik `preflight/`, belum dikerjakan). Titik sambungnya sudah ada dan sudah
-dites: `--step2-fixture PATH`. Sampai fixture itu lahir, langkah 2 dicetak sebagai MENUNGGU dengan
-alasannya, bukan dipalsukan.
+**§7 langkah 2 berjalan dari fixture TASKS 2.2c — dan padamnya diakui SINTETIS.** Langkah 2
+menuntut item 02 MERAH, dan itu hanya terjadi bila SATU tool wajib menjawab `unavailable`
+sementara yang lain menjawab. Fixture berbentuk itu sekarang ada (`preflight/fixtures/
+outage-one-tool-2026-09-05.json`) dan dipakai SECARA BAWAAN. Tetapi `status: "unavailable"` BELUM
+PERNAH teramati dari RYO (`docs/api-facts.md`: 0 dari 476 envelope; enumnya dari Builder MCP
+Guide, bukan dari sampel), jadi envelope padam itu **dibentuk**, bukan diterima. Karena `preflight`
+tidak meneruskan `warnings` envelope padam ke envelope hasil, kata `SYNTHETIC` milik fixture tidak
+pernah sampai ke layar juri — maka naskah ini mencetak pengakuannya sendiri, dibaca dari blok
+`synthetic` BERKAS fixture (bukan dikarang di sini). Fixture yang tidak mengaku sintetis tidak
+pernah dicetak sebagai sintetis; yang mengaku tidak pernah disembunyikan.
 
 Pemakaian::
 
     make demo                                  # scripts/demo.sh -> perintah ini
-    python -m agent.demo                        # sama, tanpa make
-    python -m agent.demo --step2-fixture X.json # bila fixture TASKS 2.2c sudah ada
+    python -m agent.demo                        # sama, tanpa make: langkah 2 ikut jalan
+    python -m agent.demo --step2-fixture X.json # fixture langkah 2 sendiri
+    python -m agent.demo --step2-fixture ""     # tanpa langkah 2: dicetak MENUNGGU, bukan dipalsukan
 
 Tidak ada P&L di keluaran ini: rubric §8 tidak menilainya, dan yang diperagakan naskah §7 adalah
 keputusan, penahannya, serta apakah plan menyentuh target/stop sebagai FAKTA.
@@ -41,9 +45,11 @@ keputusan, penahannya, serta apakah plan menyentuh target/stop sebagai FAKTA.
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 import sys
 import tempfile
+import textwrap
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -78,6 +84,15 @@ N_TICKS = 3
 #: Jumlah tool yang harus menjawab supaya langkah 2 BISA diperagakan (satu unavailable, sisanya
 #: menjawab). Dipakai hanya untuk kalimat penjelas, bukan untuk melonggarkan apa pun.
 STEP2_TASK = "TASKS 2.2c"
+
+#: Fixture bawaan langkah 2 (TASKS 2.2c, milik `preflight/`): satu tool wajib padam, sisanya
+#: menjawab. Bawaannya hidup DI SINI, bukan hanya di `scripts/demo.sh`, supaya `python -m agent.demo`
+#: polos dan `make demo` memperagakan naskah yang sama.
+DEFAULT_STEP2_FIXTURE = ROOT / "preflight" / "fixtures" / "outage-one-tool-2026-09-05.json"
+
+#: Judul bawaan langkah 1. Judulnya parameter karena langkah 2 memakai fungsi yang sama; tanpa itu
+#: layar juri membaca "§7 langkah 1" dua kali dan langkah 2 kehilangan namanya.
+STEP1_HEADING = '=== §7 langkah 1 — make skill ARGS="preflight SOL" ==='
 
 
 class DemoError(Exception):
@@ -179,12 +194,20 @@ def _head(fixture: DemoFixture) -> list[str]:
 # --- langkah 1 ---------------------------------------------------------------------------
 
 
-def step1(fixture: DemoFixture, db_path: Path, symbol: str = STEP1_SYMBOL) -> list[str]:
+def step1(
+    fixture: DemoFixture,
+    db_path: Path,
+    symbol: str = STEP1_SYMBOL,
+    heading: str = STEP1_HEADING,
+) -> list[str]:
     """§7 langkah 1: satu envelope `preflight` — 10 item, GO/NO_GO, blocking, snapshot_ids.
 
     Dijalankan lewat fungsi skill yang sama dengan `make skill ARGS="preflight SOL"`, dengan satu
     perbedaan yang disebut di keluaran: jam kesegaran diambil dari fixture, bukan jam dinding.
     Tanpa itu keputusannya akan berubah setiap hari dan "dua run identik" tidak bisa dituntut.
+
+    `heading` ada karena langkah 2 memakai fungsi ini apa adanya: tanpa parameter itu, layar juri
+    membaca judul "§7 langkah 1" untuk kedua langkah dan langkah 2 kehilangan namanya.
     """
     # Impor lokal: `_envelope_text` SENGAJA fungsi privat milik `core.skill_cli` — memakai fungsi
     # yang sama dengan `make skill` adalah intinya, supaya baris JSON di bawah tidak bisa
@@ -198,7 +221,7 @@ def step1(fixture: DemoFixture, db_path: Path, symbol: str = STEP1_SYMBOL) -> li
     items = data.get("items") or []
     lines = [
         "",
-        '=== §7 langkah 1 — make skill ARGS="preflight SOL" ===',
+        heading,
         f"satu envelope RYO untuk {symbol}; jam kesegaran = jam beku fixture, bukan jam dinding",
         "",
         f"status={result.status}  data_mode={result.data_mode}  "
@@ -231,13 +254,82 @@ def step1(fixture: DemoFixture, db_path: Path, symbol: str = STEP1_SYMBOL) -> li
 # --- langkah 2 ---------------------------------------------------------------------------
 
 
-def step2(step2_fixture: str | None) -> list[str]:
-    """§7 langkah 2: satu tool wajib `unavailable` -> item 2 merah, keputusan tetap dihitung.
+def _fixture_json(path: str | Path) -> dict[str, Any]:
+    """Isi mentah berkas fixture. Gagal baca = dict kosong; `load_fixture` yang bersuara duluan."""
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
 
-    Tanpa fixture TASKS 2.2c langkah ini DICETAK SEBAGAI MENUNGGU. Yang tidak dilakukan di sini,
-    dan itu intinya: fixture "semua tool gagal" TIDAK dipakai sebagai gantinya — ia menghasilkan
-    envelope `unavailable` dengan item 2 `unspoken`, bukan item 2 merah, dan memperagakannya
-    berarti mengaku memperagakan naskah yang sebenarnya belum bisa diperagakan.
+
+def _synthetic_note(path: str | Path) -> dict[str, Any] | None:
+    """Blok `synthetic` berkas fixture bila fixture itu mengaku dibentuk; `None` bila tidak."""
+    note = _fixture_json(path).get("synthetic")
+    return note if isinstance(note, dict) else None
+
+
+def _step2_disclosure(path: str | Path) -> list[str]:
+    """Pengakuan asal-usul envelope padam langkah 2 — DIBACA dari fixture, bukan ditulis di sini.
+
+    Ini kepatuhan, bukan kosmetik. §7 langkah 2 hanya bisa diperagakan bila satu tool wajib
+    menjawab `unavailable`, dan `docs/api-facts.md` mencatat status itu BELUM PERNAH teramati dari
+    RYO (0 dari 476 envelope; enumnya dari Builder MCP Guide). Fixture TASKS 2.2c sudah menandai
+    dirinya jujur — blok `synthetic`, bendera per baris snapshot, kata `SYNTHETIC` di `warnings`
+    envelope sumber — tetapi `preflight` tidak meneruskan `warnings` envelope padam ke envelope
+    hasil, jadi tanpa baris-baris ini layar juri tidak pernah melihat bahwa padamnya dibuat-buat.
+    Memperagakan pemadaman yang dibentuk tanpa mengaku dibentuk adalah klaim menyesatkan
+    (`docs/rules-compliance.md`), dan itu menikam tesis produk ini sendiri.
+
+    Kalimatnya tidak dikarang di sini: yang dicetak adalah isi blok `synthetic` milik berkas yang
+    ditunjuk. Fixture yang TIDAK mengaku dibentuk tidak pernah dicetak sebagai sintetis — yang
+    dicetak untuknya hanyalah bahwa asal-usulnya tidak dinyatakan.
+    """
+    raw = _fixture_json(path)
+    note = _synthetic_note(path)
+    if note is None:
+        return [
+            "  asal-usul envelope di fixture ini TIDAK DINYATAKAN: berkasnya tidak memuat blok",
+            "  `synthetic`, jadi naskah ini tidak mengarang pengakuan apa pun tentangnya.",
+        ]
+    rows = raw.get("snapshots")
+    rows = rows if isinstance(rows, list) else []
+    copied = [
+        row.get("source_id")
+        for row in rows
+        if isinstance(row, dict) and not row.get("synthetic") and row.get("source_id") is not None
+    ]
+    rewritten = [str(entry) for entry in (note.get("envelopes_rewritten_to_unavailable") or [])]
+    lines = [
+        "  PENGAKUAN — dibaca dari blok `synthetic` BERKAS fixture, bukan ditulis oleh naskah ini:",
+        f"    envelope PADAM di bawah SINTETIS: ditulis ulang menjadi status=unavailable oleh "
+        f"{note.get('task', '?')},",
+        f"    dari {note.get('derived_from', '?')}. Yang dibentuk: {len(rewritten)} envelope, yaitu",
+    ]
+    lines.extend(f"      {entry}" for entry in rewritten)
+    lines.append("    alasannya, apa adanya dari berkas itu:")
+    lines.extend(f"      {chunk}" for chunk in textwrap.wrap(str(note.get("why", "")), width=94))
+    lines.extend(
+        [
+            f"    yang TIDAK dibentuk: {len(copied)} envelope yang MENJAWAB adalah salinan apa adanya",
+            f"      bukti nyata {raw.get('source_db', '?')} id "
+            f"{', '.join(str(entry) for entry in copied) or '-'} — jadi item hijau di bawah",
+            "      benar-benar dinilai atas angka RYO, bukan atas angka yang diketik tangan.",
+            "    yang dikarang hanyalah BENTUK padamnya; bila RYO kelak benar-benar mengirim",
+            "    `status: unavailable`, bentuk ini wajib dibandingkan ulang (api-verifier).",
+        ]
+    )
+    return lines
+
+
+def step2(step2_fixture: str | Path | None) -> list[str]:
+    """§7 langkah 2: satu tool wajib `unavailable` -> item 02 merah, keputusan tetap dihitung.
+
+    Fixture TASKS 2.2c dipakai secara bawaan. Sebelum envelopenya dicetak, naskah mengaku dari
+    mana bentuk padam itu berasal (:func:`_step2_disclosure`) — pengakuan itu bagian dari
+    peragaannya, bukan catatan kaki. Tanpa fixture (`--step2-fixture ""`) langkah ini DICETAK
+    SEBAGAI MENUNGGU: fixture "semua tool gagal" TIDAK dipakai sebagai gantinya karena ia
+    menghasilkan envelope `unavailable` dengan item 02 `unspoken` — kalimat lain, bukan naskah ini.
     """
     lines = [
         "",
@@ -250,18 +342,28 @@ def step2(step2_fixture: str | None) -> list[str]:
                 "  yang dituntut naskah: SATU tool wajib menjawab `unavailable` sementara yang lain",
                 "  menjawab, sehingga item 08 menjadi `unspoken` dan item 02 (kelengkapan) MERAH,",
                 "  lalu keputusan tetap dihitung tanpa exception.",
-                f"  yang belum ada: fixture bertanggal dengan bentuk itu ({STEP2_TASK}, milik preflight/).",
+                f"  yang tidak diberikan ke perintah ini: fixture berbentuk itu ({STEP2_TASK}).",
                 "  kenapa fixture 'semua tool gagal' tidak dipakai sebagai pengganti: ia menghasilkan",
                 "  envelope status=unavailable dengan item 02 `unspoken` — kalimat lain, bukan naskah ini.",
-                "  titik sambung sudah ada dan sudah dites: `python -m agent.demo --step2-fixture PATH`.",
+                "  titik sambungnya: `python -m agent.demo --step2-fixture PATH` (bawaannya sudah dipasang).",
             ]
         )
         return lines
     fixture = load_fixture(step2_fixture)
+    symbol = fixture.symbols[0] if fixture.symbols else STEP1_SYMBOL
+    lines.append(f"fixture   : {fixture.name}")
+    lines.extend(_step2_disclosure(step2_fixture))
     with tempfile.TemporaryDirectory(prefix="tenko-demo-step2-") as tmp:
         db_path = Path(tmp) / "step2.db"
         materialize(fixture, db_path)
-        lines.extend(step1(fixture, db_path, fixture.symbols[0] if fixture.symbols else STEP1_SYMBOL))
+        lines.extend(
+            step1(
+                fixture,
+                db_path,
+                symbol,
+                heading=f'--- make skill ARGS="preflight {symbol}" atas fixture langkah 2 ---',
+            )
+        )
     return lines
 
 
@@ -526,8 +628,16 @@ def step6() -> list[str]:
 # --- naskah ------------------------------------------------------------------------------
 
 
-def demo_lines(fixture_path: str | Path = DEMO_FIXTURE_PATH, step2_fixture: str | None = None) -> list[str]:
-    """Seluruh naskah §7 sebagai daftar baris. Deterministik atas fixture yang sama."""
+def demo_lines(
+    fixture_path: str | Path = DEMO_FIXTURE_PATH,
+    step2_fixture: str | Path | None = DEFAULT_STEP2_FIXTURE,
+) -> list[str]:
+    """Seluruh naskah §7 sebagai daftar baris. Deterministik atas fixture yang sama.
+
+    Bawaan `step2_fixture` sama dengan bawaan CLI: memanggil fungsi ini tanpa argumen harus
+    memperagakan naskah yang sama dengan `make demo`, bukan naskah yang lebih pendek. `None` (atau
+    string kosong) tetap tersedia dan berarti "langkah 2 tidak dijalankan", dicetak MENUNGGU.
+    """
     audit = install_data_dir_audit()
     fixture = load_fixture(fixture_path)
     if step2_fixture:
@@ -558,11 +668,7 @@ def demo_lines(fixture_path: str | Path = DEMO_FIXTURE_PATH, step2_fixture: str 
             "=== ringkasan naskah §7 ===",
             "  langkah 1 dijalankan · langkah 3 dijalankan · langkah 4 dijalankan · "
             "langkah 5 dijalankan · langkah 6 dijalankan",
-            (
-                "  langkah 2 dijalankan dari fixture yang diberikan --step2-fixture"
-                if step2_fixture
-                else f"  langkah 2 MENUNGGU {STEP2_TASK} (fixture 'satu tool wajib unavailable' belum ada)"
-            ),
+            _step2_summary(step2_fixture),
             f"  {audit.line()}",
             "  dua run `make demo` harus byte-identik:",
             "    make demo > a; make demo > b; diff a b",
@@ -570,6 +676,22 @@ def demo_lines(fixture_path: str | Path = DEMO_FIXTURE_PATH, step2_fixture: str 
         ]
     )
     return lines
+
+
+def _step2_summary(step2_fixture: str | Path | None) -> str:
+    """Satu baris ringkasan langkah 2 — termasuk pengakuan sintetisnya, bila fixture mengaku."""
+    if not step2_fixture:
+        return f"  langkah 2 MENUNGGU {STEP2_TASK} (fixture 'satu tool wajib unavailable' tidak diberikan)"
+    note = _synthetic_note(step2_fixture)
+    if note is None:
+        return (
+            f"  langkah 2 dijalankan dari {Path(step2_fixture).name} "
+            "(berkas itu tidak menyatakan asal-usul envelopenya)"
+        )
+    return (
+        f"  langkah 2 dijalankan dari {Path(step2_fixture).name} — envelope PADAMNYA SINTETIS "
+        f"({note.get('task', '?')}); envelope yang menjawab salinan bukti nyata"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -580,8 +702,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fixture", default=str(DEMO_FIXTURE_PATH), help="fixture demo langkah 1/3/4/5")
     parser.add_argument(
         "--step2-fixture",
-        default=None,
-        help=f"fixture 'satu tool wajib unavailable' ({STEP2_TASK}); tanpa ini langkah 2 dicetak MENUNGGU",
+        default=str(DEFAULT_STEP2_FIXTURE),
+        help=(
+            f"fixture 'satu tool wajib unavailable' ({STEP2_TASK}); bawaannya "
+            f"{DEFAULT_STEP2_FIXTURE.relative_to(ROOT)}. Beri string kosong untuk melewati langkah 2 "
+            "(dicetak MENUNGGU, bukan dipalsukan)"
+        ),
     )
     return parser
 
