@@ -20,10 +20,26 @@ melakukan `cd "$(dirname "$0")/.."`, jadi bukti (3) dikerjakan di salinan minima
 `tmp_path` (scripts + pyproject.toml + uv.lock + `.venv` yang di-symlink), bukan di pohon kerja.
 Repo hanya dibaca.
 
-Rekursi: gate menjalankan `uv run pytest -q`, yang akan menjalankan berkas ini lagi. `gate.sh`
-menyetel `TENKO_GATE_SELFTEST=1` untuk pytest-nya, dan tes yang memanggil gate meneruskan
-variabel itu ke anaknya. Jadi: `make test` oleh manusia menjalankan gate sekali (satu suite
-bersarang), sedangkan gate/stop hook tidak menjalankan suite dua kali.
+Rekursi dan biayanya (TASKS 0.22). Gate menjalankan `uv run pytest -q`, yang menjalankan berkas
+ini lagi. `TENKO_GATE_SELFTEST=1` menghentikan rekursi tak hingga, tetapi tidak menghentikan
+BIAYANYA: proses dalam tetap menjalankan ~1590 tes lain, dan `test_gate_is_green_on_this_tree`
+sendirian memakan 295 dtk dari 583 dtk (koordinator, 5 Sep 2026).
+
+Cara yang dipilih, dan alasannya. `TENKO_GATE_SELFTEST=1` sekarang berarti satu hal saja bagi
+`gate.sh`: "sebuah `pytest` atas repo ini SEDANG berjalan di atas kamu", dan gate melewati leg
+pytest-nya. Bukan stub `pytest` lewat `PATH` (gate memanggil `uv run pytest`; uv menaruh
+`.venv/bin` di depan PATH, jadi stub semacam itu bohong yang tidak bekerja), bukan penanda
+pra-commit (tes yang tidak jalan di `make test` tidak menjaga apa pun di antara commit). Ini
+yang paling jujur karena klaim yang hilang memang nol: leg pytest gate adalah "suite ini
+hijau" — dan suite ini justru sedang berjalan, di proses yang membaca baris ini. Menjalankannya
+lagi di dalam bukan bukti tambahan, hanya salinan pekerjaan yang sama.
+
+Yang tetap harus dibuktikan supaya percepatan ini bukan sekadar memindahkan lubang:
+- leg pytest masih ada dan masih MERAH kalau suite gagal (`test_gate_pytest_leg_...`, dua arah,
+  di sandbox bertes-satu — murah, dan bukan suite repo);
+- yang dilewati HANYA leg pytest: ruff + grep tetap jalan, dibuktikan oleh tes format di bawah
+  yang seluruhnya berjalan dengan `TENKO_GATE_SELFTEST=1`;
+- gate pada repo tidak lagi memakan menit: ada anggaran waktu yang gagal bila nesting kembali.
 """
 
 from __future__ import annotations
@@ -32,7 +48,9 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -71,9 +89,22 @@ def _exe(name: str) -> str:
     return found
 
 
-def _run_gate(script: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-    full = {**os.environ, "TENKO_GATE_SELFTEST": "1", **(env or {})}
-    return subprocess.run(
+class GateRun(NamedTuple):
+    """Hasil satu kali jalan gate, plus lama jalannya (dipakai anggaran waktu 0.22)."""
+
+    proc: subprocess.CompletedProcess[str]
+    seconds: float
+
+
+def _run_gate(script: Path, env: dict[str, str] | None = None, selftest: bool = True) -> GateRun:
+    """Jalankan gate. `selftest=False` = gate tidak tahu ada pytest di atasnya → leg pytest jalan."""
+    full = {**os.environ, **(env or {})}
+    if selftest:
+        full["TENKO_GATE_SELFTEST"] = "1"
+    else:
+        full.pop("TENKO_GATE_SELFTEST", None)
+    started = time.monotonic()
+    proc = subprocess.run(
         [_exe("bash"), str(script)],
         input=STDIN,
         capture_output=True,
@@ -81,10 +112,11 @@ def _run_gate(script: Path, env: dict[str, str] | None = None) -> subprocess.Com
         timeout=1800,
         env=full,
     )
+    return GateRun(proc, time.monotonic() - started)
 
 
 @pytest.fixture(scope="module")
-def gate_on_repo() -> subprocess.CompletedProcess[str]:
+def gate_on_repo() -> GateRun:
     """Satu kali jalan gate pada repo nyata; dipakai bersama oleh beberapa tes."""
     if NESTED:
         pytest.skip("dijalankan oleh gate itu sendiri; hindari rekursi")
@@ -112,18 +144,50 @@ def test_gate_labels_format_failure_separately() -> None:
 # --- (2) gate hijau pada working tree bersih ------------------------------------------
 
 
+#: Anggaran gate-pada-repo. Isinya dua `uv run ruff` + beberapa grep = hitungan detik; longgar
+#: 20x supaya mesin lambat/cold cache tidak bikin merah palsu, tetapi tetap mustahil dilewati
+#: kalau suite bersarang kembali (yang berarti ratusan detik).
+GATE_BUDGET_SECONDS = 60.0
+
+
 @skip_if_nested
-def test_gate_is_green_on_this_tree(gate_on_repo: subprocess.CompletedProcess[str]) -> None:
-    """Pohon kerja bersih → exit 0, stderr tanpa 'GATE MERAH'."""
-    assert gate_on_repo.returncode == 0, gate_on_repo.stderr
-    assert "GATE MERAH" not in gate_on_repo.stderr
+def test_gate_is_green_on_this_tree(gate_on_repo: GateRun) -> None:
+    """Pohon kerja bersih → exit 0, stderr tanpa 'GATE MERAH'.
+
+    Gate dipanggil dengan `TENKO_GATE_SELFTEST=1`, jadi ia melewati leg pytest-nya: suite yang
+    sedang menjalankan tes ini ADALAH leg itu. Yang dibuktikan di sini karena itu persis
+    paritas gate↔`make lint` pada pohon nyata (ruff check + ruff format) berikut semua grep
+    kepatuhan — bukan "seluruh tes lulus", yang sudah/sedang dijawab oleh proses ini sendiri.
+    Leg pytest yang dilewati diuji terpisah, dua arah, di sandbox bertes-satu.
+    """
+    assert gate_on_repo.proc.returncode == 0, gate_on_repo.proc.stderr
+    assert "GATE MERAH" not in gate_on_repo.proc.stderr
+
+
+@skip_if_nested
+def test_gate_on_this_tree_does_not_rerun_the_suite(gate_on_repo: GateRun) -> None:
+    """Alarm regresi 0.22: kalau nesting kembali, angka ini melonjak dari detik ke menit."""
+    assert gate_on_repo.seconds < GATE_BUDGET_SECONDS, (
+        f"gate pada repo makan {gate_on_repo.seconds:.1f} dtk (>{GATE_BUDGET_SECONDS:.0f}); "
+        "curigai leg pytest berjalan bersarang lagi"
+    )
 
 
 # --- (3) pemeriksa format benar-benar menggigit ---------------------------------------
 
 
-def _sandbox(tmp_path: Path, body: str) -> Path:
-    """Salinan minimal repo di tmp_path; `gate.sh` di dalamnya ber-`cd` ke sandbox, bukan repo."""
+PASSING_TEST = "def test_ok():\n    assert True\n"
+FAILING_TEST = (
+    "def test_ok():\n    assert 1 == 2  # gagal, tapi bukan `assert False` yang ditolak ruff B011\n"
+)
+
+
+def _sandbox(tmp_path: Path, body: str, test_body: str = PASSING_TEST) -> Path:
+    """Salinan minimal repo di tmp_path; `gate.sh` di dalamnya ber-`cd` ke sandbox, bukan repo.
+
+    Suite sandbox = satu berkas satu tes (`testpaths = ["tests"]` di pyproject yang disalin),
+    jadi leg pytest gate bisa diuji sungguhan tanpa membayar suite repo.
+    """
     if shutil.which("uv") is None or not (ROOT / ".venv").is_dir():  # pragma: no cover
         pytest.skip("butuh uv + .venv proyek untuk menjalankan ruff di sandbox")
     (tmp_path / "scripts").mkdir()
@@ -133,7 +197,7 @@ def _sandbox(tmp_path: Path, body: str) -> Path:
         shutil.copy(ROOT / name, tmp_path / name)
     (tmp_path / ".venv").symlink_to(ROOT / ".venv")
     (tmp_path / "tests").mkdir()
-    (tmp_path / "tests" / "test_sandbox.py").write_text("def test_ok():\n    assert True\n")
+    (tmp_path / "tests" / "test_sandbox.py").write_text(test_body)
     (tmp_path / "mod.py").write_text(body)
     return tmp_path / "scripts" / "gate.sh"
 
@@ -145,14 +209,14 @@ UNFORMATTED = "x   =  1\n"  # lolos `ruff check`, ditolak `ruff format --check`
 @skip_if_nested
 def test_sandbox_control_is_green(tmp_path: Path) -> None:
     """Kontrol: sandbox yang sama tanpa drift format → HIJAU (jadi (b) memang soal format)."""
-    result = _run_gate(_sandbox(tmp_path, FORMATTED))
+    result = _run_gate(_sandbox(tmp_path, FORMATTED)).proc
     assert result.returncode == 0, result.stderr
 
 
 @skip_if_nested
 def test_unformatted_file_turns_the_gate_red(tmp_path: Path) -> None:
     """Satu berkas unformat → exit 2 dan stderr menyebut `ruff-format`."""
-    result = _run_gate(_sandbox(tmp_path, UNFORMATTED))
+    result = _run_gate(_sandbox(tmp_path, UNFORMATTED)).proc
     assert result.returncode == 2, result.stdout + result.stderr
     assert "ruff-format" in result.stderr
     assert "GATE MERAH" in result.stderr
@@ -181,14 +245,73 @@ def test_unformatted_file_is_invisible_to_ruff_check_alone(tmp_path: Path) -> No
     assert fmt.returncode != 0
 
 
+# --- (5) leg pytest yang dilewati: masih ada, masih menggigit (TASKS 0.22) ------------
+#
+# `test_gate_is_green_on_this_tree` tidak lagi menjalankan suite di dalam gate. Supaya itu
+# percepatan dan bukan pelemahan, leg pytest gate diuji di sini pada sandbox bertes-satu:
+# murah, dan verdictnya tentang suite sandbox, bukan suite repo.
+
+
+@skip_if_nested
+def test_gate_pytest_leg_turns_red_on_a_failing_suite(tmp_path: Path) -> None:
+    """Arah (a): tanpa `TENKO_GATE_SELFTEST`, suite gagal → exit 2 dengan label `pytest`.
+
+    `TENKO_GATE_FULL=1` dipakai karena sandbox bukan repo git, jadi "berkas .py berubah sejak
+    HEAD" kosong dan leg pytest tidak akan dipicu oleh perubahan berkas.
+    """
+    gate = _sandbox(tmp_path, FORMATTED, test_body=FAILING_TEST)
+    result = _run_gate(gate, env={"TENKO_GATE_FULL": "1"}, selftest=False).proc
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "pytest" in result.stderr
+    assert "GATE MERAH" in result.stderr
+
+
+@skip_if_nested
+def test_gate_pytest_leg_is_green_on_a_passing_suite(tmp_path: Path) -> None:
+    """Kontrol untuk (a): sandbox yang sama dengan suite LULUS → HIJAU.
+
+    Tanpa kontrol ini, label `pytest` di (a) bisa saja berarti "pytest tidak bisa dijalankan di
+    sandbox" alih-alih "suite merah". Pasangan ini mengunci: labelnya mengikuti verdict suite.
+    """
+    gate = _sandbox(tmp_path, FORMATTED, test_body=PASSING_TEST)
+    result = _run_gate(gate, env={"TENKO_GATE_FULL": "1"}, selftest=False).proc
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@skip_if_nested
+def test_gate_pytest_leg_is_skipped_inside_a_running_suite(tmp_path: Path) -> None:
+    """Arah (b): sandbox yang PERSIS sama + `TENKO_GATE_SELFTEST=1` → HIJAU.
+
+    Satu-satunya beda dengan (a) adalah variabel itu, jadi ini mengunci artinya: gate melewati
+    leg pytest ketika sebuah pytest sudah berjalan di atasnya — dan hanya leg itu.
+    """
+    gate = _sandbox(tmp_path, FORMATTED, test_body=FAILING_TEST)
+    result = _run_gate(gate, env={"TENKO_GATE_FULL": "1"}, selftest=True).proc
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@skip_if_nested
+def test_selftest_skips_only_pytest_not_the_cheap_checks(tmp_path: Path) -> None:
+    """Sandbox yang lolos pytest tapi drift format, dengan selftest=1 → tetap MERAH `ruff-format`.
+
+    Ini yang menjaga jaminan 0.7 tidak ikut terlewat bersama leg pytest.
+    """
+    gate = _sandbox(tmp_path, UNFORMATTED, test_body=PASSING_TEST)
+    result = _run_gate(gate, env={"TENKO_GATE_FULL": "1"}, selftest=True).proc
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "ruff-format" in result.stderr
+    assert "pytest" not in result.stderr
+
+
 # --- (4) verdict yang sama pada tree yang sama ----------------------------------------
 
 
 @skip_if_nested
-def test_make_lint_and_gate_agree_on_this_tree(gate_on_repo: subprocess.CompletedProcess[str]) -> None:
+def test_make_lint_and_gate_agree_on_this_tree(gate_on_repo: GateRun) -> None:
     """`make lint` hijau ⇔ gate tidak menyebut label ruff mana pun."""
     lint = subprocess.run([_exe("make"), "lint"], cwd=ROOT, capture_output=True, text=True, timeout=600)
-    gate_lint_ok = "ruff" not in gate_on_repo.stderr
+    stderr = gate_on_repo.proc.stderr
+    gate_lint_ok = "ruff" not in stderr
     assert (lint.returncode == 0) == gate_lint_ok, (
-        f"make lint rc={lint.returncode}\n{lint.stdout}{lint.stderr}\ngate: {gate_on_repo.stderr}"
+        f"make lint rc={lint.returncode}\n{lint.stdout}{lint.stderr}\ngate: {stderr}"
     )
