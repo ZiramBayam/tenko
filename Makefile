@@ -1,4 +1,4 @@
-.PHONY: doctor test lint hooks record daemons backup skill agent-tick replay grade ui demo autopilot
+.PHONY: doctor test lint hooks record daemons backup skill agent-tick replay two-dates grade ui demo autopilot
 doctor:
 	@echo "python : $$(python3 --version 2>/dev/null || echo MISSING)  (harus 3.12.x, lihat docs/versions.md)"
 	@echo "uv     : $$(uv --version 2>/dev/null || echo MISSING)"
@@ -25,6 +25,8 @@ agent-tick:        ## satu siklus agen buku-ganda (SIMULASI)
 	uv run python -m agent.main --once
 replay:            ## make replay ID=<trade_id> → decision_hash harus identik
 	uv run python -m agent.replay $(ID)
+two-dates:         ## spec §7 langkah 6 — dua tanggal, simbol sama, kartu berdampingan (TASKS 4.7)
+	uv run python -m agent.two_dates   # fixture offline; DB tmp baru tiap run, data/ryo.db tidak disentuh
 grade:             ## (opsional) grading outcome keputusan → reputasi item
 	uv run python -m grading.grader
 ui:

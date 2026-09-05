@@ -1,0 +1,795 @@
+{
+  "fixture_version": 1,
+  "name": "twodate-a-2026-09-03 (SOL GO; DGAI NO_GO karena trade_plan tidak terjawab)",
+  "captured_at": "2026-09-05T15:02:52.838985+00:00",
+  "source_db": "data/ryo.db",
+  "source_ids": [
+    1399,
+    1400,
+    1402,
+    1403,
+    1424,
+    1425,
+    1452
+  ],
+  "now": "2026-09-03T14:01:41.120820+00:00",
+  "symbols": [
+    "SOL",
+    "DGAI"
+  ],
+  "params_hash": "3d39fb1bd1a03b7f5269f53fec347d34645d2b402ff1c2de47e53f19d69616b7",
+  "recorded": {
+    "SOL": {
+      "decision": "GO",
+      "blocking": [],
+      "decision_hash": "a5e0c4a74e4d2593cfe92ea551db2f569cb9f9f4afde42c300b0e645b75f6eea"
+    },
+    "DGAI": {
+      "decision": "NO_GO",
+      "blocking": [
+        "02_completeness",
+        "03_regime",
+        "05_verdict_quick",
+        "07_verdict_deep",
+        "09_plan",
+        "10_relative"
+      ],
+      "decision_hash": "a2f9c60722b9932981615716902cf55caf561c166661d606ea7622beb67ad67e"
+    }
+  },
+  "snapshots": [
+    {
+      "source_id": 1399,
+      "tool": "market_overview",
+      "args": {},
+      "ts_utc": "2026-09-03T13:44:52.829594+00:00",
+      "envelope": {
+        "as_of": "2026-09-03T13:44:53Z",
+        "availability": {
+          "market_breadth": "available",
+          "market_regime": "available",
+          "market_sentiment": "available",
+          "market_totals": "available",
+          "top_movers": "available"
+        },
+        "data": {
+          "market": {
+            "breadth": 0.9231,
+            "breadth_details": {
+              "advancing": 84,
+              "declining": 7,
+              "method": "share_of_non_stable_top_listings_with_positive_24h_change",
+              "unchanged": 0,
+              "universe_size": 91
+            },
+            "btc_dominance_pct": 59.677781135617,
+            "eth_dominance_pct": 11.189917401253,
+            "market_cap_change_24h_pct": 2.0251556,
+            "total_market_cap_usd": 2653477365627.6245,
+            "total_volume_24h_usd": 75438111095.78
+          },
+          "regime": "risk_on",
+          "sentiment": {
+            "fear_greed_index": 74.0,
+            "label": "greed"
+          },
+          "top_movers": {
+            "gainers": [
+              {
+                "chain": null,
+                "change_24h_pct": 39.36823944,
+                "name": "Pons",
+                "price_usd": 0.5664989561392983,
+                "symbol": "PONS"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": 22.54139049,
+                "name": "Arbitrum",
+                "price_usd": 0.134362064514246,
+                "symbol": "ARB"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": 14.12364521,
+                "name": "Midnight",
+                "price_usd": 0.0211282124701273,
+                "symbol": "NIGHT"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": 9.60624638,
+                "name": "Lighter",
+                "price_usd": 3.977485333309548,
+                "symbol": "LIT"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": 9.39347031,
+                "name": "PancakeSwap",
+                "price_usd": 1.9625913282038303,
+                "symbol": "CAKE"
+              }
+            ],
+            "losers": [
+              {
+                "chain": null,
+                "change_24h_pct": -3.81180695,
+                "name": "Morpho",
+                "price_usd": 2.427260041304512,
+                "symbol": "MORPHO"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": -2.91142142,
+                "name": "Sky",
+                "price_usd": 0.06769926370448215,
+                "symbol": "SKY"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": -0.81592985,
+                "name": "Canton",
+                "price_usd": 0.10972313486926816,
+                "symbol": "CC"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": -0.62434639,
+                "name": "World Liberty Financial",
+                "price_usd": 0.05633263912510839,
+                "symbol": "WLFI"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": -0.61109155,
+                "name": "Kite",
+                "price_usd": 0.13672666152411664,
+                "symbol": "KITE"
+              }
+            ]
+          }
+        },
+        "data_mode": "live",
+        "request": {},
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "Market regime: risk on; sentiment: greed (74/100).",
+          "key_points": [
+            "24h market-cap change: +2.03%.",
+            "BTC dominance: +59.68%.",
+            "ETH dominance: +11.19%.",
+            "Total market cap: $2.65T.",
+            "24h market volume: $75.44B."
+          ]
+        },
+        "tool": "market_overview",
+        "warnings": []
+      }
+    },
+    {
+      "source_id": 1400,
+      "tool": "monitor_market_sentiment_shift",
+      "args": {},
+      "ts_utc": "2026-09-03T13:44:54.040173+00:00",
+      "envelope": {
+        "as_of": "2026-09-03T13:44:54Z",
+        "availability": {
+          "diagnostics": "available",
+          "evidence": "available",
+          "research": "available"
+        },
+        "data": {
+          "diagnostics": {
+            "execution": {
+              "elapsed_ms": 621,
+              "status": "completed"
+            }
+          },
+          "evidence": {
+            "altseason": {
+              "data_date": "2026-09-03",
+              "index": 35,
+              "phase": "transition"
+            },
+            "fear_greed": {
+              "baseline_7d_date": "2026-08-27",
+              "baseline_7d_value": 82,
+              "change_7d_points": -8,
+              "change_direction": "down",
+              "data_date": "2026-09-03",
+              "label": "greed",
+              "material_shift": false,
+              "value": 74
+            },
+            "funding": {
+              "crowding_state": "normal",
+              "current_7d_percentile_90d": 82.222222,
+              "current_7d_window": {
+                "end_date": "2026-09-02",
+                "mean_bps": 0.672771,
+                "start_date": "2026-08-27"
+              },
+              "data_date": "2026-09-02",
+              "latest_bps": 0.6368,
+              "previous_7d_window": {
+                "end_date": "2026-08-26",
+                "mean_bps": 0.613,
+                "start_date": "2026-08-20"
+              },
+              "wow_change_bps": 0.059771,
+              "wow_change_pct": 9.750641
+            },
+            "liquidation": {
+              "coverage_scope": "BTC perpetuals across major derivatives markets",
+              "data_date": "2026-09-02",
+              "dominant_liquidated_side": "balanced",
+              "long_share_pct": 53.754429,
+              "percentile_90d": 36.666667,
+              "pressure_state": "normal",
+              "total_usd": 31266821.28
+            },
+            "sentiment_regime": "mixed_sentiment"
+          },
+          "observation_as_of": "2026-09-03T13:44:54Z",
+          "source": {
+            "attribution": "Powered by CoinMarketCap",
+            "skill_id": "monitor_market_sentiment_shift",
+            "timestamp": "2026-09-03T13:44:54Z",
+            "type": "evidence_pack"
+          },
+          "source_attribution": "Powered by CoinMarketCap",
+          "status": "ok",
+          "summary": "Fear & Greed is 74, down 8 points over seven days (not a material shift). BTC perpetual daily funding averages 0.672771 bps per day over the latest seven days, up 0.059771 bps per day week over week, with no funding crowding signal. BTC perpetual daily liquidations total $31.27 million, with balanced long and short liquidation shares and normal pressure. Overall sentiment regime: mixed sentiment."
+        },
+        "data_mode": "live",
+        "request": {
+          "time_window": "7d"
+        },
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "Fear & Greed is 74, down 8 points over seven days (not a material shift). BTC perpetual daily funding averages 0.672771 bps per day over the latest seven days, up 0.059771 bps per day week over week, with no funding crowding signal. BTC perpetual daily liquidations total $31.27 million, with balanced long and short liquidation shares and normal pressure. Overall sentiment regime: mixed sentiment.",
+          "key_points": [
+            "Sentiment regime: mixed sentiment."
+          ]
+        },
+        "tool": "monitor_market_sentiment_shift",
+        "warnings": []
+      }
+    },
+    {
+      "source_id": 1402,
+      "tool": "analyze_token",
+      "args": {
+        "symbol": "SOL"
+      },
+      "ts_utc": "2026-09-03T13:44:55.978199+00:00",
+      "envelope": {
+        "as_of": "2026-09-03T13:44:56Z",
+        "availability": {
+          "market_data": "available",
+          "market_intelligence": "available",
+          "technical_analysis": "available"
+        },
+        "data": {
+          "asset": {
+            "chain": null,
+            "contract": null,
+            "name": "Solana",
+            "rank": 7,
+            "symbol": "SOL"
+          },
+          "intelligence": {
+            "catalysts": [
+              "Top-7 asset — deep liquidity",
+              "EMA trend is up"
+            ],
+            "narrative": "Solana ranks #7 by market cap (coin) — pos, platform, solana-ecosystem",
+            "risks": []
+          },
+          "market": {
+            "fully_diluted_value_usd": 64341314736.31,
+            "market_cap_usd": 59456392143.741234,
+            "price_usd": 101.58713343889659,
+            "volume_24h_usd": 2957429372.4112163
+          },
+          "performance": {
+            "change_1h_pct": 0.42460145,
+            "change_24h_pct": 3.48574158,
+            "change_30d_pct": 37.40884139,
+            "change_7d_pct": -2.81394653
+          },
+          "technical_analysis": {
+            "atr_14_pct": 4.57,
+            "momentum_30d_pct": 37.40884139,
+            "rsi_14": 63.9,
+            "trend": "up"
+          },
+          "verdict": "neutral"
+        },
+        "data_mode": "live",
+        "request": {
+          "symbol": "SOL"
+        },
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "SOL analysis: neutral.",
+          "key_points": [
+            "Price: $101.59.",
+            "24h change: +3.49%."
+          ]
+        },
+        "tool": "analyze_token",
+        "warnings": []
+      }
+    },
+    {
+      "source_id": 1403,
+      "tool": "deep_analysis",
+      "args": {
+        "include_perp": true,
+        "symbol": "SOL"
+      },
+      "ts_utc": "2026-09-03T13:45:42.495433+00:00",
+      "envelope": {
+        "as_of": "2026-09-03T13:45:42Z",
+        "availability": {
+          "derivatives": "unavailable",
+          "market_data": "available",
+          "technical_analysis": "available",
+          "token_profile": "unavailable",
+          "trade_plan": "available"
+        },
+        "data": {
+          "asset": {
+            "chain": null,
+            "contract": null,
+            "name": "Solana",
+            "rank": 7,
+            "symbol": "SOL"
+          },
+          "confluence": {
+            "gates": [
+              {
+                "detail": {
+                  "rsi_14": 63.9,
+                  "trend": "up"
+                },
+                "name": "momentum",
+                "passed": true
+              },
+              {
+                "detail": {
+                  "volume_to_market_cap": 0.0497
+                },
+                "name": "market_activity",
+                "passed": true
+              }
+            ],
+            "score": 1.0,
+            "state": "CONFIRMED",
+            "status": "available"
+          },
+          "derivatives": null,
+          "intelligence": {
+            "catalysts": [
+              "Daily technical trend is upward."
+            ],
+            "narrative": "coin, pos, platform, solana-ecosystem, cms-holdings-portfolio",
+            "risks": []
+          },
+          "market": {
+            "circulating_supply": 585274828.9182067,
+            "dominance_pct": 2.2453,
+            "fdv_usd": 64341314736.31,
+            "max_supply": null,
+            "mcap_usd": 59456392143.741234,
+            "price_usd": 101.58713343889659,
+            "volume_24h_usd": 2957429372.4112163
+          },
+          "performance": {
+            "d30": 37.40884139,
+            "d7": -2.81394653,
+            "h1": 0.42460145,
+            "h24": 3.48574158
+          },
+          "technical_analysis": {
+            "atr_14_pct": 4.57,
+            "momentum_30d_pct": 37.40884139,
+            "rsi_14": 63.9,
+            "trend": "up"
+          },
+          "token_profile": null,
+          "trade_plan": {
+            "atr_14_pct": 4.57,
+            "atr_14_usd": 4.6425,
+            "atr_multiplier": 1.5,
+            "entry": 101.5871,
+            "method": "wilder_atr_14_from_daily_ohlcv",
+            "preview_only": true,
+            "risk_reward": [
+              1.0,
+              2.0
+            ],
+            "stop": 94.6233,
+            "targets": [
+              108.5509,
+              115.5147
+            ]
+          },
+          "verdict": {
+            "bottom_line": "The measured market and technical signals are mixed.",
+            "call": "neutral",
+            "confluence_score": 1.0,
+            "headline": "SOL deep analysis: neutral.",
+            "key_driver": "The measured market and technical signals are mixed.",
+            "what_changes_it": "A material change in trend, momentum, activity, or derivatives posture."
+          }
+        },
+        "data_mode": "live",
+        "request": {
+          "include_perp": true,
+          "symbol": "SOL"
+        },
+        "schema_version": "1.0",
+        "status": "partial",
+        "summary": {
+          "headline": "SOL deep analysis: neutral.",
+          "key_points": [
+            "The measured market and technical signals are mixed.",
+            "Key driver: The measured market and technical signals are mixed.",
+            "What changes the view: A material change in trend, momentum, activity, or derivatives posture."
+          ]
+        },
+        "tool": "deep_analysis",
+        "warnings": [
+          "Optional Skill Hub token-profile evidence is incomplete or unavailable.",
+          "Derivatives analysis is unavailable or was not requested."
+        ]
+      }
+    },
+    {
+      "source_id": 1424,
+      "tool": "analyze_token",
+      "args": {
+        "symbol": "DGAI"
+      },
+      "ts_utc": "2026-09-03T13:52:37.900475+00:00",
+      "envelope": {
+        "as_of": "2026-09-03T13:52:36Z",
+        "availability": {
+          "market_data": "available",
+          "market_intelligence": "available",
+          "technical_analysis": "partial"
+        },
+        "data": {
+          "asset": {
+            "chain": null,
+            "contract": null,
+            "name": "DGrid AI",
+            "rank": 240,
+            "symbol": "DGAI"
+          },
+          "intelligence": {
+            "catalysts": [],
+            "narrative": "DGrid AI ranks #240 by market cap (token) — dapp, arbitrum-ecosystem, bnb-chain-ecosystem",
+            "risks": [
+              "FDV ≫ market cap — heavy future unlocks"
+            ]
+          },
+          "market": {
+            "fully_diluted_value_usd": 751691703.48,
+            "market_cap_usd": 112753755.52238928,
+            "price_usd": 0.7516917034825952,
+            "volume_24h_usd": 119703103.74241322
+          },
+          "performance": {
+            "change_1h_pct": 4.37632536,
+            "change_24h_pct": 14.95046965,
+            "change_30d_pct": 646.93481934,
+            "change_7d_pct": -1.15825909
+          },
+          "technical_analysis": {
+            "atr_14_pct": null,
+            "momentum_30d_pct": 646.93481934,
+            "rsi_14": null,
+            "trend": "sideways"
+          },
+          "verdict": "neutral"
+        },
+        "data_mode": "live",
+        "request": {
+          "symbol": "DGAI"
+        },
+        "schema_version": "1.0",
+        "status": "partial",
+        "summary": {
+          "headline": "DGAI analysis: neutral.",
+          "key_points": [
+            "Price: $0.75.",
+            "24h change: +14.95%."
+          ]
+        },
+        "tool": "analyze_token",
+        "warnings": [
+          "Technical indicators were not calculated; null values must not be treated as neutral or zero."
+        ]
+      }
+    },
+    {
+      "source_id": 1425,
+      "tool": "deep_analysis",
+      "args": {
+        "include_perp": true,
+        "symbol": "DGAI"
+      },
+      "ts_utc": "2026-09-03T13:53:16.232608+00:00",
+      "envelope": {
+        "as_of": "2026-09-03T13:53:15Z",
+        "availability": {
+          "derivatives": "unavailable",
+          "market_data": "available",
+          "technical_analysis": "partial",
+          "token_profile": "unavailable",
+          "trade_plan": "unavailable"
+        },
+        "data": {
+          "asset": {
+            "chain": null,
+            "contract": null,
+            "name": "DGrid AI",
+            "rank": 240,
+            "symbol": "DGAI"
+          },
+          "confluence": {
+            "gates": [
+              {
+                "detail": {
+                  "rsi_14": null,
+                  "trend": "sideways"
+                },
+                "name": "momentum",
+                "passed": null
+              },
+              {
+                "detail": {
+                  "volume_to_market_cap": 1.0616
+                },
+                "name": "market_activity",
+                "passed": true
+              }
+            ],
+            "score": 1.0,
+            "state": "CONFIRMED",
+            "status": "available"
+          },
+          "derivatives": null,
+          "intelligence": {
+            "catalysts": [],
+            "narrative": "token, dapp, arbitrum-ecosystem, bnb-chain-ecosystem",
+            "risks": []
+          },
+          "market": {
+            "circulating_supply": 150000000.0,
+            "dominance_pct": 0.0,
+            "fdv_usd": 751691703.48,
+            "max_supply": 1000000000.0,
+            "mcap_usd": 112753755.52238928,
+            "price_usd": 0.7516917034825952,
+            "volume_24h_usd": 119703103.74241322
+          },
+          "performance": {
+            "d30": 646.93481934,
+            "d7": -1.15825909,
+            "h1": 4.37632536,
+            "h24": 14.95046965
+          },
+          "technical_analysis": {
+            "atr_14_pct": null,
+            "momentum_30d_pct": 646.93481934,
+            "rsi_14": null,
+            "trend": "sideways"
+          },
+          "token_profile": null,
+          "trade_plan": null,
+          "verdict": {
+            "bottom_line": "The measured market and technical signals are mixed.",
+            "call": "neutral",
+            "confluence_score": 1.0,
+            "headline": "DGAI deep analysis: neutral.",
+            "key_driver": "The measured market and technical signals are mixed.",
+            "what_changes_it": "A material change in trend, momentum, activity, or derivatives posture."
+          }
+        },
+        "data_mode": "live",
+        "request": {
+          "include_perp": true,
+          "symbol": "DGAI"
+        },
+        "schema_version": "1.0",
+        "status": "partial",
+        "summary": {
+          "headline": "DGAI deep analysis: neutral.",
+          "key_points": [
+            "The measured market and technical signals are mixed.",
+            "Key driver: The measured market and technical signals are mixed.",
+            "What changes the view: A material change in trend, momentum, activity, or derivatives posture."
+          ]
+        },
+        "tool": "deep_analysis",
+        "warnings": [
+          "Technical indicators were not calculated; null values must not be treated as neutral or zero.",
+          "Optional Skill Hub token-profile evidence is incomplete or unavailable.",
+          "Derivatives analysis is unavailable or was not requested.",
+          "No preview trade plan could be calculated."
+        ]
+      }
+    },
+    {
+      "source_id": 1452,
+      "tool": "compare_tokens",
+      "args": {
+        "intent": "swing",
+        "symbols": "SOL, BNB, ETH"
+      },
+      "ts_utc": "2026-09-03T14:01:40.120820+00:00",
+      "envelope": {
+        "as_of": "2026-09-03T14:01:40Z",
+        "availability": {
+          "comparison_factors": "available",
+          "conclusion": "available",
+          "token_market_data": "available",
+          "token_profiles": "unavailable"
+        },
+        "data": {
+          "conclusion": {
+            "confidence": "medium",
+            "headline": "BNB leads this comparison.",
+            "method": "deterministic",
+            "pick": "BNB",
+            "rationale": "It leads on Momentum / relative strength, Lower measured volatility.",
+            "runner_up_case": "SOL can take the lead if the measured factors rotate."
+          },
+          "coverage_by_token": {
+            "BNB": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            },
+            "ETH": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            },
+            "SOL": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            }
+          },
+          "factors": [
+            {
+              "key": "momentum",
+              "label": "Momentum / relative strength",
+              "scores": {
+                "BNB": 5.465071,
+                "ETH": 2.299915,
+                "SOL": 0.926322
+              },
+              "winner": "BNB"
+            },
+            {
+              "key": "market_activity",
+              "label": "Market activity",
+              "scores": {
+                "BNB": 0.015178,
+                "ETH": 0.043498,
+                "SOL": 0.049408
+              },
+              "winner": "SOL"
+            },
+            {
+              "key": "volatility",
+              "label": "Lower measured volatility",
+              "scores": {
+                "BNB": -2.56,
+                "ETH": -3.89,
+                "SOL": -4.57
+              },
+              "winner": "BNB"
+            }
+          ],
+          "intent": "swing",
+          "tokens": [
+            {
+              "chain": null,
+              "changes": {
+                "d30": 37.88249949,
+                "d7": -4.07367839,
+                "h1": -0.21698776,
+                "h24": 2.36939886
+              },
+              "metrics": {
+                "atr_14_pct": 4.57,
+                "market_cap_usd": 59373974232.30874,
+                "rsi_14": 63.9,
+                "trend": "up",
+                "volume_24h_usd": 2933570884.9285955
+              },
+              "name": "Solana",
+              "price_usd": 101.4463142760687,
+              "rank": 7,
+              "symbol": "SOL",
+              "token_profile": null,
+              "verdict": "neutral"
+            },
+            {
+              "chain": null,
+              "changes": {
+                "d30": 20.91328383,
+                "d7": 0.46507064,
+                "h1": -0.3903692,
+                "h24": 3.58690456
+              },
+              "metrics": {
+                "atr_14_pct": 2.56,
+                "market_cap_usd": 94750100740.56342,
+                "rsi_14": 64.2,
+                "trend": "up",
+                "volume_24h_usd": 1438123699.9148333
+              },
+              "name": "BNB",
+              "price_usd": 711.5391553438992,
+              "rank": 4,
+              "symbol": "BNB",
+              "token_profile": null,
+              "verdict": "constructive"
+            },
+            {
+              "chain": null,
+              "changes": {
+                "d30": 30.63706607,
+                "d7": -2.70008477,
+                "h1": 0.17402773,
+                "h24": 1.28106763
+              },
+              "metrics": {
+                "atr_14_pct": 3.89,
+                "market_cap_usd": 296433069250.715,
+                "rsi_14": 61.3,
+                "trend": "up",
+                "volume_24h_usd": 12894268920.688908
+              },
+              "name": "Ethereum",
+              "price_usd": 2429.4781151674692,
+              "rank": 2,
+              "symbol": "ETH",
+              "token_profile": null,
+              "verdict": "neutral"
+            }
+          ],
+          "winner": "BNB"
+        },
+        "data_mode": "live",
+        "request": {
+          "intent": "swing",
+          "symbols": "SOL, BNB, ETH"
+        },
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "BNB leads this comparison.",
+          "key_points": [
+            "It leads on Momentum / relative strength, Lower measured volatility.",
+            "SOL can take the lead if the measured factors rotate."
+          ]
+        },
+        "tool": "compare_tokens",
+        "warnings": [
+          "Optional Skill Hub token-profile evidence is incomplete or unavailable for one or more tokens.",
+          "The conclusion was calculated from the returned factors; no narrative model was used."
+        ]
+      }
+    }
+  ]
+}
