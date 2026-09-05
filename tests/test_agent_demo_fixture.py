@@ -197,6 +197,19 @@ def _evidence_rows(path: Path) -> tuple[dict, dict]:
     if not EVIDENCE_DB.exists():
         pytest.skip(f"{EVIDENCE_DB} tidak ada — jangkar hanya bisa diuji di mesin yang memegang bukti")
     fixture = json.loads(path.read_text(encoding="utf-8"))
+    # Label `source_db` dicetak DALAM kalimat afirmatif ("bukti nyata {source_label} id …",
+    # `preflight.outage_fixture.provenance_lines`), tetapi ia teks bebas: berkas bisa menulis
+    # "data/ryo.db (production evidence, audited)" tanpa perlawanan. Menuntutnya menunjuk store
+    # yang BENAR-BENAR diperiksa di bawah membuat kalimat yang tercetak dan store yang
+    # diverifikasi menjadi satu hal yang sama. Dinormalkan lebih dulu: relatif, `./`, dan absolut
+    # menunjuk berkas yang sama, dan tes yang merah karena kosmetik akan dilonggarkan orang
+    # berikutnya — yang justru menghapus jaminannya.
+    labelled = (ROOT / Path(str(fixture["source_db"]))).resolve()
+    assert labelled == EVIDENCE_DB.resolve(), (
+        f"{path.name}: label `source_db` menunjuk {labelled}, tetapi jangkar ini memeriksa "
+        f'{EVIDENCE_DB.resolve()} — kalimat "bukti nyata {fixture["source_db"]}" karena itu '
+        "tidak berdasar"
+    )
     rows = {int(row["source_id"]): row for row in fixture["snapshots"]}
     with Store(EVIDENCE_DB, read_only=True) as store:
         found = {row.id: row for row in store.get_snapshots(sorted(rows))}
