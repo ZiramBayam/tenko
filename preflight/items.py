@@ -55,6 +55,59 @@ tugas task itu, bukan modul ini. Nilai yang SUDAH cocok dengan tabel kosakata
 Item 11 (Bunryō) spec §4 TIDAK ada di sini: ia butuh ledger reliabilitas dari ``grading/``
 (TASKS 3.3, opsional) yang belum dibangun; item yang tidak punya sumber hanya akan menambah
 baris kosong di kartu.
+
+Daya veto empiris per item (TASKS 2.1b)
+---------------------------------------
+Bukan sifat kode, melainkan apa yang BENAR-BENAR terjadi atas ``data/ryo.db``. Diukur
+``preflight/veto_table.py`` lewat jalur produksi yang sama persis (:func:`preflight.skill.gather`
+→ :func:`evaluate_all`), nol panggilan RYO, nol tulisan (``Store(read_only=True)``). Reproduksi::
+
+    uv run python -m preflight.veto_table --until 2026-09-05T12:32:00Z
+
+Amatan = satu (simbol inti, jangkar), jangkar = ``ts_utc`` tiap baris ``analyze_token``;
+226 jangkar dipakai (SOL=59, BTC=59, ETH=55, BNB=53), 0 dibuang batas pindai, 0 gagal merakit
+bundel; jendela ``2026-09-01T03:51:46Z .. 2026-09-05T12:15:26Z``; ``params_hash``
+``3d39fb1bd1a03b7f…``; ``max_age_min=120``; 14 snapshot dibuang karena ``ts_utc``-nya
+bertengkar dengan ``as_of`` (fixture TASKS 0.19)::
+
+    item                    n  green   red  unspoken  nilai penyebab merah
+    ----------------------------------------------------------------------------------------
+    01_freshness          226    226     0         0  —  (tidak pernah merah)
+    02_completeness       226    110   116         0  4 nilai berbeda; teratas 110x
+    03_regime             226    190    30         6  8 nilai berbeda; teratas 4x
+    04_sentiment_shift    226    203    20         3  3 nilai berbeda; teratas 8x
+    05_verdict_quick      226    176    47         3  5 nilai berbeda; teratas 19x
+    06_confluence         226    129    93         4  3 nilai berbeda; teratas 77x
+    07_verdict_deep       226    222     0         4  —  (tidak pernah merah)
+    08_derivatives        226    191    32         3  1 nilai berbeda; teratas 32x
+    09_plan               226    222     0         4  —  (tidak pernah merah)
+    10_relative           226    109     1       116  1 nilai berbeda; teratas 1x
+
+Yang dikatakan angka itu, apa adanya (kalimatnya digenerasi alat ukur dari cacahnya, bukan
+ditulis di muka):
+
+* **``01_freshness`` belum pernah menahan apa pun dalam n=226 amatan.** Konsisten dengan aturan
+  5 di atas: pada jalur store-first yang basi tidak ikut terbaca, jadi item ini praktis hanya
+  bisa merah lewat bukti yang saling bertengkar di dalam satu bundle.
+* ``07_verdict_deep`` dan ``09_plan`` **0× merah**, tetapi masing-masing 4× ``unspoken`` —
+  diam bukan hijau, jadi keduanya TIDAK memenuhi kalimat di atas.
+* Penahan terbanyak adalah ``02_completeness`` (116×) dan ``06_confluence`` (93×), lalu
+  ``05_verdict_quick`` (47×), ``08_derivatives`` (32×), ``03_regime`` (30×),
+  ``04_sentiment_shift`` (20×), ``10_relative`` (1×).
+* **Baca ``02_completeness`` dengan hati-hati**: 110 dari 116 merahnya bernilai
+  ``missing_tools=[compare_tokens]`` — itu lubang PEREKAMAN (``compare_tokens`` baru mulai
+  direkam 2026-09-03), bukan sifat pasar. Sumber yang sama membuat ``10_relative``
+  ``unspoken`` 116×.
+* ``08_derivatives`` (opsional, tidak pernah masuk ``blocking``) merah 32× dengan satu nilai
+  saja: ``funding_crowding_state=long_crowding`` + ``liquidation_pressure_state=extreme``.
+* "Merah" = item ini menahan keberangkatan, BUKAN bahwa menahannya benar; apakah veto membayar
+  adalah TASKS 3.3.
+
+Batas angka ini (ditulis, bukan ditambal): ``core.store.FRESH_SCAN_LIMIT`` = 64 dan jangkar
+tertua sudah butuh kedalaman pindai **60**. Begitu perekam menambah ~4 siklus lagi, jangkar
+paling tua akan dibuang alat ukur (``scan_limited``) dan ``n`` MENYUSUT — angkanya akan
+berbeda dari yang tertulis di sini, dan headernya yang akan memberi tahu. Jangan
+menyelaraskan tabel ini dengan tangan: jalankan ulang perintahnya dan tempel yang keluar.
 """
 
 from __future__ import annotations
