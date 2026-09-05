@@ -43,7 +43,9 @@ Yang WAJIB terbaca di layar (dan kenapa)
   bukti (hanya `item_id` yang divalidasi) dan larangan vonis di `SYSTEM_PROMPT` tidak ditegakkan
   satu baris kode pun; penjaga kata-kunci DITOLAK dengan alasan, jadi penutupnya adalah label ini.
   `narration_unavailable` ditampilkan apa adanya, bukan disembunyikan.
-* **Pemotongan disebut**: `n_items_total`/`n_warnings_total`/`scan_limit`/`n_legacy_hidden`.
+* **Pemotongan disebut**: `n_items_total`/`n_warnings_total`/`n_blocking`/`scan_limit`/
+  `n_legacy_hidden`. Cacah yang dibaca layar SELALU cacah sebenarnya (`ui.app.COUNT_NAMING_RULE`);
+  `n_*_rendered` hanya dipakai untuk mengatakan berapa yang muat.
 * **Warna tidak pernah sendirian**: tiap lencana membawa teksnya (`replay_label`, status item,
   penanda netral), jadi layar tetap terbaca hitam-putih dan oleh pembaca layar.
 """
@@ -639,16 +641,26 @@ def _card_answer(payload: dict[str, Any], items: list[dict[str, Any]]) -> str:
     # bertipe list/dict akan melempar "unhashable type" dan menjatuhkan seluruh kartu.
     by_id = {entry["item_id"]: entry for entry in items if isinstance(entry.get("item_id"), str)}
     top = by_id.get(blocking[0], {})
+    # Judul memakai `n_blocking` (cacah SEBENARNYA), bukan panjang daftar yang dirender: kalau
+    # ekor `blocking` dipotong di API, "Ditahan 200 dari 20.000" akan mengecilkan kegagalannya
+    # persis di kalimat yang harus menjawab "apa yang berubah" dalam 30 detik.
+    n_blocking = payload.get("n_blocking")
+    if not isinstance(n_blocking, int) or isinstance(n_blocking, bool) or n_blocking < len(blocking):
+        n_blocking = len(blocking)
+    n_hidden = n_blocking - len(blocking)
+    others = ", ".join(_bdi(entry, KEY_LIMIT) for entry in blocking[1:])
+    tail = (
+        f"{others}, dan {_bdi(n_hidden)} lagi yang tidak dirender (`n_blocking` = cacah sebenarnya)."
+        if n_hidden
+        else (f"{others}." if len(blocking) > 1 else "tidak ada.")
+    )
     return (
-        f'<p class="answer">Ditahan {_bdi(len(blocking))} dari {_bdi(n_items)} baris panggilan. '
+        f'<p class="answer">Ditahan {_bdi(n_blocking)} dari {_bdi(n_items)} baris panggilan. '
         f"Penahan TERBERAT: <strong>{_bdi(blocking[0], KEY_LIMIT)}</strong> "
         f"(daya veto {_bdi(top.get('veto_rank'))}) — {_reason_cell(top.get('reason'))} "
         f"Sumber: {_bdi(top.get('tool'), KEY_LIMIT)}.{_bdi(top.get('field'), TEXT_LIMIT)}, "
         f"as_of {_bdi(top.get('as_of_jst'), KEY_LIMIT)}.</p>"
-        f'<p class="sub">Penahan lain, urut daya veto: '
-        + ", ".join(_bdi(entry, KEY_LIMIT) for entry in blocking[1:])
-        + ("." if len(blocking) > 1 else "tidak ada.")
-        + "</p>"
+        f'<p class="sub">Penahan lain, urut daya veto: {tail}</p>'
     )
 
 
@@ -780,8 +792,10 @@ def render_card(payload: dict[str, Any], banner: str, now: datetime) -> str:
         else f'<p class="sub empty">{escape(EMPTY_SENTENCE, quote=True)} — kartu ini tidak '
         "memuat satu baris panggilan pun.</p>"
     )
+    # `n_warnings_rendered`, BUKAN `n_warnings`: yang di kiri kalimat ini adalah "berapa yang
+    # muat di layar", dan `n_warnings` sekarang berarti cacah sebenarnya (TASKS 3.1b).
     warnings_caption = (
-        f"{_plain(payload.get('n_warnings'))} dirender dari "
+        f"{_plain(payload.get('n_warnings_rendered'))} dirender dari "
         f"{_plain(payload.get('n_warnings_total'))} (`n_warnings_total`)"
     )
     api_href = _self_href(payload, "/api/decision/")

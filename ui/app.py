@@ -63,6 +63,13 @@ Aturan yang ditegakkan di sini, bukan dijanjikan
 6. **Tidak ada aset dari host.** `docs_url`/`redoc_url` dimatikan: halaman Swagger bawaan
    FastAPI memuat JS/CSS dari CDN pihak ketiga yang tidak diputuskan ADR mana pun.
 
+7. **Satu aturan penamaan cacah** (:data:`COUNT_NAMING_RULE`, TASKS 3.1b): `n_x`/`n_x_total`
+   selalu cacah SEBENARNYA, `n_x_rendered` selalu yang ikut di respons ini. Sebelumnya `n_items`
+   dan `n_warnings` bersebelahan di `/api/decision` sambil menghitung hal berbeda, sehingga
+   kartu ber-20.000 peringatan tampil sebagai "100 peringatan" — angka yang mengecilkan jumlah
+   kegagalan. Ketiga daftar yang bisa dipotong (`items`, `warnings`, `blocking`) punya batas
+   render DAN kalimat di `notes` yang menyebut totalnya.
+
 Yang SENGAJA tidak ada (scope PM 4 Sep 2026): paginasi, pencarian, filter, dan penulisan apa
 pun. Batas jumlah baris dipatok konstanta modul dan **disebut di respons** (`limit`), supaya
 "20 keputusan" tidak pernah terbaca sebagai "hanya ada 20 keputusan".
@@ -149,6 +156,23 @@ MAX_DECISION_ID = 2**63 - 1
 MAX_ITEM_ROWS = 200
 MAX_WARNING_ROWS = 100
 MAX_BUNDLE_ROWS = 200
+MAX_BLOCKING_ROWS = 200
+
+#: SATU aturan penamaan cacah, supaya dua field bersebelahan tidak pernah menghitung hal berbeda
+#: (security review 3.1b butir b). Sebelumnya `n_items` di `/api/decision` berarti TOTAL sementara
+#: `n_warnings` di sebelahnya berarti YANG DIRENDER: pembaca Layar B yang melihat `n_warnings: 100`
+#: pada baris ber-20.000 peringatan membaca angka yang MENGECILKAN jumlah kegagalan — arah
+#: kesalahan paling mahal untuk produk ini. Aturannya sekarang, tanpa kekecualian:
+#:
+#: * ``n_<x>`` dan ``n_<x>_total`` = cacah SEBENARNYA di baris/kartu itu (dua nama, satu makna;
+#:   ``_total`` dipertahankan karena Layar B sudah menyebut namanya di layar);
+#: * ``n_<x>_rendered`` = berapa yang benar-benar ikut di respons INI.
+#:
+#: Arahnya dipilih begitu karena angka yang dibaca juri adalah cacah sebenarnya; berapa yang muat
+#: di satu respons adalah urusan implementasi. Kalau salah satu field bergeser diam-diam, yang
+#: tersisa adalah angka yang terlalu KECIL — jadi `n_<x>` dipatok pada makna yang tidak bisa
+#: meremehkan apa pun, dan pemotongannya disebut di `notes`.
+COUNT_NAMING_RULE = "`n_x` dan `n_x_total` = cacah sebenarnya; `n_x_rendered` = yang ikut di respons ini"
 
 #: Kalimat yang dipakai berulang; dipatok tes supaya tidak menguap saat teks diedit.
 LEGACY_SENTENCE = (
@@ -442,11 +466,18 @@ def _warnings_of(skill: dict[str, Any]) -> tuple[list[str], int]:
     return lines, len(raw)
 
 
-def _blocking_of(row: DecisionRow, skill: dict[str, Any]) -> list[str]:
-    """Id item penahan, urut daya veto. HANYA untuk baris generasi berjalan.
+def _blocking_of(row: DecisionRow, skill: dict[str, Any]) -> tuple[list[str], int]:
+    """(id item penahan urut daya veto, CACAH SEBENARNYA). HANYA untuk baris generasi berjalan.
 
     Sumbernya `decisions.blocking_json`; kartu dipakai sebagai cadangan saat kolomnya tidak
     terbaca. Baris warisan tidak pernah sampai ke sini (isinya integer, bukan id item).
+
+    Dipotong :data:`MAX_BLOCKING_ROWS` dengan alasan yang sama seperti `items`/`warnings`, dan
+    ditemukan belakangan karena alasan yang layak dicatat: `blocking` adalah field TERBESAR
+    KETIGA di respons yang sama, jadi memotong dua yang lain saja membuat satu baris
+    `/api/watchlist` tetap bisa membengkak ratusan kilobyte oleh daftar id penahan. Yang dipotong
+    adalah EKORNYA — daftar sudah diurutkan daya veto, jadi penahan terberat (satu-satunya yang
+    dibaca `top_blocker` dan judul Layar B) tidak pernah ikut terbuang.
     """
     try:
         raw: list[Any] = row.blocking()
@@ -454,8 +485,11 @@ def _blocking_of(row: DecisionRow, skill: dict[str, Any]) -> list[str]:
         data = skill.get("data")
         candidate = data.get("blocking") if isinstance(data, dict) else None
         raw = candidate if isinstance(candidate, list) else []
-    ids = [clean_text(str(entry), KEY_LIMIT) for entry in raw]
-    return sorted(ids, key=lambda item_id: (_sort_key(_rank(item_id)), item_id))
+    ids = sorted(
+        (clean_text(str(entry), KEY_LIMIT) for entry in raw),
+        key=lambda item_id: (_sort_key(_rank(item_id)), item_id),
+    )
+    return ids[:MAX_BLOCKING_ROWS], len(ids)
 
 
 def _counts_of(skill: dict[str, Any], items: list[dict[str, Any]], n_total: int) -> dict[str, int]:
@@ -538,7 +572,7 @@ def _summary_row(row: DecisionRow, store: Store) -> dict[str, Any]:
     card = _card_of(row)
     skill = _skill_of(card)
     items, n_item_rows = _items_of(skill, _narration_lines(skill))
-    blocking = _blocking_of(row, skill)
+    blocking, n_blocking_total = _blocking_of(row, skill)
     counts = _counts_of(skill, items, n_item_rows)
     by_id = {entry["item_id"]: entry for entry in items}
     top = by_id.get(blocking[0]) if blocking else None
@@ -548,6 +582,7 @@ def _summary_row(row: DecisionRow, store: Store) -> dict[str, Any]:
     except LedgerError:
         n_snapshots = 0
     summary = skill.get("summary") if isinstance(skill.get("summary"), dict) else {}
+    n_warnings_total = _warnings_of(skill)[1]
     return {
         "decision_id": row.id,
         "symbol": clean_text(row.symbol, KEY_LIMIT),
@@ -558,7 +593,12 @@ def _summary_row(row: DecisionRow, store: Store) -> dict[str, Any]:
         "as_of_jst": _jst(skill.get("as_of")),
         "headline": _clean(summary.get("headline"), TEXT_LIMIT),
         "blocking": blocking,
-        "n_blocking": len(blocking),
+        # `n_blocking` TETAP cacah sebenarnya walau `blocking` dipotong (COUNT_NAMING_RULE) —
+        # urutan Layar A dihitung dari angka ini, dan simbol dengan 20.000 penahan tidak boleh
+        # naik ke atas hanya karena daftarnya tidak muat.
+        "n_blocking": n_blocking_total,
+        "n_blocking_total": n_blocking_total,
+        "n_blocking_rendered": len(blocking),
         "top_blocker": None
         if top is None
         else {
@@ -573,9 +613,13 @@ def _summary_row(row: DecisionRow, store: Store) -> dict[str, Any]:
         },
         "veto_rank": None if top is None else top["veto_rank"],
         "n_items": counts.get("n_items", n_item_rows),
+        "n_items_total": counts.get("n_items", n_item_rows),
         "n_unspoken": counts.get("n_unspoken", 0),
         "n_snapshots": n_snapshots,
-        "n_warnings": _warnings_of(skill)[1],
+        # Baris ringkas tidak membawa `warnings` sama sekali, jadi tidak ada yang "dirender":
+        # yang disebut hanya cacah sebenarnya, sesuai aturan yang sama.
+        "n_warnings": n_warnings_total,
+        "n_warnings_total": n_warnings_total,
         **(_unknown_verdict() if report is None else _verdict_of(report, row)),
     }
 
@@ -606,13 +650,41 @@ def _tone_note(entries: list[dict[str, Any]]) -> str | None:
     )
 
 
-def _truncation_notes(n_items: int, n_items_total: int, n_warnings: int, n_warnings_total: int) -> list[str]:
+def _row_truncation_note(entries: list[dict[str, Any]]) -> str | None:
+    """Satu kalimat bila ada baris ringkas yang daftar `blocking`-nya dipotong.
+
+    Tiap baris sudah membawa `n_blocking` (total) di samping `n_blocking_rendered`, tetapi Layar A
+    menampilkan daftar itu apa adanya: pemotongan harus terbaca di halaman yang sama, bukan hanya
+    bisa dihitung dari dua field oleh pembaca yang curiga.
+    """
+    cut = [entry for entry in entries if entry["n_blocking_rendered"] < entry["n_blocking"]]
+    if not cut:
+        return None
+    worst = max(entry["n_blocking"] for entry in cut)
+    return (
+        f"{len(cut)} baris di layar ini menahan lebih dari {MAX_BLOCKING_ROWS} item (terbanyak "
+        f"{worst}); daftar `blocking`-nya dipotong di batas render itu, sedangkan `n_blocking` "
+        "tiap baris tetap cacah sebenarnya dan urutan layar dihitung dari cacah itu."
+    )
+
+
+def _truncation_notes(
+    n_items: int,
+    n_items_total: int,
+    n_warnings: int,
+    n_warnings_total: int,
+    n_blocking: int = 0,
+    n_blocking_total: int = 0,
+) -> list[str]:
     """Kalimat untuk setiap daftar yang DIPOTONG saat dirender. Kosong bila tidak ada.
 
     Kartu ditulis agen, bukan pemanggil, jadi pemotongan ini tidak pernah terjadi pada baris
     yang sehat (sepuluh item, segelintir peringatan). Kalau sekali waktu terjadi, ia harus
     terbaca sebagai pemotongan — daftar yang lebih pendek tanpa kalimat adalah bentuk lain dari
     "angka tanpa n".
+
+    Ketiga daftar yang bisa dipotong disebut di sini, termasuk `blocking`: batas render yang
+    tidak punya kalimat sendiri adalah batas yang hilang dari layar.
     """
     notes: list[str] = []
     if n_items_total > n_items:
@@ -625,6 +697,12 @@ def _truncation_notes(n_items: int, n_items_total: int, n_warnings: int, n_warni
             f"{n_warnings_total} peringatan envelope ada di baris ini; hanya {n_warnings} yang "
             f"dirender (batas render {MAX_WARNING_ROWS}). `n_warnings_total` adalah cacah "
             "sebenarnya, dan tidak satu pun dihapus dari store."
+        )
+    if n_blocking_total > n_blocking:
+        notes.append(
+            f"{n_blocking_total} baris menahan keputusan ini; hanya {n_blocking} id penahan "
+            f"yang dirender di `blocking` (batas render {MAX_BLOCKING_ROWS}, ekor daftar yang "
+            "dibuang — penahan terberat selalu ikut). `n_blocking` adalah cacah sebenarnya."
         )
     return notes
 
@@ -820,6 +898,9 @@ def watchlist() -> dict[str, Any]:
     tone_note = _tone_note(entries)
     if tone_note:
         notes.append(tone_note)
+    cut_note = _row_truncation_note(entries)
+    if cut_note:
+        notes.append(cut_note)
     if n_legacy:
         notes.append(
             f"{n_legacy} baris keputusan generasi sebelumnya tidak ditampilkan di sini: kartunya "
@@ -852,6 +933,9 @@ def decisions() -> dict[str, Any]:
     tone_note = _tone_note(entries)
     if tone_note:
         notes.append(tone_note)
+    cut_note = _row_truncation_note(entries)
+    if cut_note:
+        notes.append(cut_note)
     if n_legacy:
         notes.append(
             f"{n_legacy} baris generasi sebelumnya dilewati (kartunya tidak menyebut algoritma "
@@ -928,6 +1012,7 @@ def decision(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> dict[str
     items, n_item_rows = ([], 0) if legacy else _items_of(skill, _narration_lines(skill))
     counts = {} if legacy else _counts_of(skill, items, n_item_rows)
     warnings, n_warnings_total = ([], 0) if legacy else _warnings_of(skill)
+    blocking, n_blocking_total = ([], 0) if legacy else _blocking_of(row, skill)
     summary = skill.get("summary") if isinstance(skill.get("summary"), dict) else {}
     notes: list[str] = []
     if legacy:
@@ -946,7 +1031,11 @@ def decision(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> dict[str
         notes.append(f"nol snapshot beku pada baris ini ({EMPTY_SENTENCE})")
     if warnings:
         notes.append(WARNINGS_SENTENCE.format(n=n_warnings_total))
-    notes.extend(_truncation_notes(len(items), n_item_rows, len(warnings), n_warnings_total))
+    notes.extend(
+        _truncation_notes(
+            len(items), n_item_rows, len(warnings), n_warnings_total, len(blocking), n_blocking_total
+        )
+    )
     if len(snapshot_ids) > len(bundle):
         notes.append(
             f"baris ini menyebut {len(snapshot_ids)} snapshot beku; hanya {len(bundle)} pertama "
@@ -968,15 +1057,22 @@ def decision(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> dict[str
             "as_of_jst": _jst(skill.get("as_of")),
             "generation": "legacy" if legacy else "current",
             "headline": None if legacy else _clean(summary.get("headline"), TEXT_LIMIT),
-            "blocking": [] if legacy else _blocking_of(row, skill),
+            "blocking": blocking,
             "blocking_rendered": not legacy,
+            "n_blocking": n_blocking_total,
+            "n_blocking_total": n_blocking_total,
+            "n_blocking_rendered": len(blocking),
             "items": items,
             "n_items": counts.get("n_items", n_item_rows),
             "n_items_total": n_item_rows,
+            "n_items_rendered": len(items),
             "n_unspoken": counts.get("n_unspoken", 0),
             "warnings": warnings,
-            "n_warnings": len(warnings),
+            # TOTAL, bukan yang dirender (COUNT_NAMING_RULE): `n_warnings` bersebelahan dengan
+            # `n_items` di layar, dan dua tetangga yang menghitung hal berbeda akan salah dibaca.
+            "n_warnings": n_warnings_total,
             "n_warnings_total": n_warnings_total,
+            "n_warnings_rendered": len(warnings),
             "narration": None if legacy else _narration_block(skill, n_item_rows),
             "decision_hash": clean_text(row.decision_hash, KEY_LIMIT),
             "params_hash": clean_text(row.params_hash, KEY_LIMIT),
@@ -1054,23 +1150,33 @@ def preflight_symbol(symbol: str) -> dict[str, Any]:
     items, n_item_rows = _items_of(raw, {})
     counts = _counts_of(skill, items, n_item_rows)
     data = skill.get("data") if isinstance(skill.get("data"), dict) else {}
+    # Batas render yang sama dengan `/api/decision` (`_blocking_of`), dan cacah sebenarnya di
+    # sampingnya: route ini merakit `blocking`-nya sendiri dari envelope yang baru dihitung,
+    # jadi batas yang hanya dipasang di sana tidak akan mengikat di sini.
+    all_blocking = sorted(
+        (clean_text(str(entry), KEY_LIMIT) for entry in data.get("blocking", []) or []),
+        key=lambda item_id: (_sort_key(_rank(item_id)), item_id),
+    )
+    blocking = all_blocking[:MAX_BLOCKING_ROWS]
     return _body(
         {
             "symbol": normalized,
             "decision": _clean(data.get("decision"), KEY_LIMIT),
-            "blocking": sorted(
-                (clean_text(str(entry), KEY_LIMIT) for entry in data.get("blocking", []) or []),
-                key=lambda item_id: (_sort_key(_rank(item_id)), item_id),
-            ),
+            "blocking": blocking,
+            "n_blocking": len(all_blocking),
+            "n_blocking_total": len(all_blocking),
+            "n_blocking_rendered": len(blocking),
             "as_of": _clean(skill.get("as_of"), KEY_LIMIT),
             "as_of_jst": _jst(skill.get("as_of")),
             "items": items,
             "n_items": counts.get("n_items", n_item_rows),
             "n_items_total": n_item_rows,
+            "n_items_rendered": len(items),
             "n_unspoken": counts.get("n_unspoken", 0),
             "warnings": warnings,
-            "n_warnings": len(warnings),
+            "n_warnings": n_warnings_total,
             "n_warnings_total": n_warnings_total,
+            "n_warnings_rendered": len(warnings),
             "snapshot_ids": data.get("snapshot_ids", []),
             "decision_hash": _clean(data.get("decision_hash"), KEY_LIMIT),
             "params_hash": _clean(data.get("params_hash"), KEY_LIMIT),
@@ -1085,7 +1191,14 @@ def preflight_symbol(symbol: str) -> dict[str, Any]:
                 f"punya bukti tentang {normalized}: {', '.join(spoken_about)}",
                 "keputusan ini tidak dibukukan: /api/preflight tidak menulis baris `decisions`",
                 *([WARNINGS_SENTENCE.format(n=n_warnings_total)] if warnings else []),
-                *_truncation_notes(len(items), n_item_rows, len(warnings), n_warnings_total),
+                *_truncation_notes(
+                    len(items),
+                    n_item_rows,
+                    len(warnings),
+                    n_warnings_total,
+                    len(blocking),
+                    len(all_blocking),
+                ),
             ],
         }
     )

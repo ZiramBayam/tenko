@@ -915,8 +915,9 @@ def test_a_giant_card_is_rendered_within_a_stated_bound(client: TestClient, stor
     assert len(body["items"]) == ui_app.MAX_ITEM_ROWS
     assert body["n_items_total"] == n_rows
     assert len(body["warnings"]) == ui_app.MAX_WARNING_ROWS
-    assert body["n_warnings"] == len(body["warnings"])
-    assert body["n_warnings_total"] == n_rows
+    # `n_warnings` = cacah SEBENARNYA (COUNT_NAMING_RULE); yang dirender punya nama sendiri.
+    assert body["n_warnings"] == body["n_warnings_total"] == n_rows
+    assert body["n_warnings_rendered"] == len(body["warnings"])
     assert any(f"{n_rows} baris panggilan" in note for note in body["notes"])
     assert any(f"{n_rows} peringatan envelope ada" in note for note in body["notes"])
     # Layar A membaca baris yang sama; ia tetap menjawab, dengan cacah SEBENARNYA di sampingnya.
@@ -1657,7 +1658,7 @@ def test_the_replay_badge_colour_comes_only_from_replay_tone(client: TestClient)
 def test_screen_b_shows_the_totals_when_it_renders_fewer_rows_than_the_card_holds(client: TestClient) -> None:
     payload = card_payload(client)
     payload["items"] = payload["items"][:1]
-    payload["n_warnings"], payload["n_warnings_total"] = 0, 7
+    payload["n_warnings_rendered"], payload["n_warnings_total"] = 0, 7
     readable = strip_tags(render_card(payload, BANNER, render_clock()))
     assert "n=1 baris dirender" in readable
     assert "n_items_total" in readable and str(payload["n_items_total"]) in readable
@@ -1856,3 +1857,216 @@ def test_every_number_on_screen_b_comes_from_the_same_payload_the_api_serves(cli
     for item in payload["items"]:
         assert item["item_id"] in readable
         assert item["reason"] in readable
+
+
+# --- (TASKS 3.1b) batas render KETIGA, dan satu makna untuk tiap nama cacah -----------------
+#: Banyaknya penahan di baris raksasa di bawah. Angka reviewer: satu baris `/api/watchlist`
+#: berukuran 190 KB karena `blocking` tidak dipotong, di respons yang SAMA yang sudah memotong
+#: `items` (200) dan `warnings` (100).
+N_BLOCKERS = 20_000
+
+#: Penahan terberat baris itu: `01_freshness` = peringkat 1 `ITEM_ORDER` (spec §4). Ia ditaruh
+#: bersama 20.000 id tak dikenal yang mengurut SESUDAHnya, jadi kalau pemotongan pernah memotong
+#: dari KEPALA daftar, id inilah yang hilang — dan judul Layar B ikut hilang bersamanya.
+HEAVIEST = "01_freshness"
+
+
+def giant_blocking_row(store: Store, symbol: str = "SOL") -> int:
+    """Baris generasi berjalan dengan 20.001 penahan; kartunya menyebut item yang sama."""
+    blockers = [HEAVIEST, *(f"zz_{i:05d}" for i in range(N_BLOCKERS))]
+    return store.insert_decision(
+        symbol=symbol,
+        decision="NO_GO",
+        blocking=blockers,
+        snapshot_ids=[],
+        params_hash=DEFAULT_PARAMS.params_hash(),
+        decision_hash="0" * 64,
+        card={
+            "algo": ALGO,
+            "skill": {
+                "status": "ok",
+                "warnings": [],
+                "data": {
+                    "items": [
+                        {
+                            "id": item_id,
+                            "status": "red",
+                            "reason": "ditahan",
+                            "source": {"tool": CORE, "field": "as_of", "as_of": "2026-09-04T00:00:00Z"},
+                        }
+                        for item_id in blockers
+                    ]
+                },
+            },
+            "agent": {},
+        },
+    )
+
+
+def assert_count_naming(payload: dict[str, Any]) -> list[str]:
+    """Paku makna tiap nama cacah di SATU respons; kembalikan nama yang sudah diperiksa.
+
+    Aturannya (`ui.app.COUNT_NAMING_RULE`) diuji sebagai bentuk, bukan sebagai daftar field yang
+    ditulis tangan: setiap `n_x_rendered` wajib punya `n_x` DAN `n_x_total` yang sama besar dan
+    tidak pernah lebih kecil, dan `n_x_rendered` wajib sama dengan panjang daftar `x` yang benar
+    -benar ikut. Field baru yang lahir dengan makna terbalik akan jatuh di sini tanpa ada yang
+    perlu ingat menambahkan tesnya.
+    """
+    checked: list[str] = []
+    for key in [key for key in payload if key.endswith("_rendered") and key.startswith("n_")]:
+        name = key[len("n_") : -len("_rendered")]
+        rendered, total, plain = payload[key], payload[f"n_{name}_total"], payload[f"n_{name}"]
+        assert isinstance(rendered, int) and isinstance(total, int) and isinstance(plain, int)
+        assert plain == total, f"{key}: `n_{name}` harus cacah SEBENARNYA, bukan {plain}"
+        assert rendered <= total, f"{key}: yang dirender tidak bisa melebihi totalnya"
+        assert rendered == len(payload[name]), f"{key}: tidak cocok dengan panjang `{name}`"
+        checked.append(name)
+    return checked
+
+
+def test_a_card_with_thousands_of_blockers_truncates_blocking_and_says_the_total(
+    client: TestClient, store: Store
+) -> None:
+    """Batas render ketiga: `blocking` dipotong seperti `items`/`warnings`, dan totalnya disebut."""
+    decision_id = giant_blocking_row(store)
+    response = client.get(f"/api/decision/{decision_id}")
+    body = response.json()
+    assert len(body["blocking"]) == ui_app.MAX_BLOCKING_ROWS < N_BLOCKERS
+    assert body["n_blocking"] == body["n_blocking_total"] == N_BLOCKERS + 1
+    assert body["n_blocking_rendered"] == ui_app.MAX_BLOCKING_ROWS
+    assert any(f"{N_BLOCKERS + 1} baris menahan keputusan ini" in note for note in body["notes"])
+    assert len(response.content) < 200_000
+    # Yang dibuang adalah EKOR: penahan terberat tetap ada, dan tetap di baris pertama.
+    assert body["blocking"][0] == HEAVIEST
+
+
+def test_the_watchlist_row_for_that_card_is_bounded_and_still_names_its_blocker(
+    client: TestClient, store: Store
+) -> None:
+    """Baris Layar A untuk baris yang sama: 190 KB dulu, sekarang terpotong DAN disebut."""
+    giant_blocking_row(store)
+    response = client.get("/api/watchlist")
+    assert len(response.content) < 200_000
+    body = response.json()
+    entry = by_symbol(body)["SOL"]
+    assert len(entry["blocking"]) == ui_app.MAX_BLOCKING_ROWS
+    assert entry["n_blocking"] == entry["n_blocking_total"] == N_BLOCKERS + 1
+    assert entry["n_blocking_rendered"] == ui_app.MAX_BLOCKING_ROWS
+    # Urutan layar dihitung dari cacah SEBENARNYA, dan penahan terberatnya tetap terbaca.
+    assert entry["top_blocker"]["item_id"] == HEAVIEST
+    assert entry["veto_rank"] == ITEM_ORDER.index(HEAVIEST) + 1
+    assert any(f"terbanyak {N_BLOCKERS + 1}" in note for note in body["notes"])
+
+
+def test_the_decisions_list_says_it_cut_the_blocking_lists_too(client: TestClient, store: Store) -> None:
+    giant_blocking_row(store)
+    body = client.get("/api/decisions").json()
+    entry = next(row for row in body["decisions"] if row["symbol"] == "SOL")
+    assert entry["n_blocking_rendered"] < entry["n_blocking"] == N_BLOCKERS + 1
+    assert any(f"terbanyak {N_BLOCKERS + 1}" in note for note in body["notes"])
+
+
+def test_a_normal_card_says_no_truncation_and_counts_every_blocker(client: TestClient) -> None:
+    """Kebalikannya dipatok juga: tanpa pemotongan tidak ada kalimat yang mengarang satu."""
+    payload = card_payload(client, "BTC")
+    assert payload["n_blocking_rendered"] == payload["n_blocking"] == len(payload["blocking"])
+    assert not [note for note in payload["notes"] if "batas render" in note]
+
+
+def test_preflight_bounds_its_own_blocking_list(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`/api/preflight` merakit `blocking`-nya sendiri, jadi batasnya harus mengikat di sana juga.
+
+    Batasnya diturunkan ke 1 alih-alih mengarang 20.000 penahan: envelope route ini dihitung
+    ulang dari snapshot NYATA dan tidak akan pernah punya lebih dari sepuluh item, jadi baris
+    karangan justru akan menguji jalur yang tidak ada.
+    """
+    body = client.get("/api/preflight/BTC").json()
+    assert body["n_blocking"] > 1, body["blocking"]
+    monkeypatch.setattr(ui_app, "MAX_BLOCKING_ROWS", 1)
+    cut = client.get("/api/preflight/BTC").json()
+    assert cut["blocking"] == body["blocking"][:1]
+    assert cut["n_blocking"] == cut["n_blocking_total"] == body["n_blocking"]
+    assert cut["n_blocking_rendered"] == 1
+    assert any(f"{body['n_blocking']} baris menahan keputusan ini" in note for note in cut["notes"])
+
+
+def test_every_count_field_on_every_route_means_the_same_thing(client: TestClient, store: Store) -> None:
+    """Dua field bersaudara tidak boleh menghitung hal berbeda — di ketiga route yang membawanya.
+
+    Ini yang menggigit dua kali: `n_items` = TOTAL sementara `n_warnings` di sebelahnya = YANG
+    DIRENDER, sehingga kartu ber-20.000 peringatan terbaca "100 peringatan" — angka yang
+    MENGECILKAN jumlah kegagalan. Tes memakai baris yang benar-benar memotong ketiga daftarnya,
+    supaya perbedaan makna itu punya angka yang berbeda untuk dipatok.
+    """
+    decision_id = store.insert_decision(
+        symbol="SOL",
+        decision="NO_GO",
+        blocking=[HEAVIEST, *(f"zz_{i:05d}" for i in range(N_BLOCKERS))],
+        snapshot_ids=[],
+        params_hash=DEFAULT_PARAMS.params_hash(),
+        decision_hash="0" * 64,
+        card={
+            "algo": ALGO,
+            "skill": {
+                "status": "ok",
+                "warnings": [f"peringatan {i}" for i in range(N_BLOCKERS)],
+                "data": {"items": [{"id": f"zz_{i:05d}", "status": "red"} for i in range(N_BLOCKERS)]},
+            },
+            "agent": {},
+        },
+    )
+    card = client.get(f"/api/decision/{decision_id}").json()
+    assert sorted(assert_count_naming(card)) == ["blocking", "items", "warnings"]
+    assert card["n_items"] == card["n_warnings"] == N_BLOCKERS
+    assert card["n_items_rendered"] == ui_app.MAX_ITEM_ROWS
+    assert card["n_warnings_rendered"] == ui_app.MAX_WARNING_ROWS
+    # Ketiga pemotongan disebut, masing-masing dengan totalnya sendiri.
+    assert len([note for note in card["notes"] if "batas render" in note]) == 3
+
+    assert sorted(assert_count_naming(client.get("/api/preflight/BTC").json())) == [
+        "blocking",
+        "items",
+        "warnings",
+    ]
+    # Baris ringkas tidak membawa `warnings`/`items`, jadi ia hanya menyebut cacah sebenarnya —
+    # dan cacah itu tidak boleh mengecil hanya karena daftarnya tidak ikut.
+    entry = by_symbol(client.get("/api/watchlist").json())["SOL"]
+    assert entry["n_items"] == entry["n_items_total"] == N_BLOCKERS
+    assert entry["n_warnings"] == entry["n_warnings_total"] == N_BLOCKERS
+    assert entry["n_blocking"] == entry["n_blocking_total"] == N_BLOCKERS + 1
+
+
+def test_screen_b_headline_counts_every_blocker_not_only_the_rendered_ones(client: TestClient) -> None:
+    """Uji 30 detik: judul kartu tidak boleh mengecilkan jumlah penahan saat daftarnya dipotong."""
+    payload = card_payload(client, "BTC")
+    payload |= {
+        "blocking": [HEAVIEST],
+        "n_blocking": N_BLOCKERS,
+        "n_blocking_total": N_BLOCKERS,
+        "n_blocking_rendered": 1,
+        "n_items": N_BLOCKERS,
+    }
+    readable = strip_tags(ui_screens.render_card(payload, BANNER, render_clock()))
+    assert f"Ditahan {N_BLOCKERS} dari {N_BLOCKERS} baris panggilan" in readable
+    assert f"{N_BLOCKERS - 1} lagi yang tidak dirender" in readable
+
+
+def test_preflight_counts_the_warnings_it_does_not_print(
+    skewed_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`/api/preflight` juga: `n_warnings` = cacah SEBENARNYA walau nol yang muat di respons.
+
+    Batasnya diturunkan alih-alih mengarang seratus peringatan, karena envelope route ini
+    dihitung ulang dari snapshot NYATA: yang ingin dipatok adalah MAKNA field-nya saat daftarnya
+    dipotong, dan itu tidak butuh daftar yang panjang — hanya batas yang mengikat.
+    """
+    full = skewed_client.get("/api/preflight/BTC").json()
+    assert full["n_warnings"] >= 1
+    monkeypatch.setattr(ui_app, "MAX_WARNING_ROWS", 0)
+    monkeypatch.setattr(ui_app, "MAX_ITEM_ROWS", 1)
+    cut = skewed_client.get("/api/preflight/BTC").json()
+    assert cut["warnings"] == [] and cut["n_warnings_rendered"] == 0
+    assert cut["n_warnings"] == cut["n_warnings_total"] == full["n_warnings"]
+    assert cut["n_items"] == cut["n_items_total"] == full["n_items"] > cut["n_items_rendered"] == 1
+    assert sorted(assert_count_naming(cut)) == ["blocking", "items", "warnings"]
+    assert any(f"{full['n_warnings']} peringatan envelope ada" in note for note in cut["notes"])

@@ -188,10 +188,32 @@ def _connect(db_path: str | Path) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+#: Batas kolom `INTEGER` SQLite. Id di luar rentang ini bukan "tidak ada", melainkan nilai yang
+#: TIDAK BISA ditanyakan ke SQLite sama sekali — `sqlite3` melempar `OverflowError` sebelum
+#: kueri dijalankan (TASKS 3.1b).
+SQLITE_INT_MAX = 2**63 - 1
+SQLITE_INT_MIN = -(2**63)
+
+
 def read_decision(db_path: str | Path, decision_id: int) -> DecisionRow | None:
-    """Satu baris `decisions`, atau None bila id itu tidak ada."""
+    """Satu baris `decisions`, atau None bila id itu tidak ada.
+
+    Id yang bukan bilangan bulat DAN id di luar rentang `INTEGER` SQLite sama-sama menjadi
+    :class:`LedgerError`. Sebelum TASKS 3.1b hanya yang pertama yang dijaga, sehingga janji
+    docstring ini ("int atau `LedgerError`") tidak benar untuk sebagian int: `read_decision(2**63)`
+    melempar `OverflowError` mentah dari `sqlite3`, dan `python -m agent.replay 9223372036854775808`
+    memberi traceback sementara `agent.replay abc` dijawab satu kalimat rapi. Ditemukan
+    security-reviewer 3.1 — batas rentang di route HTTP sudah cukup untuk UI, tetapi pemanggil
+    KEDUA (CLI replay) sudah ada hari ini.
+    """
     if isinstance(decision_id, bool) or not isinstance(decision_id, int):
         raise LedgerError(f"decision_id harus bilangan bulat, bukan {type(decision_id).__name__}")
+    if not SQLITE_INT_MIN <= decision_id <= SQLITE_INT_MAX:
+        raise LedgerError(
+            f"decision_id {decision_id} di luar rentang INTEGER SQLite "
+            f"[{SQLITE_INT_MIN}, {SQLITE_INT_MAX}]: id sebesar itu tidak bisa ditanyakan, "
+            "bukan sekadar tidak ada"
+        )
     with _connect(db_path) as conn:
         row = conn.execute(
             f"SELECT {DECISION_COLUMNS} FROM decisions WHERE id = ?",  # noqa: S608 - kolom dari konstanta modul

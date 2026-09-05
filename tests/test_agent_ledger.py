@@ -24,12 +24,15 @@ from pathlib import Path
 import pytest
 
 from agent.ledger import (
+    SQLITE_INT_MAX,
+    SQLITE_INT_MIN,
     DecisionRow,
     EventRow,
     LedgerError,
     _connect,
     algo_by_decision,
     fold_positions,
+    read_decision,
 )
 from core.replay import ALGO
 
@@ -192,3 +195,27 @@ def test_a_non_numeric_decision_id_is_a_ledger_error_not_a_raw_valueerror(tmp_pa
     _seed(path)
     with pytest.raises(LedgerError, match="bukan id baris"):
         algo_by_decision(path, ["bukan-angka"])
+
+
+@pytest.mark.parametrize("out_of_range", [2**63, -(2**63) - 1, 10**40, -(10**40)])
+def test_an_id_outside_the_sqlite_integer_range_is_a_ledger_error(tmp_path: Path, out_of_range: int) -> None:
+    """Janji docstring "int atau `LedgerError`" harus benar untuk SETIAP int (TASKS 3.1b).
+
+    Sebelum ini, `read_decision(2**63)` melempar `OverflowError` mentah dari `sqlite3` — id
+    sebesar itu tidak bisa ditanyakan, bukan sekadar tidak ada. Batas rentang di route HTTP
+    (`ui/app.py`) sudah cukup untuk UI, tetapi pemanggil KEDUA sudah ada hari ini:
+    `python -m agent.replay 9223372036854775808` memberi traceback sementara `agent.replay abc`
+    dijawab satu kalimat rapi (temuan security-reviewer 3.1).
+    """
+    path = tmp_path / "range.db"
+    _seed(path)
+    with pytest.raises(LedgerError, match="rentang INTEGER SQLite"):
+        read_decision(path, out_of_range)
+
+
+@pytest.mark.parametrize("edge", [SQLITE_INT_MAX, SQLITE_INT_MIN])
+def test_the_edges_of_the_range_are_answered_not_refused(tmp_path: Path, edge: int) -> None:
+    """Tepinya masih id yang SAH untuk ditanyakan — jawabannya "tidak ada", bukan galat."""
+    path = tmp_path / "edge.db"
+    _seed(path)
+    assert read_decision(path, edge) is None
