@@ -666,6 +666,78 @@ def test_item8_green_when_the_crowd_sits_on_the_opposite_side() -> None:
     assert "opposite the plan" in outcome.result.reason
 
 
+# --- TASKS 0.21: umur bukti derivatif disebut, tidak memveto ------------------------------
+# `funding` dan `liquidation` membawa `data_date` D-1 pada 47 DARI 47 baris nyata (umur
+# 25,2-47,5 j, median 35,8 j), sementara `as_of` envelope segar (median +0,48 dtk dari
+# `ts_utc`). Item 1 mengukur `as_of`, jadi ia tidak menangkapnya — dan item 8 membaca persis
+# kedua blok itu sambil memveto. Tanpa kalimat ini kartu menahan trade atas bukti kemarin
+# tanpa mengatakannya.
+
+
+def test_item8_names_the_date_of_the_derivatives_evidence() -> None:
+    """Tanggal + selisih HARI, bukan jam: `data_date` tidak punya jam, jadi "36 jam" mengarang."""
+    outcome = run()[ITEM_DERIVATIVES]
+    value = outcome.result.value
+    assert value["funding_data_date"] is not None
+    assert value["liquidation_data_date"] is not None
+    if "evidence dates" in outcome.result.reason:
+        assert "d before this reading" in outcome.result.reason
+        assert " jam" not in outcome.result.reason and "h before" not in outcome.result.reason
+
+
+def test_item8_says_how_many_days_behind_the_evidence_is() -> None:
+    """Bentuk nyata: `as_of` hari ini, `funding.data_date` kemarin."""
+    outcome = run(
+        mutate={
+            f"{MONITOR}:as_of": "2026-09-05T02:45:03Z",
+            f"{MONITOR}:data.evidence.funding.data_date": "2026-09-04",
+            f"{MONITOR}:data.evidence.liquidation.data_date": "2026-09-04",
+        }
+    )[ITEM_DERIVATIVES]
+    assert "funding from 2026-09-04 (1d before this reading)" in outcome.result.reason
+    assert outcome.result.value["funding_data_date"] == "2026-09-04"
+
+
+def test_item8_does_not_call_a_missing_date_today(caplog: pytest.LogCaptureFixture) -> None:
+    """`data_date` null TIDAK boleh dibaca "hari ini" dan tidak boleh didiamkan (null ≠ default)."""
+    outcome = run(mutate={f"{MONITOR}:data.evidence.funding.data_date": None})[ITEM_DERIVATIVES]
+    assert outcome.result.value["funding_data_date"] is None
+    assert "funding date not stated" in outcome.result.reason
+
+
+def test_item8_stays_quiet_when_every_date_matches_the_reading() -> None:
+    """Kebalikannya: bukti sehari-ini tidak perlu kalimat tambahan."""
+    outcome = run(
+        mutate={
+            f"{MONITOR}:as_of": "2026-09-05T02:45:03Z",
+            f"{MONITOR}:data.evidence.funding.data_date": "2026-09-05",
+            f"{MONITOR}:data.evidence.liquidation.data_date": "2026-09-05",
+        }
+    )[ITEM_DERIVATIVES]
+    assert "evidence dates" not in outcome.result.reason
+
+
+def test_item8_names_the_dates_on_the_red_branch_too() -> None:
+    """Kartu merah juga menyebutnya — kalau tidak, ia hanya jujur saat kabarnya baik."""
+    outcome = run(
+        mutate={
+            f"{MONITOR}:as_of": "2026-09-05T02:45:03Z",
+            f"{MONITOR}:data.evidence.liquidation.pressure_state": "extreme",
+            f"{MONITOR}:data.evidence.funding.data_date": "2026-09-04",
+            f"{MONITOR}:data.evidence.liquidation.data_date": "2026-09-04",
+        }
+    )[ITEM_DERIVATIVES]
+    assert outcome.status == RED
+    assert "1d before this reading" in outcome.result.reason
+
+
+def test_naming_the_dates_does_not_move_the_decision(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0.21 mengubah apa yang DIUCAPKAN, bukan keputusannya — `as_material` tidak memuat `value`."""
+    fresh = run(mutate={f"{MONITOR}:data.evidence.funding.data_date": "2026-09-05"})
+    aged = run(mutate={f"{MONITOR}:data.evidence.funding.data_date": "2020-01-01"})
+    assert fresh[ITEM_DERIVATIVES].status == aged[ITEM_DERIVATIVES].status
+
+
 def test_item8_reason_cannot_smuggle_a_forged_line_from_a_ryo_value() -> None:
     """`_quote` menetralkan nilai asal-RYO yang masuk `reason` (temuan RENDAH 0.12).
 

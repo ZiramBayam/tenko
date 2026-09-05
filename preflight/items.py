@@ -63,7 +63,7 @@ import json
 import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import MappingProxyType
 from typing import Any, Literal
 
@@ -1198,6 +1198,59 @@ def evaluate_verdict_deep(evidence: Evidence) -> ItemOutcome:
     )
 
 
+def _data_date_note(monitor: Any, *blocks: str) -> tuple[dict[str, str | None], str]:
+    """`data_date` tiap blok bukti + satu frasa yang menyebut umurnya (TASKS 0.21).
+
+    **Kenapa HARI, bukan jam.** `data.evidence.*.data_date` adalah TANGGAL (`'2026-09-04'`),
+    tanpa jam. Menghitung "36 jam" darinya berarti mengarang presisi yang tidak ada di
+    sumbernya — persis yang dilarang aturan "tunjuk & sebut". Angka jam tetap sah untuk sapuan
+    agregat (README §8, api-facts §A), di mana ia statistik atas banyak baris, bukan klaim
+    tentang satu bukti.
+
+    Kenapa ini perlu ada: `as_of` envelope segar (median +0,48 dtk dari `ts_utc`), tetapi
+    `funding` dan `liquidation` membawa `data_date` D-1 pada 47 dari 47 baris nyata — umur
+    25,2-47,5 jam. Item 1 tidak menangkapnya karena ia mengukur `as_of`. Jadi tanpa kalimat ini
+    kartu menahan trade atas bukti kemarin tanpa mengatakannya.
+    """
+    dates: dict[str, str | None] = {}
+    spoken: list[str] = []
+    reference = _as_date(monitor.as_of)
+    for block in blocks:
+        raw = _dig(monitor.data, "evidence", block, "data_date")
+        text = raw if isinstance(raw, str) else None
+        dates[block] = text
+        day = _as_date(text)
+        if day is None:
+            # `data_date` hilang/null TIDAK boleh dibaca sebagai "hari ini" dan tidak boleh
+            # didiamkan: null ≠ default (CLAUDE.md). Ia disebut sebagai tidak terucap.
+            spoken.append(f"{block} date not stated")
+        elif reference is None:
+            spoken.append(f"{block} from {text} (age unknown: this envelope has no as_of)")
+        elif day < reference:
+            behind = (reference - day).days
+            spoken.append(f"{block} from {text} ({behind}d before this reading)")
+    return dates, ("; ".join(spoken) if spoken else "")
+
+
+def _as_date(raw: Any) -> date | None:
+    """Tanggal dari `datetime`, dari `'YYYY-MM-DD'`, atau dari awal timestamp ISO.
+
+    `datetime` ikut diterima karena `ToolEvidence.as_of` sudah diurai menjadi `datetime` —
+    versi pertama helper ini hanya menerima `str`, jadi setiap baris berbunyi "age unknown:
+    this envelope has no as_of" padahal envelope-nya jelas punya.
+    """
+    if isinstance(raw, datetime):
+        return raw.date()
+    if isinstance(raw, date):
+        return raw
+    if not isinstance(raw, str) or len(raw) < 10:
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+
+
 # --- item 8: derivatif tidak sesak (OPSIONAL) --------------------------------------------
 def evaluate_derivatives(evidence: Evidence) -> ItemOutcome:
     """spec §4 item 8 (opsional) — `monitor….evidence.funding.crowding_state` +
@@ -1279,11 +1332,18 @@ def evaluate_derivatives(evidence: Evidence) -> ItemOutcome:
     if bad is not None:
         return _item(item_id, UNSPOKEN, reason=bad, source=source, warnings=warnings)
 
+    data_dates, stale_note = _data_date_note(monitor, "funding", "liquidation")
+    aged = f" — evidence dates: {stale_note}" if stale_note else ""
+    # Tidak ada cabang "semuanya D-0 jadi diam": bila setiap `data_date` sama dengan tanggal
+    # `as_of`, `stale_note` kosong dan kartu memang tidak perlu berkata apa-apa. Yang dilarang
+    # adalah DIAM saat tanggalnya lebih tua atau tidak disebut sumbernya.
     value = {
         "funding_crowding_state": crowding_raw,
         "funding_crowding_meaning": crowding.meaning,
         "liquidation_pressure_state": pressure_raw,
         "liquidation_pressure_meaning": pressure.meaning,
+        "funding_data_date": data_dates.get("funding"),
+        "liquidation_data_date": data_dates.get("liquidation"),
         "funding_percentile_90d": funding_pct,
         "liquidation_percentile_90d": liq_pct,
         "per_token_derivatives": per_token,
@@ -1296,7 +1356,7 @@ def evaluate_derivatives(evidence: Evidence) -> ItemOutcome:
             GREEN,
             reason=(
                 f"market-wide funding crowding {_quote(crowding_raw)} and liquidation pressure "
-                f"{_quote(pressure_raw)} -> derivatives are not crowded against the plan"
+                f"{_quote(pressure_raw)} -> derivatives are not crowded against the plan{aged}"
             ),
             source=source,
             value=value,
@@ -1344,7 +1404,7 @@ def evaluate_derivatives(evidence: Evidence) -> ItemOutcome:
             reason=(
                 f"funding crowding {_quote(crowding_raw)} is on the {_quote(crowd_side)} side "
                 f"while the plan is {_quote(plan)}, and liquidation pressure "
-                f"{_quote(pressure_raw)} -> the crowd sits opposite the plan, not against it"
+                f"{_quote(pressure_raw)} -> the crowd sits opposite the plan, not against it{aged}"
             ),
             source=source,
             value=value,
@@ -1353,7 +1413,7 @@ def evaluate_derivatives(evidence: Evidence) -> ItemOutcome:
     return _item(
         item_id,
         RED,
-        reason=f"{'; '.join(hot)} -> derivatives are crowded/stressed, entering here is late",
+        reason=(f"{'; '.join(hot)} -> derivatives are crowded/stressed, entering here is late{aged}"),
         source=source,
         value=value,
         warnings=warnings,
