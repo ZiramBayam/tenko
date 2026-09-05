@@ -12,7 +12,8 @@ Aturan yang dipegang berkas ini:
 * **Tidak pernah menyentuh `data/ryo.db` kecuali sebagai SUMBER baca-saja.** `db-copy` membuka
   sumber dengan `mode=ro` dan memakai `sqlite3.Connection.backup`, bukan `cp`: perekam
   produksi menulis ke berkas itu tiap jam dan salinan byte biasa bisa sobek di tengah
-  transaksi. Tujuan salinan wajib berada di luar `data/`.
+  transaksi. Tujuan salinan wajib berada di luar `data/`, dan `db-check --recover` - satu-satunya
+  subperintah yang membuka DB baca-tulis - memakai penjaga yang sama (`evidence_refusal`).
 * **Tidak ada kredensial yang dicetak.** `ryo-call` menerima kunci lewat env, meneruskannya ke
   :class:`core.ryo_client.RyoClient` (yang menyimpannya sebagai `Secret`), dan tidak pernah
   menuliskannya ke `--out` maupun ke log.
@@ -288,16 +289,104 @@ def cmd_preflight_sweep(args: argparse.Namespace) -> int:
 
 
 # --- SQLite -------------------------------------------------------------------------------
+#: Store bukti repo ini. Perekam produksi menulis ke sini tiap jam dan isinya TIDAK BISA
+#: dibuat ulang (ADR-006); tidak ada subperintah chaos yang boleh membukanya baca-tulis.
+EVIDENCE_DB = ROOT / "data" / "ryo.db"
+
+
+def _same_file(left: Path, right: Path) -> bool:
+    """Dua path menunjuk berkas yang sama, termasuk lewat symlink dan HARDLINK.
+
+    Sengaja sama persis dengan `core.recorder._same_file`: `resolve()` mengikuti symlink tetapi
+    tidak menembus hardlink, jadi identitas inode diperiksa lebih dulu bila kedua berkas ada,
+    dan perbandingan path menjadi cadangan untuk berkas yang belum ada.
+    """
+    try:
+        if left.exists() and right.exists():
+            lstat, rstat = left.stat(), right.stat()
+            return lstat.st_ino == rstat.st_ino and lstat.st_dev == rstat.st_dev
+    except OSError:  # pragma: no cover - stat gagal (izin, mount hilang)
+        pass
+    try:
+        return left.resolve() == right.resolve()
+    except OSError:  # pragma: no cover
+        return False
+
+
+def _ledger_rows(path: Path) -> int | None:
+    """Berapa baris `decisions` di `path`; None bila tidak bisa dibaca sama sekali.
+
+    Sinyal yang sama yang dipakai `core.recorder.fixture_refusal`: buku besar `decisions` hanya
+    ditulis `agent.main`, jadi keberadaannya berarti berkas ini SUDAH store bukti - juga bila ia
+    berada di luar `data/`.
+    """
+    if not path.exists():
+        return 0
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        conn.execute("PRAGMA query_only=ON")
+        return int(conn.execute("SELECT COUNT(*) FROM decisions").fetchone()[0])
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+
+
+def evidence_refusal(path: Path, *, hot_journal_ok: bool = False) -> str | None:
+    """Alasan menolak membuka `path` dengan koneksi yang BISA MENULIS, atau None bila aman.
+
+    Tiga alasan yang saling bebas, disusun agar konsisten dengan `core.recorder.fixture_refusal`
+    (temuan SEDANG security-reviewer atas chaos): berkasnya adalah store bukti repo (identitas
+    inode, jadi cwd lain, symlink, dan hardlink tertangkap); ia berada di dalam direktori bukti
+    `ROOT/data`; atau ia memegang buku besar `decisions`.
+
+    `hot_journal_ok=True` dipakai `db-check --recover`, dan HANYA melonggarkan alasan ketiga: DB
+    yang baru saja kena `kill -9` meninggalkan `-journal` panas sehingga koneksi `mode=ro` tidak
+    bisa membaca satu tabel pun - memperlakukan "tidak terbaca" sebagai "store bukti" akan
+    membuat penjaga ini menolak justru satu-satunya kasus yang membuat `--recover` ada. Dua
+    alasan pertama tidak pernah longgar, dan keduanya yang melindungi `data/ryo.db`.
+
+    **Celah yang diakui, sama dengan yang sudah ditulis `core/recorder.py`:** store bukti kustom
+    DI LUAR `ROOT/data` yang belum punya satu pun baris `decisions` tidak tertangkap. Chaos tidak
+    menyimpang dari batas itu sendirian.
+    """
+    if _same_file(path, EVIDENCE_DB):
+        return f"{path} adalah store bukti repo ini ({EVIDENCE_DB})"
+    try:
+        resolved_parents = path.resolve().parents
+    except OSError:  # pragma: no cover
+        return f"{path} tidak bisa dibaca path-nya, jadi ia tidak dianggap aman"
+    if EVIDENCE_DB.parent in resolved_parents:
+        return f"{path} berada di dalam direktori bukti {EVIDENCE_DB.parent}"
+    ledger = _ledger_rows(path)
+    if ledger is None and not hot_journal_ok:
+        return f"{path} tidak bisa diperiksa isinya, jadi ia tidak dianggap aman"
+    if ledger is not None and ledger > 0:
+        return f"{path} memegang buku besar keputusan ({ledger} baris), jadi ia store bukti"
+    return None
+
+
 def cmd_db_copy(args: argparse.Namespace) -> int:
-    """Salinan online: sumber dibuka `mode=ro`, tujuan wajib di luar `data/`.
+    """Salinan online: sumber dibuka `mode=ro`, tujuan wajib bukan store bukti.
 
     `cp` tidak dipakai karena perekam produksi menulis ke sumbernya; `backup()` mengambil
-    salinan yang konsisten tanpa satu pun tulisan ke sumber.
+    salinan yang konsisten tanpa satu pun tulisan ke sumber. Tujuan yang SUDAH ADA ditolak tanpa
+    kecuali: menimpa diam-diam adalah cara termurah kehilangan berkas yang bukan milik chaos, dan
+    chaos sendiri selalu menyalin ke `mktemp -d` yang baru, jadi penjaga ini tidak pernah
+    menghalangi pekerjaan yang sah. Bila memang perlu menyalin ulang: hapus tujuannya lebih dulu.
     """
     src = Path(args.src).resolve()
     dst = Path(args.dst).resolve()
-    if dst == src or (ROOT / "data") in dst.parents:
-        raise SystemExit(f"tujuan salinan menolak: {dst} berada di dalam data/ atau menimpa sumber")
+    if dst == src:
+        raise SystemExit(f"tujuan salinan menolak: {dst} menimpa sumbernya sendiri")
+    if dst.exists():
+        raise SystemExit(f"tujuan salinan menolak: {dst} sudah ada (hapus dulu bila memang mau)")
+    refusal = evidence_refusal(dst)
+    if refusal is not None:
+        raise SystemExit(f"tujuan salinan menolak: {refusal}")
     dst.parent.mkdir(parents=True, exist_ok=True)
     source = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
     target = sqlite3.connect(dst)
@@ -338,6 +427,14 @@ def cmd_db_check(args: argparse.Namespace) -> int:
     `sidecars` selalu dilaporkan supaya pembaca tahu apakah pemulihan memang diperlukan.
     """
     path = Path(args.db)
+    if args.recover:
+        # Koneksi baca-tulis = SQLite boleh memutar balik jurnal, dan membuka DB yang BELUM ADA
+        # baca-tulis akan MEMBUATNYA. Dua-duanya tulisan, dan tulisan ke store bukti tidak pernah
+        # boleh datang dari alat ukur - jadi penjaganya berdiri sebelum `exists()` diperiksa.
+        # Penjaga yang sama dengan `db-copy` dan `core.recorder.fixture_refusal`.
+        refusal = evidence_refusal(path, hot_journal_ok=True)
+        if refusal is not None:
+            raise SystemExit(f"--recover menolak: {refusal}")
     report: dict[str, object] = {
         "db": str(path),
         "exists": path.exists(),

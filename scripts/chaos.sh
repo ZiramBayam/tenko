@@ -5,6 +5,7 @@
 # backoff yang benar-benar TERTULIS di log. Laporan naratifnya: docs/reports/chaos-<tgl>.md.
 #
 # PAKAI:  bash scripts/chaos.sh [--only <nama>] [--report <berkas.md>]
+#         CHAOS_KEEP=1 menahan artefak sementara (default: dihapus saat keluar)
 # Nama skenario: host_down · recorder_kill9 · rate_limit_429 · db_deleted_ui · agent_tick_live
 #                · credentials_removed · evidence_gap
 #
@@ -26,6 +27,10 @@
 #     pohon sandbox berisi salinan `core/` + `sources.yaml` + `.env` SINTETIS (kunci palsu,
 #     URL ke server fixture lokal); yang dipindahkan adalah `.env` sandbox itu.
 #  4. Ia tidak pernah memanggil RYO sungguhan. Semua jalur "live" diarahkan ke 127.0.0.1.
+#  5. Ia tidak meninggalkan bukti RYO di luar repo. `$CHAOS_DIR` (berisi salinan penuh
+#     `data/ryo.db` untuk skenario 4/5/7) DIHAPUS di `cleanup()`; `CHAOS_KEEP=1` menahannya
+#     untuk forensik. Tabel hasil selamat lewat stdout dan `--report`, yang ditulis di luar
+#     `$CHAOS_DIR`.
 #
 # `scripts/daemons.sh` tetap pelapor, bukan supervisor (batas TASKS 1.13): skrip ini tidak
 # memanggilnya untuk start/stop apa pun.
@@ -50,7 +55,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --only) ONLY="${2:-}"; shift 2;;
     --report) REPORT="${2:-}"; shift 2;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0;;
+    -h|--help) sed -n '2,11p' "$0"; exit 0;;
     *) echo "argumen tidak dikenal: $1" >&2; exit 2;;
   esac
 done
@@ -114,7 +119,18 @@ cleanup() {
   done
   wait 2>/dev/null
   say ""
-  say "artefak chaos: $CHAOS_DIR"
+  # Skenario 4/5/7 menaruh SALINAN PENUH `data/ryo.db` di sini — ribuan envelope RYO, ~9 MB
+  # masing-masing. `docs/rules-compliance.md`: output tool RYO hanya untuk di dalam submission,
+  # jadi ia tidak boleh menumpuk di luar repo sesudah skrip selesai. Default = bersihkan;
+  # `CHAOS_KEEP=1` menahannya untuk forensik saat ada skenario yang GAGAL.
+  if [ "${CHAOS_KEEP:-0}" = "1" ]; then
+    say "artefak chaos DITAHAN (CHAOS_KEEP=1): $CHAOS_DIR"
+  else
+    case "$CHAOS_DIR" in
+      */tenko-chaos-*) rm -rf -- "$CHAOS_DIR"; say "artefak chaos dihapus: $CHAOS_DIR (CHAOS_KEEP=1 untuk menahannya)";;
+      *) say "artefak chaos TIDAK dihapus (nama di luar pola tenko-chaos-*): $CHAOS_DIR";;
+    esac
+  fi
 }
 trap cleanup EXIT
 
@@ -213,8 +229,12 @@ if wanted host_down; then
   has_traceback "$CHAOS_DIR/host_down_skill.err" && { OK=0; note "CACAT: traceback di skill_cli"; }
   [ "$SKILL_RC" = "0" ] || { OK=0; note "CACAT: skill_cli exit != 0"; }
   case "$SKILL_STATUS" in ok|partial|unavailable) ;; *) OK=0; note "CACAT: status skill tidak dikenal";; esac
+  # Satu-satunya skenario yang menjalankan `--client live`: kalau ada jalur yang membocorkan
+  # Bearer key ke log, ia bocor DI SINI. Kuncinya palsu, asersinya tidak.
+  grep -qiF "$FAKE_KEY" "$LOG" "$SKILL_OUT" "$CHAOS_DIR/host_down_skill.err" \
+    && { OK=0; note "CACAT: kunci muncul di log/keluaran perekam atau skill_cli"; }
   [ "$OK" = "1" ] \
-    && record host_down LULUS "perekam exit $RC, $BACKOFF_LINES baris backoff, skill_cli exit 0 status \`$SKILL_STATUS\`, nol traceback" \
+    && record host_down LULUS "perekam exit $RC, $BACKOFF_LINES baris backoff, skill_cli exit 0 status \`$SKILL_STATUS\`, nol traceback, nol kunci di keluaran" \
     || record host_down GAGAL "lihat $LOG"
   printf '%s' "$NOTES" >> "$CHAOS_DIR/notes.md"
 fi

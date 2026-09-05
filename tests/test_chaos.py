@@ -15,6 +15,11 @@ Pagar yang punya tes di bawah:
 3. `db-copy` menolak menulis ke dalam `data/`, dan tidak menyentuh sumbernya.
 4. Kelima jam yang TASKS 0.23 laporkan ditanam sebagai konstanta, sehingga probe "jendela tanpa
    bukti" tetap menanyakan pertanyaan yang sama walau isi DB berubah.
+5. `db-check --recover` — satu-satunya subperintah yang memegang koneksi yang BISA MENULIS —
+   menolak store bukti (identitas inode, di dalam `data/`, atau memegang buku besar
+   `decisions`), dan tetap memulihkan jurnal panas milik chaos sendiri.
+6. Skenario yang menyetel kunci ikut menuntut kunci itu tidak muncul di keluarannya, dan
+   sandbox `/tmp` yang memuat salinan bukti RYO dibersihkan saat skrip keluar.
 
 Pid 1 dipakai sebagai kenari di tes penolakan: bila pagarnya bocor, `kill` terhadap pid 1 tetap
 gagal dengan EPERM untuk pengguna biasa — tes yang salah tidak boleh merusak apa pun.
@@ -270,3 +275,186 @@ def test_preflight_never_raises_on_the_five_reported_instants() -> None:
             assert result.status in {"ok", "partial", "unavailable"}, (text, result.status)
     finally:
         store.close()
+
+
+# --- pagar 5: siapa yang boleh dibuka BACA-TULIS ---------------------------------------------
+# `db-check --recover` adalah satu-satunya subperintah chaos yang memegang koneksi yang BISA
+# MENULIS: SQLite memutar balik jurnal panas begitu DB dibuka baca-tulis, dan membuka DB yang
+# belum ada akan membuatnya. Aturan yang sama sudah ditegakkan di `preflight/veto_table.py`,
+# `grading/grader.py`, `grading/outcomes.py`, dan `core.recorder.fixture_refusal` — alat ukur
+# tidak boleh memegang koneksi seperti itu ke store bukti. Tesnya DUA ARAH: target berbahaya
+# ditolak, target sah tetap lolos (pagar yang menolak semuanya tidak menjaga apa pun, ia
+# hanya membuat orang mematikannya).
+def _make_hot_journal_db(path: Path) -> None:
+    """DB dengan `-journal` PANAS: proses menulis di dalam transaksi lalu mati kena SIGKILL.
+
+    Ini reproduksi kondisi skenario 2 (`kill -9` mid-siklus) dan satu-satunya alasan `--recover`
+    ada. Jurnalnya dibuat SQLite sungguhan, bukan berkas kosong yang dikarang tes.
+    """
+    snippet = (
+        "import os, sqlite3, sys\n"
+        "c = sqlite3.connect(sys.argv[1])\n"
+        "c.execute('PRAGMA journal_mode=DELETE')\n"
+        "c.execute('CREATE TABLE snapshots (a INTEGER)')\n"
+        "c.execute('INSERT INTO snapshots VALUES (1)')\n"
+        "c.commit()\n"
+        "c.execute('BEGIN IMMEDIATE')\n"
+        "c.execute('INSERT INTO snapshots VALUES (2)')\n"
+        "os.kill(os.getpid(), 9)\n"
+    )
+    subprocess.run([sys.executable, "-c", snippet, str(path)], timeout=60, check=False)
+
+
+def test_db_check_recover_refuses_the_real_evidence_store() -> None:
+    """`--recover` diarahkan ke `data/ryo.db` ditolak: isinya tidak bisa dibuat ulang (ADR-006)."""
+    done = run_support("db-check", "--recover", "--db", str(REAL_DB), "--table", "snapshots")
+    assert done.returncode != 0, done.stdout
+    assert "--recover menolak" in done.stderr
+    assert "store bukti repo ini" in done.stderr
+
+
+def test_db_check_recover_refuses_the_evidence_store_reached_by_another_path() -> None:
+    """Path berputar menunjuk berkas yang sama: penjaganya identitas inode, bukan string."""
+    sneaky = str(ROOT / "data" / ".." / "data" / "ryo.db")
+    done = run_support("db-check", "--recover", "--db", sneaky)
+    assert done.returncode != 0, done.stdout
+    assert "--recover menolak" in done.stderr
+
+
+def test_db_check_recover_refuses_a_new_file_inside_data() -> None:
+    """Membuka DB yang BELUM ADA baca-tulis akan MEMBUATNYA — di `data/` itu pun tulisan."""
+    canary = ROOT / "data" / "chaos-recover-should-never-exist.db"
+    assert not canary.exists(), "berkas kenari sudah ada sebelum tes — periksa manual"
+    done = run_support("db-check", "--recover", "--db", str(canary))
+    assert done.returncode != 0, done.stdout
+    assert "direktori bukti" in done.stderr
+    assert not canary.exists(), "penjaga bocor: berkas dibuat di dalam data/"
+
+
+def test_db_check_recover_refuses_a_custom_store_holding_the_decisions_ledger(tmp_path: Path) -> None:
+    """Store bukti di LUAR `data/` ikut terlindungi lewat sinyal yang sama dengan recorder.
+
+    Buku besar `decisions` hanya ditulis `agent.main`; adanya baris di sana berarti berkas itu
+    sudah menjadi store bukti, di mana pun ia diletakkan.
+    """
+    db = tmp_path / "ledger.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE decisions (id INTEGER)")
+    conn.execute("INSERT INTO decisions VALUES (1)")
+    conn.commit()
+    conn.close()
+    done = run_support("db-check", "--recover", "--db", str(db))
+    assert done.returncode != 0, done.stdout
+    assert "buku besar keputusan" in done.stderr
+
+
+def test_db_check_recover_still_rolls_back_a_hot_journal_on_a_chaos_db(tmp_path: Path) -> None:
+    """Arah kedua: DB milik chaos tetap boleh dipulihkan, kalau tidak `--recover` jadi hiasan.
+
+    Tanpa `--recover`, `mode=ro` gagal pada jurnal panas dan chaos melaporkan kerusakan yang
+    tidak ada — persis yang hampir terjadi 5 Sep 2026. Dengan `--recover`, vonisnya `ok`.
+    """
+    db = tmp_path / "kill9.db"
+    _make_hot_journal_db(db)
+    if not (tmp_path / "kill9.db-journal").exists():
+        pytest.skip("SQLite tidak meninggalkan -journal panas di mesin ini")
+
+    rw = run_support("db-check", "--recover", "--db", str(db), "--table", "snapshots")
+    assert rw.returncode == 0, rw.stderr
+    payload = json.loads(rw.stdout)
+    assert payload["sidecars"] == ["-journal"], payload
+    assert payload["integrity"] == "ok", payload
+    # Transaksi yang belum di-commit DIPUTAR BALIK, baris yang sudah di-commit selamat.
+    assert payload["rows_snapshots"] == 1, payload
+
+
+def test_db_check_recover_accepts_a_plain_temporary_db(tmp_path: Path) -> None:
+    """DB sementara biasa harus lolos: skenario 2 memang butuh subperintah ini."""
+    db = tmp_path / "chaos.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE snapshots (a INTEGER)")
+    conn.commit()
+    conn.close()
+    done = run_support("db-check", "--recover", "--db", str(db), "--table", "snapshots")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout)["integrity"] == "ok"
+
+
+def test_db_copy_refuses_to_overwrite_an_existing_destination(tmp_path: Path) -> None:
+    """Menimpa diam-diam adalah cara termurah kehilangan berkas yang bukan milik chaos.
+
+    Chaos selalu menyalin ke `mktemp -d` yang baru, jadi penjaga ini tidak menghalangi satu pun
+    pemakaian yang sah — arah "target sah lolos" dijaga tes tetangganya.
+    """
+    src = tmp_path / "src.db"
+    conn = sqlite3.connect(src)
+    conn.execute("CREATE TABLE snapshots (a INTEGER)")
+    conn.commit()
+    conn.close()
+
+    dst = tmp_path / "sudah-ada.db"
+    dst.write_bytes(b"bukan-milik-chaos")
+
+    done = run_support("db-copy", "--src", str(src), "--dst", str(dst))
+    assert done.returncode != 0
+    assert "sudah ada" in done.stderr
+    assert dst.read_bytes() == b"bukan-milik-chaos"
+
+
+def test_db_copy_refuses_a_destination_inside_data_that_does_not_exist_yet() -> None:
+    """Nama baru di dalam `data/` tetap ditolak: `backup()` akan MEMBUAT berkasnya di sana."""
+    src = ROOT / "docs" / "samples" / "market_overview.json"  # bukan DB; penjaga berdiri lebih dulu
+    canary = ROOT / "data" / "chaos-copy-should-never-exist.db"
+    assert not canary.exists(), "berkas kenari sudah ada sebelum tes — periksa manual"
+    done = run_support("db-copy", "--src", str(src), "--dst", str(canary))
+    assert done.returncode != 0
+    assert "direktori bukti" in done.stderr
+    assert not canary.exists()
+
+
+# --- pagar 6: nol kredensial di keluaran, nol bukti RYO tertinggal ---------------------------
+def test_every_scenario_that_sets_a_key_also_asserts_it_never_appears() -> None:
+    """Skenario yang menyetel kunci wajib punya asersi kebocorannya sendiri.
+
+    Skenario 1 adalah SATU-SATUNYA yang menjalankan `--client live`: kalau ada jalur yang
+    membocorkan Bearer key ke log, ia bocor di situ. Kuncinya palsu — asersinya tidak boleh.
+    """
+    text = CHAOS_SH.read_text(encoding="utf-8")
+    assert text.count('grep -qiF "$FAKE_KEY"') >= 3, "ada skenario berkunci tanpa asersi kebocoran"
+
+    start = text.index("1. Host RYO mati")
+    end = text.index("2. kill -9 perekam mid-siklus")
+    body = text[start:end]
+    assert "$FAKE_KEY" in body
+    assert 'grep -qiF "$FAKE_KEY"' in body
+
+
+def test_cleanup_deletes_the_chaos_sandbox_by_default() -> None:
+    """Skenario 4/5/7 menaruh salinan penuh `data/ryo.db` di sandbox; ia tidak boleh menumpuk.
+
+    `docs/rules-compliance.md`: output tool RYO hanya untuk di dalam submission. Tabel hasilnya
+    selamat lewat stdout dan `--report`, yang ditulis DI LUAR sandbox.
+    """
+    done = run_lib('D="$CHAOS_DIR"\ncleanup\n[ -d "$D" ] && echo MASIH-ADA || echo TERHAPUS')
+    assert "TERHAPUS" in done.stdout, done.stdout
+    assert "MASIH-ADA" not in done.stdout
+
+
+def test_cleanup_keeps_the_sandbox_when_asked_for_forensics() -> None:
+    """`CHAOS_KEEP=1` menahannya: sesudah skenario GAGAL, lognya masih dibutuhkan."""
+    done = subprocess.run(
+        [
+            "/bin/bash",
+            "-c",
+            f'source "{CHAOS_SH}"\nD="$CHAOS_DIR"\ncleanup\n[ -d "$D" ] && echo DITAHAN\necho "$D"',
+        ],
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CHAOS_LIB_ONLY": "1", "CHAOS_KEEP": "1"},
+        timeout=60,
+        check=False,
+    )
+    assert "DITAHAN" in done.stdout, done.stdout
+    kept = Path(done.stdout.strip().splitlines()[-1])
+    if kept.is_dir() and kept.name.startswith("tenko-chaos-"):
+        kept.rmdir()
