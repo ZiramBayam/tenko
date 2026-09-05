@@ -8,16 +8,20 @@ dimasukkan ke rumus itu**, dan itulah bagian yang benar-benar menentukan apakah 
 `n` yang jujur: cacah amatan != cacah peristiwa
 -----------------------------------------------
 Wilson mengandaikan `n` percobaan Bernoulli **saling bebas**. Di repo ini amatannya TIDAK bebas,
-dan besarnya ketergantungan itu sudah terukur (security-reviewer atas TASKS 2.1b):
-`preflight.skill.tool_args` memberi ``{}`` untuk ``market_overview`` DAN
-``monitor_market_sentiment_shift``, sehingga keempat simbol inti berbagi satu ``args_hash``
-(``44136fa355b3``) dan membaca **baris yang sama**. Item yang hanya membaca kedua tool itu
-(3, 4, 8) karena itu mencacah satu peristiwa pasar sampai 4x: pada tabel veto, 32 "merah" item 8
-lahir dari **8** snapshot berbeda di dalam satu jendela 8 jam.
+dan besarnya ketergantungan itu sudah terukur dua lapis:
 
-Memberi `n=32` ke Wilson padahal peristiwanya 8 akan **mempersempit** selangnya kira-kira
-sebanding akar rasio itu — angka agregat yang tampak yakin justru karena buktinya dihitung
-berulang. Itu persis dosa yang produk ini ada untuk mencegah. Karena itu:
+* **Lapis simbol.** `preflight.skill.tool_args` memberi ``{}`` untuk ``market_overview`` DAN
+  ``monitor_market_sentiment_shift``, sehingga keempat simbol inti berbagi satu ``args_hash``
+  (``44136fa355b3``) dan membaca **baris yang sama**.
+* **Lapis waktu.** `docs/api-facts.md` (tabel "KONSTANTA PER `data_date`"): delapan baris
+  ``monitor…`` ber-``funding.data_date = 2026-09-03`` membawa ``crowding_state``,
+  ``pressure_state``, dan kedua persentil yang **identik sampai enam desimal** — *"delapan kali
+  polling atas SATU hari data funding, bukan delapan peristiwa pasar"*.
+
+Digabung: 32 "merah" item 8 = 8 baris ``monitor…`` x 4 simbol inti = **satu hari data funding**,
+yaitu **satu** peristiwa — bukan 32, dan bukan 8. Memberi `n=32` ke Wilson akan **mempersempit**
+selangnya kira-kira sebanding akar rasio itu — angka agregat yang tampak yakin justru karena
+buktinya dihitung berulang. Itu persis dosa yang produk ini ada untuk mencegah. Karena itu:
 
 * :func:`observed_rate` menerima **dua** cacah: `n` (amatan/trade) dan `events` (peristiwa bukti
   berbeda). Keduanya selalu ikut ke keluaran; tidak ada satu pun jalur yang mencetak `k/n` tanpa
@@ -34,9 +38,16 @@ berulang. Itu persis dosa yang produk ini ada untuk mencegah. Karena itu:
 Batas yang diakui
 -----------------
 * :math:`\\min(n, events)` adalah koreksi **kasar**. Koreksi yang benar (efek desain klaster)
-  butuh korelasi intra-klaster yang tidak bisa ditaksir dari `n_eff` sekecil ini. Yang dipilih
-  di sini konservatif ke arah yang aman: ia tidak pernah membuat selangnya lebih sempit
-  daripada cacah peristiwa membolehkan.
+  butuh korelasi intra-klaster yang tidak bisa ditaksir dari `n_eff` sekecil ini.
+* Modul ini **tidak** bisa menjanjikan bahwa hasilnya konservatif; klaim itu pernah ditulis di
+  sini dan **dicabut** (temuan security-reviewer, 6 Sep 2026). Yang benar-benar dijamin hanya
+  :math:`n_{eff} \\le n` dan :math:`n_{eff} \\le events`. Selangnya seketat-tidaknya definisi
+  `events` yang dikirim pemanggil: ketika `grading.grader` masih mencacah BARIS snapshot alih-
+  alih datum, dua baris `monitor…` ber-datum funding identik terhitung 2 peristiwa, dan
+  `n_eff` bisa berkali lipat lebih besar daripada cacah datum bebas yang sebenarnya. Yang
+  memperbaikinya ada di pemanggil (`grading.grader.DATUM_FIELDS`), bukan di rumus ini —
+  jadi siapa pun yang memanggil :func:`observed_rate` dengan `events` yang mencacah baris
+  akan mendapat selang yang terlalu sempit tanpa satu pun peringatan dari modul ini.
 * Wilson tetap selang **aproksimasi normal**; untuk `n_eff` kecil ia lebih baik daripada Wald,
   tetapi tidak eksak. Karena gerbang 30 harus lewat dulu, ini tidak pernah dipakai pada `n` yang
   membuat aproksimasinya berbahaya.
@@ -151,15 +162,39 @@ class ObservedRate:
             "interval": None if self.interval is None else self.interval.as_dict(),
         }
 
-    def sentence(self, subject: str) -> str:
+    def sentence(
+        self,
+        subject: str,
+        *,
+        k_label: str = "yang akan kena stop",
+        opposite: tuple[str, int] | None = None,
+    ) -> str:
         """Kalimat spec §6 apa adanya, atau "belum cukup data" beserta angkanya.
 
-        `subject` datang dari pemanggil (id item) dan sudah dibersihkan di sana; modul ini tidak
-        menyentuh teks luar sama sekali supaya sanitasi hanya punya satu tempat (`core.skill`).
+        Kalimat ini **menyebut kedua arah**. `k` adalah arah yang membenarkan veto (trade yang
+        akan kena stop); `opposite` adalah ``(label, cacah)`` arah yang MELAWANnya — trade yang
+        justru menyentuh target lebih dulu, yaitu veto yang salah. Keduanya dicetak atas
+        penyebut `n` yang sama supaya pembaca cepat tidak hanya melihat sisi yang menyenangkan.
+        Bila pemanggil tidak mengirimkannya, kalimatnya BILANG bahwa ia sepihak — tidak diam.
+
+        `subject` dan kedua label datang dari pemanggil dan sudah dibersihkan di sana; modul ini
+        tidak menyentuh teks luar sama sekali supaya sanitasi hanya punya satu tempat
+        (`core.skill`).
+
+        Raises:
+            GradingStatsError: cacah `opposite` di luar [0, n] — arah sebaliknya tidak bisa
+                lebih banyak daripada amatan yang melahirkannya.
         """
         if self.n == 0:
             return f"{subject}: belum ada amatan (n=0) — tidak ada yang bisa dinilai"
-        share = f"{self.k} dari {self.n}"
+        share = f"menahan {self.k} dari {self.n} {k_label}"
+        if opposite is None:
+            share += "; arah sebaliknya tidak dilaporkan pemanggil, jadi kalimat ini SEPIHAK"
+        else:
+            other_label, other = opposite
+            if isinstance(other, bool) or not isinstance(other, int) or not 0 <= other <= self.n:
+                raise GradingStatsError(f"cacah arah sebaliknya {other!r} harus di [0, {self.n}]")
+            share += f", dan {other} dari {self.n} {other_label}"
         provenance = f"n={self.n}, peristiwa bukti berbeda={self.events}, n_efektif={self.n_effective}"
         if not self.enough:
             return (

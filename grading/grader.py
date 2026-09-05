@@ -13,18 +13,31 @@ satu arah dan tidak ada satu baris pun di `preflight/`/`agent/` yang mengimpor `
 Ambang di sini (horizon 24 j, `MIN_N`) adalah milik `grading` sendiri dan **tidak** ikut ke
 `params_hash` — yang wajib tetap ``3d39fb1b…`` (params beku, TASKS 5.0).
 
-Unit amatan, dan kenapa bukan cacah baris
------------------------------------------
-Satu **episode veto** = satu ``(item, simbol, snapshot bukti item itu, plan)``. Dua baris
-`decisions` yang menunjuk snapshot bukti dan plan yang sama untuk simbol yang sama adalah satu
-peristiwa yang tercatat dua kali, bukan dua percobaan — dan itu bukan hipotesis: `data/ryo.db`
-memuat tiga tick agen dalam rentang satu detik (id 28–39) yang membaca snapshot yang sama persis.
-Di atas itu, `preflight.skill.tool_args` memberi ``{}`` untuk ``market_overview`` dan
-``monitor_market_sentiment_shift``, sehingga keempat simbol inti membaca BARIS yang sama dan
-item 3/4/8 mencacah satu peristiwa pasar sampai 4x. Karena itu tiap baris tabel membawa tiga
-angka sekaligus — `k`, `n` (episode), dan `peristiwa` (snapshot bukti berbeda) — dan gerbang 30
-berlaku atas ``min(n, peristiwa)`` (:mod:`grading.stats`). Bila hasilnya "belum cukup data",
-itu jawaban yang SAH.
+Unit amatan: peristiwa = DATUM, bukan baris dan bukan snapshot
+--------------------------------------------------------------
+Satu **episode veto** = satu ``(item, simbol, bukti item itu, plan)``. Dua baris `decisions`
+yang menunjuk bukti dan plan yang sama untuk simbol yang sama adalah satu peristiwa yang
+tercatat dua kali, bukan dua percobaan — dan itu bukan hipotesis: `data/ryo.db` memuat tiga
+tick agen dalam rentang satu detik (id 28–39) yang membaca snapshot yang sama persis.
+
+Melipat ke `snapshot_id` saja TIDAK cukup, dan itu cacat yang pernah ada di sini (ditemukan
+security-reviewer, TINGGI): `docs/api-facts.md` mencatat bahwa delapan baris
+``monitor_market_sentiment_shift`` ber-``funding.data_date = 2026-09-03`` (id 1976 · 2047 ·
+2106 · 2167 · 2231 · 2291 · 2356 · 2417) membawa ``crowding_state``/``pressure_state``/kedua
+persentil yang **identik sampai enam desimal** — "delapan kali polling atas SATU hari data
+funding, bukan delapan peristiwa pasar", sehingga *"32 = 8 baris `monitor…` × 4 simbol inti =
+**1 hari data funding**"*. Dua `snapshot_id` berbeda karena itu bisa membawa satu datum yang
+sama, dan mencacahnya 2 akan melebarkan `n_efektif` melewati informasi yang benar-benar ada.
+
+Karena itu untuk item yang bersumber envelope **market-wide** (``market_overview`` dan
+``monitor_market_sentiment_shift``; `preflight.skill.tool_args` memberi ``{}`` untuk keduanya
+sehingga keempat simbol inti membaca BARIS yang sama) kunci buktinya adalah **isi datum yang
+item itu baca** (:data:`DATUM_FIELDS`), bukan `snapshot_id`. Item lain tetap memakai
+`snapshot_id` — di sana satu baris memang satu pembacaan per simbol.
+
+Tiap baris tabel karena itu membawa tiga angka sekaligus — `k`, `n` (episode), dan `peristiwa`
+(datum bukti berbeda) — dan gerbang 30 berlaku atas ``min(n, peristiwa)``
+(:mod:`grading.stats`). Bila hasilnya "belum cukup data", itu jawaban yang SAH.
 
 Yang sengaja dibuang, dengan cacahnya dicetak
 ---------------------------------------------
@@ -50,12 +63,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from core.skill import TEXT_LIMIT, clean_text
-from core.store import FRESH_SCAN_LIMIT, Store, StoreError
+from core.store import FRESH_SCAN_LIMIT, Store, StoreError, canonical_json
 from grading.outcomes import (
     HORIZON_HOURS,
+    TARGET_FIRST,
     UNRESOLVED_STATUSES,
     GradingDataError,
     Outcome,
@@ -78,6 +93,57 @@ class GradingError(Exception):
 
 #: Kelas Bunryo (spec §4 item 11) bila belum ada cukup data — dicetak apa adanya.
 NOT_ENOUGH = "belum cukup data"
+
+#: Arah yang MELAWAN veto, dinamai supaya kalimat per item menyebut kedua arah dengan bobot yang
+#: sama: veto yang menahan trade yang justru menyentuh target lebih dulu adalah veto yang salah,
+#: dan itu harus terbaca di kalimat, bukan hanya di kolom `komposisi`.
+OPPOSITE_LABEL = "yang justru menyentuh target lebih dulu (veto ini salah)"
+
+#: Tool yang envelopenya MARKET-WIDE: `preflight.skill.tool_args` memberi `{}` untuk keduanya,
+#: jadi keempat simbol inti membaca baris yang sama, dan `docs/api-facts.md` menunjukkan barisnya
+#: pun berulang di dalam satu `data_date`. Untuk item yang bersumber ke sini, `snapshot_id`
+#: BUKAN identitas peristiwa.
+MARKET_WIDE_TOOLS: frozenset[str] = frozenset({"market_overview", "monitor_market_sentiment_shift"})
+
+#: Field `value` yang membawa DATUM pasar tiap item market-wide — sengaja WHITELIST, dan sengaja
+#: tanpa `plan_direction`/`stance`/`per_token_derivatives` (itu turunan plan/simbol, bukan datum
+#: pasar; memasukkannya akan memecah satu datum jadi beberapa "peristiwa" per simbol). Field yang
+#: belum dikenal ikut terlipat — arah yang aman: peristiwa bisa terlalu sedikit, tidak pernah
+#: terlalu banyak. Bahwa tuple ini benar-benar menandai datum bukan sekadar hipotesis: pada
+#: `data/ryo.db` 67 baris `monitor…` memberi 5 tuple berbeda untuk tepat 5 `funding.data_date`
+#: berbeda, nol tabrakan (tabel "KONSTANTA PER `data_date`", docs/api-facts.md).
+DATUM_FIELDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "03_regime": (
+            "breadth",
+            "fear_greed_index",
+            "regime",
+            "sections_unavailable",
+            "sentiment_label",
+            "sentiment_label_known",
+        ),
+        "04_sentiment_shift": (
+            "change_7d_points",
+            "change_direction",
+            "fear_greed_value",
+            "material_shift",
+            "sentiment_regime",
+        ),
+        "08_derivatives": (
+            "funding_crowding_meaning",
+            "funding_crowding_state",
+            "funding_percentile_90d",
+            "liquidation_percentile_90d",
+            "liquidation_pressure_meaning",
+            "liquidation_pressure_state",
+        ),
+    }
+)
+
+#: Item yang WAJIB punya baris di :data:`DATUM_FIELDS` (dijaga tes, bukan diandaikan): kalau
+#: sebuah item baru membaca tool market-wide tanpa daftar datumnya, ia akan diam-diam kembali
+#: mencacah baris — persis bug yang modul ini baru saja perbaiki.
+MARKET_WIDE_ITEMS: frozenset[str] = frozenset(item.id for item in ITEMS if item.tool in MARKET_WIDE_TOOLS)
 
 
 def _safe(text: Any) -> str:
@@ -125,6 +191,15 @@ class ItemTally:
     @property
     def composition(self) -> Counter[str]:
         return Counter(episode.outcome.status for episode in self.episodes)
+
+    @property
+    def target_first(self) -> int:
+        """Episode yang plan-nya justru menyentuh target lebih dulu — arah yang MELAWAN veto.
+
+        Dicacah atas himpunan yang sama dengan `k`/`n` (hanya episode terselesaikan) supaya
+        kedua arah bisa disebut dalam satu kalimat dengan penyebut yang sama.
+        """
+        return sum(1 for episode in self.resolved if episode.outcome.status == TARGET_FIRST)
 
 
 @dataclass(slots=True)
@@ -177,14 +252,33 @@ def _card_items(card: Any) -> dict[str, Mapping[str, Any]]:
     }
 
 
-def _evidence_key(item: Mapping[str, Any] | None, snapshot_ids: Sequence[Any]) -> str:
-    """Identitas bukti yang dipakai item ini pada keputusan ini.
+def _evidence_key(item_id: str, item: Mapping[str, Any] | None, snapshot_ids: Sequence[Any]) -> str:
+    """Identitas DATUM yang dipakai item ini pada keputusan ini.
 
-    Item yang menunjuk satu snapshot memakai id itu. Item agregat (1 & 2 membaca SELURUH
-    envelope dan tidak menunjuk satu pun) memakai seluruh himpunan `snapshot_ids` keputusan —
-    itu memang buktinya, dan memberinya kunci konstan akan melipat semua siklus jadi satu
-    peristiwa palsu.
+    Tiga aturan, berurut:
+
+    1. Item market-wide (:data:`DATUM_FIELDS`) memakai isi datumnya. Dua `snapshot_id` berbeda
+       yang membawa angka funding yang sama adalah SATU peristiwa — `docs/api-facts.md`:
+       delapan baris `monitor…` ber-`data_date` sama = "1 hari data funding".
+    2. Item yang menunjuk satu snapshot non-market-wide memakai id itu; di sana satu baris
+       memang satu pembacaan per simbol.
+    3. Item agregat (1 & 2 membaca SELURUH envelope dan tidak menunjuk satu pun) memakai
+       seluruh himpunan `snapshot_ids` keputusan — itu memang buktinya, dan memberinya kunci
+       konstan akan melipat semua siklus jadi satu peristiwa palsu.
+
+    Kartu yang tidak memuat satu pun field datum tidak dipecah per snapshot: ia dilipat jadi
+    satu peristiwa. Tidak ada bukti bahwa dua kartu seperti itu berbeda datumnya, dan menebak
+    "berbeda" adalah menebak ke arah yang membuat selang lebih sempit.
     """
+    fields = DATUM_FIELDS.get(item_id)
+    if fields is not None:
+        value = item.get("value") if isinstance(item, Mapping) else None
+        datum = {name: value[name] for name in fields if name in value} if isinstance(value, Mapping) else {}
+        try:
+            body = canonical_json(datum)
+        except StoreError:
+            body = "tak-terkanonikalisasi"
+        return f"datum:{item_id}:{body}"
     source = item.get("source") if isinstance(item, Mapping) else None
     snapshot_id = source.get("snapshot_id") if isinstance(source, Mapping) else None
     if isinstance(snapshot_id, int) and not isinstance(snapshot_id, bool):
@@ -309,7 +403,7 @@ def grade(
             if not isinstance(item_id, str) or item_id not in report.tallies:
                 report.dropped["id item di blocking tidak dikenal"] += 1
                 continue
-            key = (item_id, symbol_text, _evidence_key(items.get(item_id), snapshot_ids), plan_key)
+            key = (item_id, symbol_text, _evidence_key(item_id, items.get(item_id), snapshot_ids), plan_key)
             seen[key].append(int(decision_id))
             if key not in pending:
                 pending[key] = Episode(
@@ -329,7 +423,7 @@ def grade(
             Episode(
                 item_id="11_bunryo",
                 symbol=symbol_text,
-                evidence_key=_evidence_key(items.get("07_verdict_deep"), snapshot_ids),
+                evidence_key=_evidence_key("07_verdict_deep", items.get("07_verdict_deep"), snapshot_ids),
                 plan_key=plan_key,
                 outcome=outcome,
                 decision_ids=(int(decision_id),),
@@ -405,7 +499,11 @@ def render(report: Report) -> str:
     )
     add("")
 
-    add(f'per item — "item ini menahan k dari n trade yang akan kena stop dalam {report.horizon_hours} j"')
+    add(
+        f'per item — "item ini menahan k dari n trade yang akan kena stop dalam '
+        f'{report.horizon_hours} j" — kalimat per item di bawah menyebut KEDUA arah '
+        "(kena stop / justru menyentuh target)"
+    )
     add(f"  {'item':<20} {'k':>3} {'n':>4} {'peristiwa':>10} {'n_efektif':>10}  komposisi / vonis")
     for item in ITEMS:
         tally = report.tallies[item.id]
@@ -451,15 +549,17 @@ def render(report: Report) -> str:
         if not tally.episodes:
             continue
         spoke = True
-        add(f"  - {tally.rate.sentence(item.id)}")
+        add(f"  - {tally.rate.sentence(item.id, opposite=(OPPOSITE_LABEL, tally.target_first))}")
         if tally.dropped:
             add(f"    (+ {_counter(tally.dropped)} dibuang: ketiadaan data, tidak dilipat jadi 'tidak rugi')")
     if not spoke:
         add("  - (tidak ada item yang pernah menahan satu pun keputusan yang bisa dinilai)")
     add("")
     add(
-        "catatan: n = episode veto (satu item x simbol x snapshot bukti x plan), BUKAN cacah "
-        "baris `decisions`; 'peristiwa' = snapshot bukti berbeda. Gerbang 30 berlaku atas "
+        "catatan: n = episode veto (satu item x simbol x datum bukti x plan), BUKAN cacah baris "
+        "`decisions`; 'peristiwa' = DATUM bukti berbeda — untuk item market-wide (03/04/08) dua "
+        "snapshot_id yang membawa angka yang sama dihitung SATU (docs/api-facts.md: 8 baris "
+        "`monitor…` ber-data_date sama = 1 hari data funding). Gerbang 30 berlaku atas "
         "min(n, peristiwa). Semua angka SIMULATED: nol dana, nol eksekusi, nol P&L."
     )
     return "\n".join(lines)
@@ -496,7 +596,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             until = _parse_until(args.until)
         except ValueError:
-            print(f"--until bukan waktu ISO yang terbaca: {args.until!r}", file=sys.stderr)
+            print(f"--until bukan waktu ISO yang terbaca: {_safe(repr(args.until))}", file=sys.stderr)
             return 2
     if args.horizon_hours <= 0:
         print("--horizon-hours harus > 0", file=sys.stderr)
@@ -505,12 +605,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         store = Store(args.db, read_only=True)
     except StoreError as exc:
-        print(f"tidak bisa membuka store baca-saja: {exc}", file=sys.stderr)
+        print(f"tidak bisa membuka store baca-saja: {_safe(str(exc))}", file=sys.stderr)
         return 2
     try:
         report = grade(store, until=until, horizon_hours=args.horizon_hours)
     except (GradingError, GradingDataError, StoreError) as exc:
-        print(f"gagal merakit laporan: {exc}", file=sys.stderr)
+        print(f"gagal merakit laporan: {_safe(str(exc))}", file=sys.stderr)
         return 2
     finally:
         store.close()

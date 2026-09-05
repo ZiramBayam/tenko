@@ -120,6 +120,45 @@ def test_n_zero_is_not_a_rate() -> None:
     assert "belum ada amatan" in rate.sentence("09_plan")
 
 
+# --- kalimat yang simetris ------------------------------------------------------------------
+def test_sentence_names_both_directions_with_the_same_denominator() -> None:
+    """Veto yang menahan trade yang JUSTRU kena target adalah veto yang salah — dan itu harus
+    terbaca di kalimatnya, bukan hanya di kolom komposisi (pembaca cepat hanya baca kalimat)."""
+    rate = observed_rate(0, 5, 1)
+    sentence = rate.sentence("08_derivatives", opposite=("yang justru menyentuh target", 3))
+    assert "menahan 0 dari 5 yang akan kena stop" in sentence
+    assert "dan 3 dari 5 yang justru menyentuh target" in sentence
+    # penyebutnya sama untuk kedua arah: tidak ada arah yang dibuat tampak lebih kecil
+    assert sentence.count("dari 5") == 2
+    assert "SEPIHAK" not in sentence
+
+
+def test_sentence_without_the_opposite_direction_admits_it_is_one_sided() -> None:
+    """Bila pemanggil tidak mengirim arah sebaliknya, kalimatnya BILANG — tidak diam."""
+    sentence = observed_rate(2, 5, 5).sentence("06_confluence")
+    assert "menahan 2 dari 5 yang akan kena stop" in sentence
+    assert "SEPIHAK" in sentence
+
+
+def test_sentence_rejects_an_impossible_opposite_count() -> None:
+    rate = observed_rate(0, 5, 1)
+    with pytest.raises(GradingStatsError, match="arah sebaliknya"):
+        rate.sentence("08_derivatives", opposite=("target", 6))
+    with pytest.raises(GradingStatsError, match="arah sebaliknya"):
+        rate.sentence("08_derivatives", opposite=("target", True))
+
+
+def test_module_no_longer_claims_to_be_conservative() -> None:
+    """Klaim "tidak pernah lebih sempit daripada cacah peristiwa membolehkan" DICABUT: ia hanya
+    benar bila pemanggil mencacah datum, dan pemanggilnya pernah mencacah baris."""
+    import grading.stats as stats
+
+    doc = stats.__doc__ or ""
+    assert "konservatif ke arah yang aman" not in doc
+    assert "dicabut" in doc.lower()
+    assert "DATUM_FIELDS" in doc
+
+
 def test_more_events_than_observations_is_a_bug_not_a_widening() -> None:
     with pytest.raises(GradingStatsError, match="melebihi"):
         observed_rate(1, 3, 4)

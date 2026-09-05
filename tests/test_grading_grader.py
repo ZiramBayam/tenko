@@ -23,11 +23,13 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
 
-from core.store import Store
+from core.store import Store, StoreError
+from grading import grader
 from grading.grader import GradingError, grade, main, render
 from grading.stats import MIN_N
 from preflight.params import DEFAULT_PARAMS, params_hash
@@ -58,8 +60,16 @@ def card(
     market_snapshot: int,
     stance: str = "neutral",
     regime: str = "neutral",
+    funding_percentile: float = 91.111111,
+    per_symbol_note: str = "unavailable",
 ) -> dict[str, Any]:
-    """Kartu berbentuk sama dengan yang ditulis `agent/` hari ini (id item berupa string)."""
+    """Kartu berbentuk sama dengan yang ditulis `agent/` hari ini (id item berupa string).
+
+    `funding_percentile` adalah DATUM funding-nya: dua kartu yang membawa persentil yang sama
+    membawa satu datum yang sama, berapa pun `market_snapshot`-nya (docs/api-facts.md, tabel
+    "KONSTANTA PER `data_date`"). `per_symbol_note` mendarat di field `per_token_derivatives`
+    dan sengaja berbeda per simbol: ia bukan datum pasar dan TIDAK boleh memecah peristiwa.
+    """
     return {
         "algo": "tenko-decision-hash/1",
         "skill": {
@@ -81,7 +91,13 @@ def card(
                     {
                         "id": "08_derivatives",
                         "status": "red",
-                        "value": {"funding_crowding_state": "long_crowding"},
+                        "value": {
+                            "funding_crowding_state": "long_crowding",
+                            "funding_percentile_90d": funding_percentile,
+                            "liquidation_pressure_state": "extreme",
+                            "per_token_derivatives": per_symbol_note,
+                            "plan_direction": "long",
+                        },
                         "source": {"snapshot_id": market_snapshot, "tool": "monitor_market_sentiment_shift"},
                     },
                     {
@@ -151,6 +167,9 @@ def build_db(
                     target=110.0,
                     plan_snapshot=plan_snapshot,
                     market_snapshot=market_snapshot,
+                    # satu datum funding per siklus, sama untuk keempat simbol — bentuk nyata
+                    funding_percentile=50.0 + cycle,
+                    per_symbol_note=f"unavailable:{symbol}",
                 )
                 for repeat in range(repeats):
                     store.insert_decision(
@@ -182,7 +201,9 @@ def test_repeated_ticks_and_shared_market_row_do_not_inflate_n(tmp_path: Path) -
     assert len(tally.episodes) == 4  # satu per simbol, bukan satu per baris
     rate = tally.rate
     assert rate.n == 4
-    assert rate.events == 1  # satu snapshot market-wide untuk keempat simbol
+    # satu DATUM funding untuk keempat simbol — dan `per_token_derivatives` yang berbeda per
+    # simbol tidak boleh memecahnya (itu turunan simbol, bukan datum pasar).
+    assert rate.events == 1
     assert rate.n_effective == 1
     assert rate.enough is False
     # dan tiap episode membawa SEMUA id keputusan yang melahirkannya (tidak ada yang hilang)
@@ -190,11 +211,106 @@ def test_repeated_ticks_and_shared_market_row_do_not_inflate_n(tmp_path: Path) -
 
 
 def test_distinct_cycles_are_distinct_events(tmp_path: Path) -> None:
+    """Siklus yang datum funding-nya BERBEDA memang peristiwa berbeda (arah sebaliknya dijaga
+    `test_two_monitor_rows_with_one_funding_datum_are_one_event`)."""
     path = build_db(tmp_path, cycles=5, repeats=2)
     rate = report_of(path).tallies["08_derivatives"].rate
     assert rate.n == 20
     assert rate.events == 5
     assert rate.n_effective == 5
+
+
+# --- peristiwa = DATUM, bukan baris snapshot (temuan security-reviewer, TINGGI) ------------
+def build_two_polls_of_one_funding_day(tmp_path: Path) -> Path:
+    """Dua tick 8 jam terpisah yang membaca DUA baris `monitor…` ber-datum funding IDENTIK.
+
+    Angkanya angka nyata: snapshot 2167 dan 2231 di `data/ryo.db`, keduanya
+    `('2026-09-03', 'long_crowding', 'extreme', 91.111111, 92.222222)` — dua kali polling atas
+    SATU hari data funding (docs/api-facts.md, tabel "KONSTANTA PER `data_date`"). Plan-nya
+    berbeda per tick (deep_analysis memang bergerak), jadi episodenya dua; yang tidak boleh dua
+    adalah `peristiwa`.
+    """
+    path = tmp_path / "satu-hari-funding.db"
+    with Store(path) as store:
+        for index, (snapshot_id, entry) in enumerate(((2167, 100.0), (2231, 101.0))):
+            decided_at = START + timedelta(hours=8 * index)
+            write_prices(
+                store,
+                "SOL",
+                [(decided_at + timedelta(hours=hour), entry) for hour in (1, 30)],
+            )
+            store.insert_decision(
+                "SOL",
+                "NO_GO",
+                ["08_derivatives"],
+                [snapshot_id, 3000 + index],
+                FROZEN,
+                f"hash-{index}",
+                card(
+                    entry=entry,
+                    stop=entry - 10.0,
+                    target=entry + 10.0,
+                    plan_snapshot=3000 + index,
+                    market_snapshot=snapshot_id,
+                    funding_percentile=91.111111,  # identik sampai enam desimal, seperti aslinya
+                ),
+                ts_utc=decided_at.isoformat(),
+            )
+    return path
+
+
+def test_two_monitor_rows_with_one_funding_datum_are_one_event(tmp_path: Path) -> None:
+    """Dua `snapshot_id` berbeda + satu datum funding => peristiwa = 1, BUKAN 2."""
+    rate = report_of(build_two_polls_of_one_funding_day(tmp_path)).tallies["08_derivatives"].rate
+    assert rate.n == 2  # dua episode: plan-nya memang berbeda
+    assert rate.events == 1
+    assert rate.n_effective == 1
+
+
+def test_the_datum_rule_bites_reverting_to_snapshot_id_gives_two(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Arah sebaliknya: cabut aturan datum untuk item 8 dan angkanya kembali jadi 2.
+
+    Ini yang membuktikan tes di atas menggigit — tanpa ini, "events == 1" bisa saja lolos karena
+    fixture-nya kebetulan tidak punya dua snapshot sama sekali.
+    """
+    path = build_two_polls_of_one_funding_day(tmp_path)
+    assert report_of(path).tallies["08_derivatives"].rate.events == 1
+    monkeypatch.setattr(
+        grader,
+        "DATUM_FIELDS",
+        MappingProxyType({k: v for k, v in grader.DATUM_FIELDS.items() if k != "08_derivatives"}),
+    )
+    reverted = report_of(path).tallies["08_derivatives"].rate
+    assert reverted.events == 2  # perilaku LAMA: mencacah baris, bukan datum
+    assert reverted.n_effective == 2
+
+
+def test_every_market_wide_item_declares_its_datum_fields() -> None:
+    """Item baru yang membaca tool market-wide tanpa daftar datum akan kembali mencacah baris."""
+    assert set(grader.DATUM_FIELDS) == set(grader.MARKET_WIDE_ITEMS)
+    assert grader.MARKET_WIDE_ITEMS == {"03_regime", "04_sentiment_shift", "08_derivatives"}
+    for item_id, fields in grader.DATUM_FIELDS.items():
+        # turunan plan/simbol tidak boleh ikut: ia akan memecah satu datum pasar per simbol
+        assert not {"plan_direction", "stance", "per_token_derivatives"} & set(fields), item_id
+
+
+def test_per_symbol_fields_never_split_one_market_datum(tmp_path: Path) -> None:
+    """Empat simbol, satu datum: `per_token_derivatives` yang berbeda per simbol tetap 1."""
+    path = build_db(tmp_path, cycles=1, repeats=1)
+    payload = card(
+        entry=100.0,
+        stop=90.0,
+        target=110.0,
+        plan_snapshot=1,
+        market_snapshot=2,
+        per_symbol_note="unavailable:SOL",
+    )
+    item = next(one for one in payload["skill"]["data"]["items"] if one["id"] == "08_derivatives")
+    assert item["value"]["per_token_derivatives"] == "unavailable:SOL"  # fixture memang berbeda/simbol
+    rate = report_of(path).tallies["08_derivatives"].rate
+    assert (rate.n, rate.events) == (4, 1)
 
 
 # --- gerbang 30 ---------------------------------------------------------------------------
@@ -419,6 +535,35 @@ def test_cli_rejects_bad_arguments(tmp_path: Path) -> None:
     path = build_db(tmp_path, cycles=1, repeats=1, symbols=("SOL",))
     assert main(["--db", str(path), "--until", "kemarin"]) == 2
     assert main(["--db", str(path), "--horizon-hours", "0"]) == 2
+
+
+def test_cli_error_sinks_pass_through_the_sanitizer(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Kedua `print(..., file=sys.stderr)` lewat `_safe`: ESC dari argv/pesan tidak sampai ke tty.
+
+    `--db` adalah teks pihak lain persis seperti `symbol`; satu `\x1b[2K` di dalamnya bisa
+    menghapus baris yang alat ini sendiri baru cetak.
+    """
+    evil = str(tmp_path / "tidak-ada-\x1b[2Kevil.db")
+    assert main(["--db", evil, "--until", "2026-09-10T00:00:00Z"]) == 2
+    first = capsys.readouterr().err
+    assert "tidak bisa membuka store baca-saja" in first
+    assert "\x1b" not in first
+
+    path = build_db(tmp_path, cycles=1, repeats=1, symbols=("SOL",))
+
+    def explode(*_args: Any, **_kwargs: Any) -> Any:
+        raise StoreError("baris rusak di \x1b[2K" + evil)
+
+    monkeypatch.setattr(grader, "grade", explode)
+    assert main(["--db", str(path), "--until", "2026-09-10T00:00:00Z"]) == 2
+    second = capsys.readouterr().err
+    assert "gagal merakit laporan" in second
+    assert "\x1b" not in second
+
+    assert main(["--db", str(path), "--until", "kemarin-\x1b[2K"]) == 2
+    assert "\x1b" not in capsys.readouterr().err
 
 
 def test_module_entrypoint_exits_cleanly(tmp_path: Path) -> None:
