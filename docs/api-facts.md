@@ -372,6 +372,58 @@ Semua 470 payload memakai **himpunan 10 kunci yang sama** — tidak ada satu pun
    (`2026-09-01T03:47:12.123456Z`), bentuk yang tidak pernah dipakai RYO. Jalur `from_items` aman (as_of diparse dari envelope
    RYO, presisi detik), tetapi `ItemSource.as_of` yang diisi dari `snapshots.ts_utc` (mikrodetik) akan menyimpang.
 
+### 47 baris FIXTURE di `data/ryo.db` (`id 1597-1643`) — DIVERIFIKASI 5 Sep 2026 (TASKS 2.2d dicabut, lihat 0.19)
+**Tidak ada bukti RYO mengabaikan argumen `symbols`, dan tidak ada bukti RYO melayani cache lintas argumen.** Premis TASKS 2.2d
+("BTC tidak akan pernah hijau di item 10", bukti `id=1629`) SALAH dan dicabut 5 Sep 2026. Berkas ini tidak pernah memuat klaim
+"RYO mengabaikan symbols" maupun klaim cache — diperiksa dengan `grep -niE "cache|mengabaikan|ignore|1629|stale" docs/api-facts.md`
+(nol hasil pada 5 Sep 2026), jadi tidak ada yang perlu dicabut di sini; yang perlu dicabut ada di `TASKS.md` (bukan berkas saya).
+
+Fakta yang diverifikasi ulang secara independen (sapuan **`max(id) = 2431`**, `mode=ro`, tanpa satu pun penulisan):
+1. **47/47** baris `id 1597-1643` (rentang kontinu; 47 baris di rentang, 47 cocok) **byte-identik** dengan
+   `docs/samples/<tool>.json` di bawah `json.dumps(json.loads(payload_json), sort_keys=True, ensure_ascii=False)`
+   (envelope sampel = `d["result"]` bila ada, selain itu `d`). Tidak ada baris cocok DI LUAR rentang itu.
+2. Ditulis dalam **0,692 detik**: `ts_utc` `2026-09-03T16:31:16.581640+00:00` s.d. `2026-09-03T16:31:17.273380+00:00`.
+3. `request.symbols` pada id 1629/1630/1631 (dan 1628) berbunyi `'SOL, BNB, ETH'` untuk SETIAP `args_json`, karena itulah isi
+   `docs/samples/compare_tokens.json`. Ini artefak berkas sampel, BUKAN perilaku server.
+4. Sebaran ke-47: `analyze_token` 26 · `deep_analysis` 14 · `compare_tokens` 4 (id 1628–1631) · `market_overview` 1 ·
+   `monitor_market_sentiment_shift` 1 (**id 1598**) · `scan_market` 1.
+5. Dari **23** baris `compare_tokens` ber-args diawali `BTC`, hanya **satu** yang tidak memuat BTC di `data.tokens` — id=1629.
+   Menyeluruh: **89 dari 90** baris `compare_tokens` memuat SEMUA simbol yang diminta; satu-satunya pengecualian adalah id=1629.
+6. **Nol** dari 40 baris `decisions` membekukan satu pun dari ke-47 baris itu.
+
+Perintah reproduksi (read-only; ganti `<tool>` otomatis dari kolom `tool`):
+```
+python3 -c 'import sqlite3,json,glob,os,collections;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);\
+S={os.path.basename(f)[:-5]:json.dumps((lambda d: d["result"] if isinstance(d,dict) and "result" in d else d)(json.load(open(f))),sort_keys=True,ensure_ascii=False) for f in glob.glob("docs/samples/*.json")};\
+m=[(i,t) for i,t,p in c.execute("select id,tool,payload_json from snapshots order by id") if t in S and json.dumps(json.loads(p),sort_keys=True,ensure_ascii=False)==S[t]];\
+print("max id",c.execute("select max(id) from snapshots").fetchone()[0],"cocok",len(m),min(x[0] for x in m),max(x[0] for x in m),collections.Counter(t for _,t in m))'
+```
+
+**Konsekuensi yang wajib diingat: SETIAP hitungan amatan yang menyapu `id < 1644` memuat ke-47 baris fixture ini** — termasuk
+angka provenance yang ditempel ke `preflight/params.py` pada TASKS 0.12 (`SWEEP = "sapuan id <= 2165"`). Hanya SATU baris
+fixture (id=1598) yang bertool `monitor_market_sentiment_shift`, sehingga setiap hitungan `monitor…` di params.py
+**terlalu besar tepat 1** untuk nilai yang muncul di id=1598. Rekapitulasi (sapuan `id <= 2165`, 42 baris `monitor…`,
+1 di antaranya fixture):
+
+| Tabel params.py | Nilai | Tertulis (termasuk fixture) | Tanpa 47 baris fixture | Selisih |
+|---|---|---|---|---|
+| `FUNDING_CROWDING_STATE` | `normal` | 39× | **38×** | −1 (id 1598) |
+| `FUNDING_CROWDING_STATE` | `long_crowding` | 3× ("sebelumnya 0 dari 39") | **3×** ("0 dari **38**") | 0 |
+| `LIQUIDATION_PRESSURE_STATE` | `normal` | 39× | **38×** | −1 (id 1598) |
+| `LIQUIDATION_PRESSURE_STATE` | `extreme` | 3× ("sebelumnya 0 dari 39") | **3×** ("0 dari **38**") | 0 |
+| `SENTIMENT_REGIME` | `extreme_greed_unconfirmed` | 21× | **20×** | −1 (id 1598) |
+| `SENTIMENT_REGIME` | `mixed_sentiment` | 18× | **18×** | 0 |
+| `SENTIMENT_REGIME` | `complacent_crowding` | 3× ("sebelumnya 0 dari 39") | **3×** ("0 dari **38**") | 0 |
+| `FEAR_GREED_CHANGE_DIRECTION` | `down` | 40× | **39×** | −1 (id 1598) |
+| `FEAR_GREED_CHANGE_DIRECTION` | `flat` | 2× ("sebelumnya 0 dari 40") | **2×** ("0 dari **39**") | 0 |
+
+Keempat nilai TASKS 0.12 (`complacent_crowding`, `extreme`, `long_crowding`, `flat`) **tidak berubah**: semuanya pertama muncul
+di `id=1976` (`ts 2026-09-04T11:21:24Z`), jauh setelah 1643 — `complacent_crowding`/`extreme`/`long_crowding` di id
+1976/2047/2106 (dan 2167/2231/2291/2356/2417 di luar sapuan), `flat` di id 1976/2047. Yang bergeser hanya **angka
+pembandingnya**. Tabel `MARKET_REGIME` dan `SENTIMENT_LABEL` (sapuan `id <= 835`) serta `_OBS` (697 snapshot, 1 Sep 2026)
+**tidak terpengaruh**: keduanya berhenti sebelum id 1597.
+Ulangi hitungan tanpa fixture: sapu `tool='monitor_market_sentiment_shift' AND id <= 2165 AND id NOT BETWEEN 1597 AND 1643`.
+
 ## B–D. Sumber eksternal — TIDAK DIPAKAI (ADR-012/013)
 Jalur nyata hanya memakai tool RYO (§A) + satu LLM untuk narasi (SDK/model dipin di docs/versions.md saat TASKS 2.3). Sumber lain
 (Helius, Jupiter, DexScreener, GeckoTerminal) dihapus dari desain; bila suatu saat dibutuhkan, verifikasi dulu di sini.

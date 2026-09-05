@@ -23,9 +23,11 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 
+import core.recorder as core_recorder
 from core.recorder import (
     CORE_SYMBOLS,
     FOLLOWUP_DONE_AFTER_H,
@@ -45,6 +47,7 @@ from core.recorder import (
     acquire_single_instance_lock,
     build_client,
     compare_args,
+    fixture_refusal,
     load_dotenv,
     main,
 )
@@ -770,6 +773,202 @@ def test_loop_stops_when_sleep_fails(store: Store, caplog: pytest.LogCaptureFixt
     assert summary.aborted is True
     assert summary.cycles == 1
     assert "berputar tanpa jeda" in caplog.text
+
+
+#: Envelope biasa untuk mengisi store uji — sengaja BUKAN salinan `docs/samples`.
+ENVELOPE: dict[str, Any] = {
+    "schema_version": "1.0",
+    "tool": "analyze_token",
+    "status": "ok",
+    "data_mode": "live",
+    "as_of": "2026-09-05T00:00:00Z",
+    "request": {"symbol": "SOL"},
+    "data": {"verdict": "neutral"},
+    "summary": {"headline": "bukan sampel", "key_points": []},
+    "availability": {"market_data": "available"},
+    "warnings": [],
+}
+
+
+# --- fixture tidak boleh menulis ke store bukti (TASKS 0.19) -------------------------------
+# Versi pertama penjaga ini membandingkan path terhadap `DEFAULT_DB_PATH` — dan security-reviewer
+# menembusnya EMPAT kali: dari cwd selain akar repo (`Path("./data/ryo.db").resolve()` menunjuk
+# `scripts/data/ryo.db`, yaitu bentuk insiden aslinya), lewat `DB_PATH` kustom, lewat hardlink,
+# dan dengan meninggalkan berkas DB berskema penuh karena `Store` dibuka SEBELUM penolakan.
+# Penjaga sekarang bertanya soal ISI, bukan ejaan: "apakah berkas ini memegang bukti nyata".
+
+
+def _seed_evidence(path: Path) -> None:
+    """Satu baris `decisions` — buku besar permanen, dan itulah yang membuat sebuah berkas
+    menjadi store bukti, apa pun namanya dan di mana pun letaknya."""
+    with Store(path) as store:
+        snapshot_id = store.insert_snapshot("analyze_token", {"symbol": "SOL"}, ENVELOPE)
+        store.insert_decision(
+            "SOL",
+            "NO_GO",
+            [],
+            [snapshot_id],
+            "0" * 64,
+            "1" * 64,
+            {"items": []},
+        )
+
+
+def test_fixture_refuses_a_db_that_holds_a_decision_ledger(tmp_path: Path) -> None:
+    """Aturan intinya: ejaan path tidak menolong, isinya yang menjawab."""
+    victim = tmp_path / "apa-pun-namanya.db"
+    _seed_evidence(victim)
+    assert "buku besar keputusan" in (fixture_refusal(victim) or "")
+
+
+def test_a_scratch_db_full_of_snapshots_is_still_fine_for_fixture(tmp_path: Path) -> None:
+    """Batas yang disengaja: snapshot saja BUKAN sinyal "store bukti".
+
+    Store coretan mana pun mengumpulkan snapshot. Memakainya sebagai sinyal akan melarang pola
+    offline yang didokumentasikan modul perekam — dan penjaga yang menghalangi pekerjaan sah
+    akan dimatikan orang, bukan dipatuhi.
+    """
+    scratch = tmp_path / "coretan.db"
+    with Store(scratch) as store:
+        store.insert_snapshot("analyze_token", {"symbol": "SOL"}, ENVELOPE)
+    assert fixture_refusal(scratch) is None
+
+
+def test_fixture_refuses_from_a_working_directory_that_is_not_the_repo_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Bentuk insiden `id 1597-1643`: dijalankan dari subdirektori, path relatif ke DB bukti.
+
+    Penjaga versi pertama MATI di sini — `Path("./data/ryo.db").resolve()` menunjuk berkas di
+    dalam cwd, jadi perbandingannya tidak pernah cocok (temuan KRITIS security-reviewer).
+    """
+    repo_db = Path(core_recorder.ROOT) / core_recorder.DEFAULT_DB_PATH
+    monkeypatch.setattr(core_recorder, "ROOT", tmp_path)
+    victim = tmp_path / "data" / "ryo.db"
+    victim.parent.mkdir()
+    # SENGAJA tanpa baris `decisions`: kalau korbannya punya buku besar, aturan "ada ledger"
+    # yang menangkapnya dan tes ini lolos bahkan dengan jangkar cwd yang lama — persis yang
+    # dibuktikan security-reviewer dengan mutan. Yang harus menangkap di sini adalah jangkar
+    # `ROOT`, jadi korbannya hanya berisi snapshot biasa.
+    with Store(victim) as store:
+        store.insert_snapshot("analyze_token", {"symbol": "SOL"}, ENVELOPE)
+    before = _snapshot_count(victim)
+    (tmp_path / "scripts").mkdir()
+    monkeypatch.chdir(tmp_path / "scripts")
+    with caplog.at_level(logging.ERROR, logger="core.recorder"):
+        code = main(["--once", "--client", "fixture", "--db", "../data/ryo.db"])
+    assert code == 2
+    assert "menolak menulis payload fixture" in caplog.text
+    assert _snapshot_count(victim) == before  # nol baris karangan masuk
+    assert repo_db.name == "ryo.db"  # tes ini tidak pernah menyentuh DB repo yang asli
+
+
+def test_fixture_refuses_a_custom_evidence_db_once_it_has_a_ledger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`.env` ber-`DB_PATH=./data/tenko.db` juga store bukti — begitu ia punya keputusan.
+
+    Celahnya diakui dan ditulis di docstring `fixture_refusal`: DB kustom yang BELUM punya baris
+    `decisions` tidak tertangkap. Ia terlindung sejak keputusan pertamanya ditulis.
+    """
+    victim = tmp_path / "tenko.db"
+    monkeypatch.setenv("DB_PATH", str(victim))
+    assert main(["--once", "--client", "fixture"]) == 0  # masih kosong: boleh
+    _seed_evidence(victim)
+    assert main(["--once", "--client", "fixture"]) == 2  # sudah punya buku besar: ditolak
+
+
+def test_fixture_refuses_a_hardlink_to_the_evidence_db(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`resolve()` mengikuti symlink tetapi tidak menembus hardlink: dua path, satu inode."""
+    monkeypatch.setattr(core_recorder, "ROOT", tmp_path)
+    victim = tmp_path / "data" / "ryo.db"
+    victim.parent.mkdir()
+    with Store(victim) as store:
+        store.insert_snapshot("analyze_token", {"symbol": "SOL"}, ENVELOPE)
+    alias = tmp_path / "alias.db"
+    try:
+        os.link(victim, alias)
+    except OSError:  # pragma: no cover — filesystem tanpa hardlink
+        pytest.skip("hardlink tidak didukung di sini")
+    before = _snapshot_count(victim)
+    assert main(["--once", "--client", "fixture", "--db", str(alias)]) == 2
+    assert _snapshot_count(victim) == before
+
+
+def test_a_refused_run_leaves_no_database_behind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Penolakan tidak boleh melahirkan "DB bukti" kosong berskema penuh.
+
+    Versi pertama membuka `Store` lebih dulu, jadi perintah yang GAGAL meninggalkan berkas 32 KB
+    — dan `agent.main` berhenti berkata "jalankan `make record` dulu" (temuan TINGGI reviewer).
+    """
+    monkeypatch.setattr(core_recorder, "ROOT", tmp_path)
+    victim = tmp_path / "data" / "ryo.db"
+    assert main(["--once", "--client", "fixture", "--db", str(victim)]) == 2
+    assert not victim.exists()
+    assert not victim.parent.exists()
+
+
+def test_a_fixture_run_into_its_own_db_is_still_allowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Penjaganya menutup PASANGAN fixture+bukti, bukan `FixtureClient` itu sendiri.
+
+    Kalau semua jalan fixture ditolak, `make demo` (TASKS 3.4) dan pengembangan offline mati —
+    dan orang akan mematikan penjaganya, bukan mematuhinya. Dijalankan DUA KALI: DB yang isinya
+    hanya salinan `docs/samples` tetap bukan store bukti.
+    """
+    monkeypatch.setattr(core_recorder, "ROOT", tmp_path / "repo")
+    scratch = tmp_path / "fixture.db"
+    assert main(["--once", "--client", "fixture", "--db", str(scratch)]) == 0
+    first = _snapshot_count(scratch)
+    assert first > 0
+    assert main(["--once", "--client", "fixture", "--db", str(scratch)]) == 0
+    assert _snapshot_count(scratch) == first * 2
+
+
+@pytest.mark.parametrize("spelling", ["{p}", "{p} ", " {p} ", "{p}\t"])
+def test_a_trailing_space_does_not_slip_past_the_guard(tmp_path: Path, spelling: str) -> None:
+    """`Store` membuang spasi pinggir, jadi penjaga harus memakai penormal yang SAMA.
+
+    Tanpa itu, `--db "victim.db "` dilihat penjaga sebagai berkas lain (tidak ada, tanpa
+    ledger) sementara `Store` menulis ke berkas aslinya — security-reviewer memasukkan 35 baris
+    fixture ke DB berledger lewat celah ini.
+    """
+    victim = tmp_path / "victim.db"
+    _seed_evidence(victim)
+    assert fixture_refusal(spelling.format(p=victim)) is not None
+
+
+def test_the_evidence_directory_is_closed_from_the_first_day(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Store bukti KUSTOM di `ROOT/data` terlindung sebelum keputusan pertamanya ditulis."""
+    monkeypatch.setattr(core_recorder, "ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    assert fixture_refusal(str(tmp_path / "data" / "tenko.db")) is not None
+    assert fixture_refusal(str(tmp_path / "coretan.db")) is None  # di luar direktori bukti
+
+
+def test_a_uri_shaped_db_path_is_refused_rather_than_guessed(tmp_path: Path) -> None:
+    """`_resolve_path` menolak bentuk URI; penjaga meneruskan penolakan itu, tidak menebak."""
+    assert fixture_refusal("file:/x/ryo.db?mode=rwc") is not None
+
+
+def test_an_unreadable_target_is_refused_rather_than_assumed_safe(tmp_path: Path) -> None:
+    """Gagal-tertutup: berkas yang tidak bisa diperiksa isinya tidak dianggap aman."""
+    broken = tmp_path / "rusak.db"
+    broken.write_text("ini bukan sqlite")
+    assert fixture_refusal(broken) is not None
+
+
+def _snapshot_count(path: Path) -> int:
+    connection = sqlite3.connect("file:" + quote(path.as_posix(), safe="/") + "?mode=ro", uri=True)
+    try:
+        return connection.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0]
+    finally:
+        connection.close()
 
 
 # --- suspend host & watchdog siklus (TASKS 0.8a) -------------------------------------------

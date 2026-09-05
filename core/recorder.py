@@ -91,6 +91,7 @@ import argparse
 import logging
 import os
 import re
+import sqlite3
 import sys
 import time
 import unicodedata
@@ -99,6 +100,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 # Kunci instance-tunggal hidup di `core.livelock` (TASKS 2.0a): jalur `flock` hanya ada di
 # satu berkas, dan pemanggil live lain memakai `try_acquire` dari modul yang sama. Ketiga nama
@@ -110,7 +112,17 @@ from core.livelock import (  # noqa: F401 — ENV_LOCK_PATH di-re-export untuk k
 )
 from core.ryo_client import BaseRyoClient, FixtureClient, RyoClient, RyoError, RyoProtocolError
 from core.sources import SourcesError
-from core.store import Store, StoreError
+
+# `_resolve_path` diimpor SENGAJA meski privat: penjaga fixture harus menormalkan path
+# dengan penormal yang SAMA dengan penulisnya. Penormal sendiri berarti `--db "x.db "`
+# (satu spasi di ujung) dilihat penjaga sebagai berkas lain sementara `Store` membuang
+# spasinya dan menulis ke berkas aslinya — tembus, terbukti oleh security-reviewer 0.19.
+from core.store import (
+    DEFAULT_DB_PATH,
+    Store,
+    StoreError,
+    _resolve_path,
+)
 
 log = logging.getLogger("core.recorder")
 
@@ -912,6 +924,117 @@ def load_dotenv(path: str | Path | None = None) -> None:
             log.warning("berkas env: %s tidak bisa dipasang ke environment", name)
 
 
+def _repo_evidence_db() -> Path:
+    """Store bukti milik repo ini — satu berkas yang tidak boleh menerima fixture, titik.
+
+    Dijangkarkan ke akar repo, BUKAN ke cwd: `Path("./data/ryo.db").resolve()` dari `scripts/`
+    menunjuk `scripts/data/ryo.db`, dan penjaga yang memakainya mati persis pada bentuk insiden
+    `id 1597-1643` (temuan KRITIS security-reviewer 0.19).
+
+    `DB_PATH` SENGAJA tidak ikut di sini. Ia justru cara yang didokumentasikan untuk mengarahkan
+    perekam ke DB coretan (`DB_PATH=/tmp/t.db … --client fixture`, docstring modul ini), jadi
+    memperlakukannya sebagai "store bukti" akan melarang satu-satunya jalan fixture yang benar.
+    DB kustom tetap terlindung — oleh :func:`_real_evidence_rows`, yang bertanya soal ISI.
+    """
+    return ROOT / Path(DEFAULT_DB_PATH)
+
+
+def _inside_evidence_dir(target: Path) -> bool:
+    """Apakah `target` berada di dalam `ROOT/data`, direktori bukti repo?
+
+    Menutup store bukti KUSTOM (`DB_PATH=./data/tenko.db`) sejak hari pertama, bukan sejak
+    keputusan pertamanya — tanpa memerahkan satu tes pun, karena tidak ada tes yang menulis ke
+    `data/` (`tests/helpers_agent.py`). Diusulkan security-reviewer 0.19 dan diverifikasi atas
+    suite penuh sebelum diambil.
+    """
+    evidence_dir = _repo_evidence_db().parent
+    try:
+        return evidence_dir in target.resolve().parents
+    except OSError:  # pragma: no cover
+        return False
+
+
+def _same_file(left: Path, right: Path) -> bool:
+    """Dua path menunjuk berkas yang sama — termasuk lewat hardlink dan bind mount.
+
+    `resolve()` mengikuti symlink tetapi TIDAK menembus hardlink: `ln data/ryo.db alias.db`
+    memberi dua path yang `resolve()`-nya berbeda dengan inode yang sama. Karena itu identitas
+    inode diperiksa lebih dulu bila kedua berkas ada, dan perbandingan path menjadi cadangan
+    untuk berkas yang belum ada (temuan SEDANG security-reviewer 0.19).
+    """
+    try:
+        if left.exists() and right.exists():
+            return left.stat().st_ino == right.stat().st_ino and left.stat().st_dev == right.stat().st_dev
+    except OSError:  # pragma: no cover — stat gagal (izin, mount hilang)
+        pass
+    try:
+        return left.resolve() == right.resolve()
+    except OSError:  # pragma: no cover
+        return False
+
+
+def _ledger_rows(path: Path) -> int | None:
+    """Berapa baris `decisions` di `path`; None bila tidak bisa dibaca.
+
+    Kenapa `decisions` dan BUKAN "snapshot yang bukan salinan sampel": store coretan mana pun
+    mengumpulkan snapshot, termasuk baris buatan tangan di tes offline. Memakainya sebagai
+    sinyal akan melarang pola yang justru didokumentasikan modul ini
+    (`DB_PATH=/tmp/t.db … --client fixture`) — dan penjaga yang menghalangi pekerjaan sah akan
+    dimatikan orang, bukan dipatuhi. Baris `decisions` berbeda: ia buku besar permanen, ditulis
+    hanya oleh `agent.main`, dan keberadaannya berarti berkas ini SUDAH menjadi store bukti.
+    """
+    if not path.exists():
+        return 0
+    try:
+        connection = sqlite3.connect("file:" + quote(path.as_posix(), safe="/") + "?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        connection.execute("PRAGMA query_only=ON")
+        return int(connection.execute("SELECT COUNT(*) FROM decisions").fetchone()[0])
+    except sqlite3.Error:
+        return None
+    finally:
+        connection.close()
+
+
+def fixture_refusal(db_arg: str | Path | None) -> str | None:
+    """Alasan menolak menulis payload fixture ke `db_arg`, atau None bila aman (TASKS 0.19).
+
+    Dijalankan SEBELUM `Store(...)` dibuka: membuka store lebih dulu akan membuat berkas dan
+    skemanya, sehingga perintah yang GAGAL meninggalkan "DB bukti" kosong yang membuat
+    `agent.main` berhenti berkata "jalankan `make record` dulu" (temuan TINGGI reviewer 0.19).
+
+    Dua alasan yang saling bebas: berkasnya adalah store bukti repo — dikenali lewat identitas
+    inode, jadi cwd lain, symlink, dan hardlink semuanya tertangkap, dan berlaku walau berkasnya
+    belum ada — atau ia memegang buku besar `decisions`.
+
+    TIGA alasan yang saling bebas: berkasnya adalah store bukti repo (identitas inode, jadi cwd
+    lain, symlink, dan hardlink tertangkap, dan berlaku walau berkasnya belum ada); ia berada di
+    dalam direktori bukti `ROOT/data`; atau ia memegang buku besar `decisions`.
+
+    **Celah yang diakui, ditulis supaya tidak ditemukan orang lain sebagai kejutan:** store
+    bukti kustom DI LUAR `ROOT/data` yang belum punya satu pun baris `decisions` tidak
+    tertangkap. Menutupnya dengan melarang fixture ke DB mana pun yang memuat snapshot
+    non-sampel sudah dicoba dan DITOLAK: itu memerahkan tiga tes offline yang sah, dan penjaga
+    yang menghalangi pekerjaan sah akan dimatikan, bukan dipatuhi.
+    """
+    try:
+        target = _resolve_path(db_arg)
+    except StoreError as exc:
+        return f"path DB tidak bisa dibaca ({exc})"
+    if _same_file(target, _repo_evidence_db()):
+        return f"{target} adalah store bukti repo ini ({DEFAULT_DB_PATH})"
+    if _inside_evidence_dir(target):
+        return f"{target} berada di dalam direktori bukti {_repo_evidence_db().parent}"
+    ledger = _ledger_rows(target)
+    if ledger is None:
+        return f"{target} tidak bisa diperiksa isinya, jadi ia tidak dianggap aman untuk fixture"
+    if ledger > 0:
+        return f"{target} memegang buku besar keputusan ({ledger} baris), jadi ia store bukti"
+    return None
+
+
 def build_client(kind: str = "live") -> BaseRyoClient:
     """`live` → :meth:`RyoClient.from_env` (gate ADR-005 + bucket per-kunci); `fixture` → offline."""
     if kind == "fixture":
@@ -1001,6 +1124,20 @@ def main(argv: list[str] | None = None) -> int:
         log.error("klien RYO tidak bisa dibentuk — %s: %s", type(exc).__name__, exc)
         _close(lock)
         return 2
+
+    if args.client == "fixture":
+        refusal = fixture_refusal(args.db)
+        if refusal is not None:
+            log.error(
+                "menolak menulis payload fixture: %s. Payload fixture adalah salinan "
+                "docs/samples, bukan jawaban RYO, dan store hanya-tambah — barisnya tidak bisa "
+                "dihapus lagi. Tunjuk berkas lain dengan --db (mis. --db /tmp/fixture.db), atau "
+                "pakai --client live.",
+                refusal,
+            )
+            _close(client)
+            _close(lock)
+            return 2
 
     try:
         store = Store(args.db)
