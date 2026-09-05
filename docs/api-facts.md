@@ -424,6 +424,80 @@ pembandingnya**. Tabel `MARKET_REGIME` dan `SENTIMENT_LABEL` (sapuan `id <= 835`
 **tidak terpengaruh**: keduanya berhenti sebelum id 1597.
 Ulangi hitungan tanpa fixture: sapu `tool='monitor_market_sentiment_shift' AND id <= 2165 AND id NOT BETWEEN 1597 AND 1643`.
 
+### Skew `as_of` vs `ts_utc` — DIVERIFIKASI 5 Sep 2026 (TASKS 2.2e AC(1); klaim "`as_of` membeku ~2,5 hari" DICABUT)
+**`as_of` RYO TIDAK membeku. Ia praktis sama dengan waktu panggilan.** Klaim TASKS 2.2e ("`as_of` membeku ~2,5 hari di belakang
+`ts_utc`; keempat envelope hari ini membawa `as_of` sekitar `2026-09-01T03:48Z` sementara direkam `2026-09-03T16:31Z`")
+**SALAH dan dicabut 5 Sep 2026.** Sebabnya sudah tercatat di bagian sebelumnya: "keempat envelope" itu **persis id 1628–1631**,
+empat baris `compare_tokens` dari blok FIXTURE `id 1597-1643` — keempatnya membawa `as_of` `2026-09-01T03:48:28Z` karena itulah
+isi `docs/samples/compare_tokens.json`, dan `ts_utc` `2026-09-03T16:31Z` adalah detik saat blok fixture ditulis. Ini temuan KEDUA
+yang lahir dari 47 baris yang sama (yang pertama: TASKS 2.2d).
+
+**Bukan salah baca field (AC(1)):** kolom `snapshots.as_of` **byte-identik** dengan `json.loads(payload_json)["as_of"]` di
+**2490/2490** baris (0 selisih, 0 baris tanpa field). Pada `monitor_market_sentiment_shift`, `as_of` juga sama persis dengan
+`data.observation_as_of` dan `data.source.timestamp` di 48/48 baris. Jadi yang kita simpan memang field envelope RYO.
+
+Sapuan **`max(id) = 2490`** (`mode=ro`, tanpa penulisan), selisih = `ts_utc − as_of`:
+
+| kelompok | n | median | min | maks | p95 |
+|---|---|---|---|---|---|
+| baris FIXTURE (`id 1597-1643`) | **47** | 60,734 j | 60,712 j | 60,735 j | 60,734 j |
+| baris NYATA (sisanya) | **2443** | **+0,48 dtk** | **−2,33 dtk** | **+71,04 dtk** | +2,6 dtk |
+| 200 baris terbaru | **200** | +0,13 dtk | −1,11 dtk | +14,33 dtk | +1,0 dtk |
+
+Per tool (baris nyata saja, detik):
+
+| tool | n | median | min | maks (id) | % `as_of` di DEPAN `ts_utc` |
+|---|---|---|---|---|---|
+| `analyze_token` | 1281 | +0,42 | −2,33 | +36,01 (id 1346) | 28,8 % |
+| `deep_analysis` | 940 | +0,49 | −2,03 | **+71,04 (id 451)** | 26,1 % |
+| `compare_tokens` | 90 | +0,49 | −1,86 | +15,22 (id 2100) | 25,6 % |
+| `market_overview` | 47 | +0,90 | −2,08 | +55,39 (id 1279) | 17,0 % |
+| `monitor_market_sentiment_shift` | 47 | +1,03 | −0,59 | +3,93 (id 360) | 12,8 % |
+| `scan_market` | 38 | +0,46 | −1,53 | +2,25 (id 1145) | 23,7 % |
+
+**`as_of` sedikit di DEPAN `ts_utc` itu NYATA, dan kecil: 660 dari 2443 baris NYATA (27,0 %; nol di antara 47 baris fixture), median −0,46 dtk, ekor terjauh −2,33 dtk
+(id=976, `analyze_token`).** Ini bukan artefak pembulatan: `as_of` berpresisi DETIK sedangkan `ts_utc` bermikrodetik, sehingga
+pemotongan presisi hanya bisa membuat selisih **positif** (0–1 dtk). Nilai negatif berarti jam server RYO benar-benar mendahului
+jam kita hingga ~2,3 dtk. Batas atas kesegaran di `core/store.py` (TASKS 2.0d) karena itu harus menoleransi **≥ 3 detik**
+`as_of` di masa depan; menolak `as_of > ts_utc` akan membuang seperempat store.
+
+**Pernah membekukah `as_of` di jendela mana pun (AC pertanyaan 3)? TIDAK.** Nilai `as_of` yang dipakai ulang oleh tool yang sama
+hanya muncul berpasangan (n=2), semuanya dua panggilan dalam siklus perekam yang sama; **rentang waktu pemakaian ulang terpanjang
+= 1,2 detik** (`market_overview` `2026-09-01T04:31:42Z`, id 80/81). Tidak ada satu pun jendela di mana `as_of` bertahan sementara
+`ts_utc` maju.
+
+**Fakta yang LEBIH menarik daripada ketiadaan itu — kebasian yang nyata ada di DALAM `data`, bukan di `as_of`.** Pada 47 baris
+nyata `monitor_market_sentiment_shift`, tanggal data per bukti berhubungan TETAP dengan tanggal perekaman:
+
+| field | relasi terhadap tanggal `ts_utc` | n |
+|---|---|---|
+| `data.evidence.fear_greed.data_date` | **D-0** | 47/47 |
+| `data.evidence.altseason.data_date` | **D-0** | 47/47 |
+| `data.evidence.funding.data_date` | **D-1** | 47/47 |
+| `data.evidence.liquidation.data_date` | **D-1** | 47/47 |
+
+Umur `funding.data_date` pada saat direkam (dihitung dari tengah malam UTC tanggal itu): **min 25,2 j · median 35,8 j · maks
+47,5 j** (n=47). Jadi `as_of` envelope yang segar **tidak menjamin** bukti di dalamnya segar: funding & liquidation selalu data
+KEMARIN, hingga ~2 hari saat direkam menjelang akhir hari UTC. `funding.current_7d_window` = `data_date−6 … data_date`, dan
+`fear_greed.baseline_7d_date` = D-7. Siapa pun yang mengukur kesegaran dari `as_of` saja akan melewatkan ini.
+
+Perintah reproduksi (read-only):
+```
+python3 -c 'import sqlite3,json,datetime as dt,statistics;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);\
+p=lambda s:(lambda d: d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc))(dt.datetime.fromisoformat(s.replace("Z","+00:00")));\
+R=c.execute("select id,tool,ts_utc,as_of,payload_json from snapshots").fetchall();\
+print("max id",max(r[0] for r in R),"mismatch kolom vs payload",sum(1 for r in R if json.loads(r[4])["as_of"]!=r[3]));\
+D=[(r[0],(p(r[2])-p(r[3])).total_seconds()) for r in R];\
+F=[v for i,v in D if 1597<=i<=1643];N=[v for i,v in D if not 1597<=i<=1643];\
+print("fixture n",len(F),"median_j",statistics.median(F)/3600);\
+print("nyata n",len(N),"median_dtk",statistics.median(N),"min",min(N),"max",max(N),"n_negatif",sum(1 for v in N if v<0))'
+```
+
+**Tidak ada klaim "`as_of` membeku"/"data usang" yang perlu dicabut DI BERKAS INI** — diperiksa dengan
+`grep -niE "membeku|usang|stale|basi|tertinggal" docs/api-facts.md` (5 Sep 2026): satu-satunya hasil bernuansa itu adalah
+pencabutan `risk_off` (baris ~92) dan peringatan bahwa hitungan kosakata cepat basi — keduanya soal lain. Yang perlu dicabut ada
+di `TASKS.md` 2.2e (bukan berkas saya).
+
 ## B–D. Sumber eksternal — TIDAK DIPAKAI (ADR-012/013)
 Jalur nyata hanya memakai tool RYO (§A) + satu LLM untuk narasi (SDK/model dipin di docs/versions.md saat TASKS 2.3). Sumber lain
 (Helius, Jupiter, DexScreener, GeckoTerminal) dihapus dari desain; bila suatu saat dibutuhkan, verifikasi dulu di sini.

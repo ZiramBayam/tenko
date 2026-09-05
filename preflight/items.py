@@ -478,6 +478,22 @@ def evaluate_freshness(evidence: Evidence) -> ItemOutcome:
     Hijau bila bukti TERTUA ≤ ``params.max_age_min`` dari jam acuan. Spec tidak memberi
     kondisi merah untuk item ini: bukti basi = pertanyaan yang tidak bisa dijawab dengan
     jujur, jadi `unspoken` (dan karena item wajib, ia tetap memveto).
+
+    **Jam acuannya adalah `as_of` TERBARU di bundel, bukan jam dinding — dan itu disengaja
+    (TASKS 2.2e).** Konsekuensinya harus diucapkan, bukan disembunyikan: bila RYO menyajikan
+    seluruh bundel yang usang seragam, item ini tetap hijau, dan ``max_age_min`` berapa pun
+    tidak akan menangkapnya. Yang diukur item 1 adalah **konsistensi umur di dalam satu
+    bundel**, dan `reason`-nya mengatakan itu apa adanya ("says nothing about how old the
+    bundle itself is").
+
+    Batas itu diterima secara sadar, bukan karena terlewat. Alasannya empiris: pada 2443 baris
+    snapshot NYATA di ``data/ryo.db`` selisih ``ts_utc − as_of`` bermedian 0,00 jam dengan
+    maksimum 0,02 jam (72 detik). Satu-satunya kelompok yang melenceng (60,7 jam, n=47) adalah
+    baris fixture salinan ``docs/samples`` yang sempat mencemari store (TASKS 0.19) — dan
+    itulah yang dulu melahirkan klaim "``as_of`` RYO membeku ~2,5 hari", yang sudah dicabut.
+    Menambah gigi jam dinding berarti item ke-12 baru + ADR + ``params_hash`` yang bergeser,
+    demi gejala yang 0 dari 2443 baris nyata pernah tunjukkan (keputusan product-manager,
+    5 Sep 2026). Kanari untuk gejala itu hidup di luar jalur keputusan, bukan sebagai item.
     """
     item_id = ITEM_FRESHNESS
     params = evidence.params

@@ -237,6 +237,17 @@ baris itu akan lebih rapi dan lebih tidak jujur.
   §"Kegagalan yang bisa direproduksi". Angka tes adalah ukuran cakupan pemeriksaan kami sendiri, bukan bukti bahwa
   keputusannya benar.
 - **Tidak ada klaim performa perdagangan.** Semua posisi adalah practice; P&L jangka pendek juga tidak dinilai rubric.
+- **Item 1 (`01_freshness`) mengukur kesegaran di dalam satu bundel, bukan terhadap jam dinding.** Acuannya adalah
+  `as_of` terbaru di bundel itu, sehingga bila RYO menyajikan seluruh bundel yang usang seragam, item 1 tetap hijau.
+  Kami menerima batas ini secara sadar: pada **2443** baris snapshot nyata, selisih `ts_utc − as_of` bermedian
+  **0,00 jam** (+0,48 detik) dengan maksimum **0,02 jam** (+71,04 detik, id=451); satu-satunya sampel yang melenceng
+  (**60,7 jam, n=47**) adalah blok fixture salinan `docs/samples` (`id 1597-1643`). Yang lebih penting: **`as_of` yang
+  segar tidak menjamin isi envelope segar.** Pada 47 baris `monitor_market_sentiment_shift` nyata, 47/47 membawa
+  `fear_greed`/`altseason` ber-`data_date` D-0 tetapi `funding`/`liquidation` ber-`data_date` **D-1** — umur bukti
+  25,2-47,5 jam, median 35,8 jam. Jadi sebuah envelope dengan `as_of` beberapa detik yang lalu bisa memuat bukti
+  berumur satu setengah hari. Kami **belum** menangani ini; ia diketahui, terbuka sebagai TASKS 0.21, dan tidak boleh
+  dibaca sebagai janji kesegaran. Semua angka di butir ini dari `docs/api-facts.md` §A ("Skew `as_of` vs `ts_utc`",
+  diverifikasi 5 Sep 2026, sapuan `mode=ro` atas `max(id)=2490`).
 - **Angka replay tidak boleh dijumlahkan.** `params_hash` yang berlaku hari ini (5 Sep 2026) adalah
   `3d39fb1bd1a03b7f5269f53fec347d34645d2b402ff1c2de47e53f19d69616b7`
   (`uv run python -c "from preflight.params import DEFAULT_PARAMS; print(DEFAULT_PARAMS.params_hash())"`). Ia bergeser
