@@ -478,14 +478,14 @@ Semua 470 payload memakai **himpunan 10 kunci yang sama** — tidak ada satu pun
 |---|---|---|
 | `schema_version` | `str` | `"1.0"` di **6/6 sampel DAN 470/470 snapshot** — bukan hanya `analyze_token`; tidak pernah `"1"` |
 | `tool` | `str` | nama tool, sama dengan `tool` di level respons REST |
-| `status` | `str` | **hanya `ok` & `partial`** (snapshot: ok 278/partial 192; sampel: ok 5/partial 1 = `deep_analysis`); `unavailable` **BELUM PERNAH TERAMATI** (0/476). Enum bertiga berasal dari RYO Builder MCP Guide, bukan dari sampel |
-| `data_mode` | `str` | **hanya `live` (476/476)**; `mixed`, `simulated`, `unknown` **BELUM PERNAH TERAMATI**. Enum berempat berasal dari Guide |
-| `as_of` | `str`, **tidak pernah `null`** (0/476) | selalu presisi DETIK: `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$` — tidak pernah ada mikrodetik |
+| `status` | `str` | **hanya `ok` & `partial`** (snapshot: ok 278/partial 192; sampel: ok 5/partial 1 = `deep_analysis`); `unavailable` **BELUM PERNAH TERAMATI** (0/476 — **angka itu BASI; sapuan 6 Sep 2026 `id <= 3645`: ok 2229 · partial 1416 · `unavailable` masih 0, jadi 0/3645. Kutip 0/3645, bukan 0/476**). Enum bertiga berasal dari RYO Builder MCP Guide, bukan dari sampel |
+| `data_mode` | `str` | **hanya `live` (476/476 → sapuan 6 Sep 2026: 3645/3645)**; `mixed`, `simulated`, `unknown` **BELUM PERNAH TERAMATI** (0/3645). Enum berempat berasal dari Guide |
+| `as_of` | `str`, **tidak pernah `null`** (0/476 → 0/3645, sapuan 6 Sep 2026) | selalu presisi DETIK: `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$` — tidak pernah ada mikrodetik |
 | `request` | `dict` | argumen ternormalisasi; nilai bertipe sesuai inputSchema (`symbol:str`, `include_perp:bool`, `top_n:int`, `intent:str`, `symbols:str`, `time_window:str`) — `scan_market` mengembalikan `{"top_n":10}` meski dipanggil tanpa argumen → server MENGISI default ke `request` |
-| `data` | `dict`, **tidak pernah `null`** (0/476) | kunci per tool: lihat tabel "Field nyata" |
-| `summary` | `dict` dengan **persis** `{headline, key_points}` di 476/476 | `headline: str`, `key_points: list[str]` (tidak pernah list kosong-bertipe-lain) |
-| `availability` | `dict[str, str]` | kosakata NILAI teramati: `available` (1430) · `unavailable` (398) · `not_requested` (5, `scan_market.theme_filter`). **DIPERBARUI sapuan `id <= 2165` (4 Sep 2026): ada nilai KEEMPAT `partial` (32×, hanya kunci `technical_analysis`, pertama id=1109); hitungan baru 6465 · 1736 · 33 · 32.** Kunci = nama SEKSI tool, bukan id item |
-| `warnings` | `list[str]` | 0–2 entri di sampel; semua elemen `str` |
+| `data` | `dict`, **tidak pernah `null`** (0/476 → 0/3645, sapuan 6 Sep 2026) | kunci per tool: lihat tabel "Field nyata" |
+| `summary` | `dict` dengan **persis** `{headline, key_points}` di 476/476 (→ **3645/3645**, sapuan 6 Sep 2026) | `headline: str`, `key_points: list[str]` (tidak pernah list kosong-bertipe-lain) |
+| `availability` | `dict[str, str]` | kosakata NILAI teramati: `available` (1430) · `unavailable` (398) · `not_requested` (5, `scan_market.theme_filter`). **DIPERBARUI sapuan `id <= 2165` (4 Sep 2026): ada nilai KEEMPAT `partial` (32×, hanya kunci `technical_analysis`, pertama id=1109); hitungan baru 6465 · 1736 · 33 · 32; **sapuan 6 Sep 2026 `id <= 3645`: 10892 · 2976 · 57 · 41** — himpunan nilai tetap berempat.** Kunci = nama SEKSI tool, bukan id item |
+| `warnings` | `list[str]` | 0–2 entri di sampel; **DB `id <= 3645` mencapai 4 entri**: panjang teramati 0 (2063) · 1 (21) · 2 (1541) · **4 (20)**; ke-20 baris ber-4-warning semuanya `deep_analysis` simbol `DGAI` (baris yang sama dengan `availability.trade_plan != available`). Semua elemen `str`. Pembaca yang mengasumsikan ≤2 akan memotong bukti |
 
 **Penyimpangan Tenko yang disengaja terhadap envelope di atas** (dicatat di sini supaya tidak terbaca sebagai fakta RYO):
 1. Field ke-11 `simulated: true` — diwajibkan `docs/rules-compliance.md`, tidak ada di RYO (ADR-015).
@@ -692,6 +692,151 @@ baris pertama id **1260/1261/1262/1263** (`2026-09-03T10:50:49Z`–`10:55:07Z`).
 disebabkan perekam mati/senyap — baris `compare_tokens` terdekat berumur 181–700 mnt, di atas `max_age_min=120`
 (tiga celah yang sama dengan yang sudah didokumentasikan di "Atribusi 3 celah > 120 mnt": 3 Sep 20:26Z, 4 Sep 11:21Z, 5 Sep 01:45Z).
 Jadi "compare_tokens baru direkam sejak 2026-09-03" TIDAK menjelaskan ke-110; kalimat yang benar adalah 97 + 13.
+
+### Sapuan 6 Sep 2026 — `id <= 3645` (review batch 14 commit), MENGGANTIKAN hitungan sapuan 697/762/835/2165/3238
+`data/ryo.db` dibuka read-only saat perekam live masih menulis (`sqlite3.connect("file:data/ryo.db?mode=ro", uri=True)` +
+`PRAGMA query_only=ON`; nol byte ditulis), **3645 snapshot**, ts `2026-09-01T03:51:43Z`–`2026-09-05T19:29:22Z`:
+analyze_token 1895 · deep_analysis 1395 · compare_tokens 166 · market_overview 66 · monitor_market_sentiment_shift 66 · scan_market 57.
+**HIMPUNAN nilai TIDAK bertambah dibanding sapuan `id <= 3238` untuk satu pun field kategoris** — yang berubah hanya frekuensi:
+`analyze_token.data.verdict` accumulate 815 · caution — overbought 601 · neutral 457 · avoid 22 ·
+`deep_analysis.data.verdict.call` constructive 662 · neutral 660 · cautious 73 ·
+`deep_analysis.data.confluence.state` CONFIRMED 806 · MIXED 589 ·
+`market_overview.data.regime` neutral 32 · risk_on 26 · risk_off 8 · `market_overview.data.sentiment.label` extreme_greed 47 · greed 19 ·
+`monitor….sentiment_regime` extreme_greed_unconfirmed 39 · mixed_sentiment 19 · complacent_crowding 8 ·
+`monitor….funding.crowding_state` normal 58 · long_crowding 8 · `monitor….liquidation.pressure_state` normal 58 · extreme 8 ·
+`monitor….fear_greed.change_direction` down 64 · flat 2 (**`up` masih 0 dari 3645**) ·
+`monitor….liquidation.dominant_liquidated_side` shorts 30 · longs 24 · balanced 12 · `monitor….altseason.phase` transition 65 · bitcoin_season 1 ·
+`compare_tokens.data.tokens[].verdict` constructive 287 · neutral 137 (424 token; `cautious` masih **0×** di field ini) ·
+`technical_analysis.trend` analyze_token up 1655 · sideways 152 · down 88; deep_analysis up 1269 · sideways 94 · down 32; compare_tokens up 424/424.
+Kedua pencabutan yang dilakukan commit `1de5a30` **DIREPRODUKSI PERSIS** dari DB hari ini: `material_shift = true` 5 dari 60
+(`id <= 3238`), id 910/1081/1144/1208/1280 dengan `change_7d_points` −10/−11/−11/−10/−10 dan `change_direction: down` di kelimanya;
+rentang breadth `neutral` 0,2088 (id 2230) – 0,8043 (id 3173) vs `risk_off` 0,1758 (id 2416) – 0,3846 (id 763) → tumpang tindih nyata.
+Pada `id <= 3645` `material_shift` = true tetap **5**, jadi 5 dari 66; `change_7d_points` −11…0; `neutral` max naik ke 0,8242 (id 3377).
+
+**Invarian envelope yang diperiksa ulang di 3645 baris (semuanya masih berlaku).** Himpunan 10 kunci top-level identik di
+3645/3645 (nol envelope dengan kunci lebih/kurang); `schema_version` `"1.0"` 3645/3645; `data` non-null 3645/3645; `as_of`
+non-null dan berpresisi DETIK di 3645/3645 (nol mikrodetik, `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`); kolom `snapshots.as_of`
+byte-identik dengan `json.loads(payload_json)["as_of"]` di 3645/3645; `summary` persis `{headline, key_points}` di 3645/3645.
+Ulangi:
+```
+python3 -c 'import sqlite3,json,collections,re;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);c.execute("PRAGMA query_only=ON")
+st=collections.Counter();dm=collections.Counter();av=collections.Counter();ks=collections.Counter();R=list(c.execute("select payload_json from snapshots"))
+for (p,) in R:
+ d=json.loads(p);st[d["status"]]+=1;dm[d["data_mode"]]+=1;ks[tuple(sorted(d))]+=1
+ [av.__setitem__(v,av[v]+1) for v in (d.get("availability") or {}).values()]
+print(len(R),st,dm,av,[(len(k),n) for k,n in ks.items()])'
+```
+
+**BARU (belum pernah tercatat di berkas ini): `deep_analysis` TIDAK PERNAH `status: ok`.** `status` = `partial` di
+**1395/1395** baris `deep_analysis` (`id <= 3645`) — 100 %, sejak baris pertama. Sampel `docs/samples/deep_analysis.json`
+(`partial`) bukan kebetulan, ia bentuk normal tool itu. Konsekuensinya untuk siapa pun yang membaca `status` sebagai kualitas:
+`partial` pada `deep_analysis` TIDAK berarti ada yang rusak — ia berarti seksi opsional (`token_profile`, `derivatives`) tidak
+terjawab, sementara `market_data`/`technical_analysis`/`trade_plan` biasanya `available`. Konsisten dengan hitungan lama:
+`id <= 2165` mencatat partial 839 = deep_analysis 823 + analyze_token 16.
+`analyze_token` sebaliknya `ok` 1874 / `partial` 21, dan **ke-21 baris `partial` itu semuanya simbol `DGAI`** dengan
+`availability.technical_analysis: "partial"` (baris lama "9 baris `status: partial` … semuanya `DGAI`" adalah sapuan
+`id <= 1727`; angkanya 9 → 21, himpunan simbolnya tidak berubah).
+
+**BARU: 20 baris `deep_analysis` tanpa `trade_plan` — semuanya `DGAI`.** `availability.trade_plan != "available"` pada
+**20 dari 1395** baris, `id` 1110 · 1175 · 1241 · 1309 · 1369 · 1425 · 1495 · 1558 · 1668 · 1744 · 1808 · 1869 · 1935 · 1993 ·
+2070 · 2133 · 2208 · 2278 · 2342 · 2407 — 20/20 simbol `DGAI`, dan 20/20 adalah baris yang sama dengan yang membawa 4 `warnings`.
+Ini satu-satunya lubang seksi WAJIB yang pernah kami rekam. Pada 1375 baris sisanya `trade_plan` ada dan **long di 1375/1375**
+(`stop < entry`): arah `short` yang disebut spec §4 **masih 0 amatan dari 3645** (klaim lama "long di 319/319, `id <= 835`"
+tetap benar untuk jendelanya; angka yang berlaku sekarang adalah 1375/1375).
+
+**Cakupan harga diperiksa ulang** (`id <= 3645`, menggantikan sapuan `id <= 1727`): `analyze_token.data.market.price_usd`
+numerik > 0 di **1895/1895**, `deep_analysis` **1395/1395**, `compare_tokens.data.tokens[].price_usd` **424/424**,
+`scan_market.data.candidates[].price_usd` **1166/1166** — harga null masih **0 amatan di keempat path**.
+`scan_market` masih **tidak pernah** mengembalikan SOL/BTC/ETH/BNB (0 dari 1166 kandidat, 88 simbol berbeda).
+`analyze_token.args_json` berbentuk **persis `{"symbol": …}` di 1895/1895** dan `args_hash` = `sha256(canonical(args))`
+cocok di 1895/1895 (0 selisih) — ini yang membuat `grading/outcomes.series_args_hash` menemukan serinya.
+
+**Skew `as_of` vs `ts_utc` diperiksa ulang di `id <= 3645`:** 3598 baris NYATA (di luar fixture 1597–1643), median **+0,48 dtk**,
+minimum **−2,334 dtk** (id 976, `analyze_token`) — **nol baris di bawah −3 dtk**, maksimum +71,04 dtk (id 451). Toleransi
+"`as_of` boleh mendahului `ts_utc` sampai ≥3 detik" di `core/store.py` karena itu MASIH cukup dan masih belum tergigit.
+
+**`compare_tokens` diperiksa ulang di 166 baris:** simbol berulang masih **0 amatan** (0/166) — perilaku RYO terhadap
+`"BNB, BNB, ETH"` tetap BELUM DIVERIFIKASI; **165 dari 166** baris memuat semua simbol yang diminta, dan satu-satunya
+pengecualian masih id=1629 (baris FIXTURE). Empat args jalur preflight kini **38 baris masing-masing** (dulu 32 pada `id <= 3238`).
+`funding.data_date` masih memetakan satu-lawan-satu ke tuple (crowding_state, pressure_state, kedua persentil): lima tanggal
+2026-08-31 (22) · 09-01 (5) · 09-02 (12) · **09-03 `long_crowding`/`extreme` (8)** · 09-04 (19). Cacah baris 09-04 naik 13 → 19
+**tanpa** menambah tanggal keenam → "n panggilan `monitor…` ≠ n peristiwa" makin kuat, bukan makin lemah.
+
+#### Bentuk envelope PADAM (`status: "unavailable"`) adalah HIPOTESIS, bukan amatan — dipakai oleh dua fixture
+`preflight/fixtures/outage-one-tool-2026-09-05.json` dan `preflight/fixtures/outage-all-tools-2026-09-05.json` (TASKS 2.2c,
+commit `46d7ff8`) memuat envelope yang **TIDAK pernah dikeluarkan RYO**. Dicatat di sini supaya sapuan berikutnya
+membandingkannya bila RYO benar-benar mengirim `status: unavailable` — bukan supaya bentuk ini dianggap fakta.
+
+Yang **BERDASAR** (tiap nama field dan tiap nilai enum di kedua fixture diperiksa satu per satu 6 Sep 2026, nol yang di luar
+berkas ini): himpunan 10 kunci top-level identik dengan envelope RYO (ADR-013); `status: "unavailable"` dan
+`data_mode: "unknown"` adalah anggota enum yang tercatat di §A dari RYO Builder MCP Guide (`status ∈ {ok, partial,
+unavailable}`, `data_mode ∈ {live, mixed, simulated, unknown}`); nilai `availability` `"unavailable"` teramati 2976× di DB;
+kunci `availability` tiap tool = nama seksi yang sama persis dengan tabel "Field nyata" (market_overview 5 kunci ·
+monitor 3 · analyze_token 3 · deep_analysis 5 · compare_tokens 4); `summary` tetap `{headline, key_points}`; `request` dan
+`as_of` **disalin apa adanya dari baris DB sumbernya**, tidak dikarang. Provenansnya juga diperiksa: kelima `source_id`
+(2491, 2492, 2494, 2495, 2544) ADA di `data/ryo.db`, dan setiap envelope yang **tidak** ditulis ulang **byte-identik**
+dengan `payload_json` barisnya — jadi item hijau di layar demo dinilai atas angka RYO yang benar-benar direkam.
+
+Yang **HIPOTESIS** (jangan dikutip sebagai perilaku RYO): (1) bahwa envelope padam **mempertahankan** `as_of` alih-alih
+mengosongkannya; (2) bahwa `data` menjadi `null` — `data` non-null di **3645/3645**; (3) bahwa **setiap** seksi `availability`
+serentak menjadi `"unavailable"`; (4) bahwa `data_mode` menjadi `"unknown"` dan bukan tetap `"live"` — `data_mode` = `live` di
+**3645/3645**; (5) bahwa kunci `availability` tetap lengkap saat `data` hilang. **Nol** dari kelimanya punya satu pun amatan.
+Ini bukan halusinasi: bentuknya diturunkan dari enum yang terdokumentasi, kedua berkas mengaku sendiri lewat blok `synthetic`,
+bendera `synthetic: true` per baris, kata `SYNTHETIC` di `warnings`, `summary.headline`, dan `summary.key_points`, dan
+`agent/demo.py` mencetak pengakuan itu ke layar. Yang dilarang adalah membaca bentuk ini balik sebagai fakta API.
+
+**Angka yang dikutip fixture & demo sudah basi: keduanya menulis "0/476".** Yang benar per 6 Sep 2026 adalah **0 dari 3645**.
+Kalimatnya tidak salah arah (nolnya tetap nol) tetapi denominatornya tujuh kali terlalu kecil, dan aturan §A menuntut setiap
+klaim nol menyebut `id` maksimum yang disapu. Perbaikan ada di `preflight/outage_fixture.py` (teks yang ditanam ke berkas
+fixture) → tugas `@agent-core-engineer`/`@agent-quant-engineer`, bukan berkas ini.
+
+**Catatan pendamping: `agent/fixtures/*.json` TIDAK memuat envelope sintetis.** Ketiga berkas (`demo-2026-09-05.json` 14
+snapshot, `twodate-a-2026-09-03.json` 7, `twodate-b-2026-09-04.json` 7) diperiksa 6 Sep 2026: **28 dari 28** envelope
+byte-identik dengan `payload_json` baris `data/ryo.db` ber-`source_id` yang disebutkan, dengan `tool`, `args`, dan `ts_utc`
+yang cocok. Nol baris ber-`synthetic`.
+Ulangi (mencetak mismatch per berkas; nol baris keluaran = semua cocok):
+```
+python3 -c 'import sqlite3,json,glob;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);c.execute("PRAGMA query_only=ON")
+for f in sorted(glob.glob("agent/fixtures/*.json"))+sorted(glob.glob("preflight/fixtures/*.json")):
+ for s in json.load(open(f))["snapshots"]:
+  r=c.execute("select tool,args_json,ts_utc,payload_json from snapshots where id=?",(s["source_id"],)).fetchone()
+  ok=r and r[0]==s["tool"] and r[2]==s["ts_utc"] and json.loads(r[1])==s["args"] and json.dumps(json.loads(r[3]),sort_keys=True)==json.dumps(s["envelope"],sort_keys=True)
+  if not ok: print(f,s["source_id"],s["tool"],"synthetic" if s.get("synthetic") else "MISMATCH-TAK-DIAKUI")'
+```
+
+#### `--until` SAJA tidak mereproduksi tabel veto — DIVERIFIKASI DUA ARAH 6 Sep 2026
+Peringatan di docstring `preflight/items.py` dan `preflight/veto_table.py` **BENAR dan sekarang punya bukti konstruktif**,
+bukan hanya dua run yang berselisih. `core.store.FRESH_SCAN_LIMIT` (=64) memindai 64 baris TERBARU per `(tool, args_hash)`
+tanpa batas SQL atas `ts_utc`, jadi batas pindai bergerak relatif terhadap **ujung DB**, bukan terhadap `--until`.
+Karena `snapshots` append-only, keadaan DB pada waktu T bisa direkonstruksi persis dari salinan hari ini dengan membuang
+baris ber-`ts_utc > T` (dikerjakan atas SALINAN di `$TMPDIR`; `data/ryo.db` tidak pernah ditulis). Hasil, perintah
+`uv run python -m preflight.veto_table --until 2026-09-05T12:32:00Z` yang SAMA PERSIS:
+| keadaan DB | baris | jangkar dipakai | dibuang batas pindai | kedalaman terdalam | 08_derivatives merah |
+|---|---|---|---|---|---|
+| s.d. `2026-09-05T14:21Z` | 3264 | **226** | **0** | 61/64 | 32 (8 snapshot) |
+| s.d. `2026-09-05T15:30Z` | 3367 | **226** | **0** | 62/64 | 32 (8 snapshot) |
+| s.d. `2026-09-05T19:21Z` | 3608 | **201** | **25** | 62/64 | 32 (8 snapshot) |
+| DB hidup 6 Sep, `max id 3645` | 3645 | **201** | **25** | 62/64 | 32 (8 snapshot) |
+Angka `n=226 → n=201` yang ditulis docstring karena itu **terkonfirmasi sebagai perilaku, bukan anekdot**, dan seluruh tabel
+veto TASKS 2.1b (n=201; `01_freshness` 201 hijau / 0 merah; `08_derivatives` 166/32/3 dengan `8/32` snapshot; jendela
+`2026-09-01T06:29:28Z .. 2026-09-05T12:15:26Z`; kedalaman 62/64; 14 snapshot skew-skipped; `params_hash 3d39fb1b…`)
+**direproduksi baris demi baris** atas salinan beku keadaan 19:21Z. Dua run atas salinan beku yang sama: byte-identik.
+Resep yang benar untuk mengutip tabel itu = jalankan atas salinan beku, bukan `--until` saja. Perhatikan juga bahwa
+**cacah merah `08_derivatives` = 32 di keempat keadaan** meski `n` bergerak 226↔201: ia terikat ke 8 baris `monitor…`
+ber-`funding.data_date 2026-09-03` × 4 simbol inti, yaitu **satu hari data funding** (lihat blok "KONSTANTA PER `data_date`").
+
+#### Jalur harga grading gagal-KOSONG, bukan gagal-SALAH — DIVERIFIKASI 6 Sep 2026
+`grading/outcomes.py` memilih seri harga dengan `args_hash = sha256(canonical({"symbol": <sym>}))`, dan perekam menulis
+persis bentuk itu (`core/recorder.py:669,685` → `_record("analyze_token", {"symbol": symbol}, …)`; 1895/1895 baris cocok).
+Klaim "bila perekam kelak menambah argumen ke `analyze_token`, seri harga grading akan KOSONG, bukan SALAH" **diuji, bukan
+disimpulkan**: atas SALINAN `data/ryo.db` yang 1895 baris `analyze_token`-nya ditulis ulang menjadi `{"symbol":…,"chain":null}`
+(hash ikut dihitung ulang), `uv run python -m grading.grader --db <salinan>` mencetak `sampel BNB=0, BTC=0, ETH=0, SOL=0`,
+`outcome NO_GO: no_prices=13`, dan `n` tiap item jatuh ke **0** — nol outcome palsu, nol angka yang bertahan tanpa bukti.
+Sebabnya struktural: `args_hash` adalah hash SELURUH dict argumen, jadi argumen tambahan memindahkan seluruh seri ke hash lain
+dan `SELECT … WHERE args_hash = ?` tidak menemukan apa pun; `resolve_outcome` menjawab `no_prices`/`window_not_covered`,
+keduanya TIDAK `resolved` sehingga dibuang dari `n`. (Sisi lain dari fakta yang sama, dan ini yang perlu diawasi: perubahan
+bentuk argumen perekam **membunuh seluruh grading dalam diam kecuali headernya dibaca**. Baris `sampel …=0` adalah
+satu-satunya alarmnya.)
 
 ## B–D. Sumber eksternal — TIDAK DIPAKAI (ADR-012/013)
 Jalur nyata hanya memakai tool RYO (§A) + satu LLM untuk narasi (SDK/model dipin di docs/versions.md saat TASKS 2.3). Sumber lain

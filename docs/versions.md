@@ -8,6 +8,7 @@ Aturan: pin persis. Jangan upgrade/downgrade tanpa ADR. "BELUM DIVERIFIKASI" →
 | uv | 0.12.7 (lokal) | pengelola env & lock |
 | SQLite | 3.45.1 (stdlib `sqlite3`) | tidak perlu server DB |
 | Node/pnpm | TIDAK DIPAKAI (ADR-001) | |
+| openssl (binary sistem) | **3.0.13** (30 Jan 2024; `openssl version`, diverifikasi api-verifier 6 Sep 2026) | HANYA di `scripts/chaos.sh:304` untuk sertifikat self-signed umur 1 hari (`RyoClient` menolak base_url non-https, jadi server fixture 429 harus TLS). Bukan dependency Python: tidak ada di `uv.lock`/`pyproject.toml`, tidak diimpor, tidak di-vendor; sertifikat lahir di `mktemp -d` dan tidak pernah masuk repo. Sekelas `git`/`curl`/`make`/`bash`. Skrip sudah gagal-tertutup bila tidak ada (`record rate_limit_429 DILEWATI`), jadi ia tidak wajib terpasang. **Keputusan baris `DISCLOSURE.md` bukan milik berkas ini** — lihat rekomendasi api-verifier ke `@agent-pitch-writer` |
 
 ## Python (pyproject.toml)
 | Paket | Versi | Status |
