@@ -24,12 +24,22 @@ akan membuat "dua run identik" tidak berarti apa-apa.
 menuntut item 02 MERAH, dan itu hanya terjadi bila SATU tool wajib menjawab `unavailable`
 sementara yang lain menjawab. Fixture berbentuk itu sekarang ada (`preflight/fixtures/
 outage-one-tool-2026-09-05.json`) dan dipakai SECARA BAWAAN. Tetapi `status: "unavailable"` BELUM
-PERNAH teramati dari RYO (`docs/api-facts.md`: 0 dari 476 envelope; enumnya dari Builder MCP
-Guide, bukan dari sampel), jadi envelope padam itu **dibentuk**, bukan diterima. Karena `preflight`
+PERNAH teramati dari RYO (`docs/api-facts.md`: 0 dari 3645 envelope, id <= 3645 per 6 Sep 2026;
+enumnya dari Builder MCP Guide, bukan dari sampel), jadi envelope padam itu **dibentuk**, bukan
+diterima. Karena `preflight`
 tidak meneruskan `warnings` envelope padam ke envelope hasil, kata `SYNTHETIC` milik fixture tidak
-pernah sampai ke layar juri — maka naskah ini mencetak pengakuannya sendiri, dibaca dari blok
-`synthetic` BERKAS fixture (bukan dikarang di sini). Fixture yang tidak mengaku sintetis tidak
-pernah dicetak sebagai sintetis; yang mengaku tidak pernah disembunyikan.
+pernah sampai ke layar juri — maka naskah ini mencetak pengakuannya sendiri.
+
+**Pengakuan itu TIDAK diturunkan dari klaim berkas yang ia audit.** Berkas yang envelopenya
+benar-benar sudah ditulis ulang menjadi `status: unavailable` tetapi blok `synthetic`-nya diedit
+kosong akan membuat naskah menyebut envelope karangan sebagai "salinan apa adanya bukti nyata" —
+klaim afirmatif yang SALAH, lebih buruk daripada diam. Karena itu himpunan envelope sintetis
+dihitung dari envelope yang BENAR-BENAR dimuat (`status: unavailable`, atau `warnings` memuat
+`SYNTHETIC`), lalu DIBANDINGKAN dengan blok `synthetic` berkas; tiap selisih dicetak sebagai
+KETIDAKCOCOKAN. Kata-katanya (`task`, `derived_from`, `why`) tetap dikutip dari berkas, tetapi
+lewat :func:`_safe` — teks berkas tidak boleh menimpa atau memalsukan baris pengakuan. Fixture yang
+tidak mengaku sintetis tidak pernah dicetak sebagai sintetis; yang mengaku tidak pernah
+disembunyikan; yang berbohong ketahuan.
 
 Pemakaian::
 
@@ -46,6 +56,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
 import tempfile
@@ -59,6 +70,7 @@ from agent.demo_fixture import (
     DEMO_FIXTURE_PATH,
     DemoFixture,
     DemoFixtureError,
+    FixtureSnapshot,
     load_fixture,
     materialize,
     run_tick,
@@ -66,6 +78,7 @@ from agent.demo_fixture import (
 from agent.ledger import LedgerError, read_decision
 from agent.params import DEFAULT_AGENT_PARAMS
 from agent.replay import VERDICT_IDENTICAL, VERDICT_MISMATCH, replay
+from core.skill import clean_text
 from core.store import Store, StoreError
 
 #: Akar repo. Dipakai penjaga audit: apa pun di bawah `ROOT/data` tidak boleh dibuka demo ini.
@@ -95,8 +108,44 @@ DEFAULT_STEP2_FIXTURE = ROOT / "preflight" / "fixtures" / "outage-one-tool-2026-
 STEP1_HEADING = '=== §7 langkah 1 — make skill ARGS="preflight SOL" ==='
 
 
+#: Panjang maksimum teks asal-BERKAS yang boleh dicetak naskah ini. Bukan gaya: satu nilai
+#: 100 kB di `name`/`why` menenggelamkan pengakuan yang justru harus terbaca.
+FIELD_LIMIT = 200
+WHY_LIMIT = 800
+
+#: Kosakata yang hanya boleh diucapkan NASKAH ini sendiri. Berkas fixture tidak boleh mengucapkan
+#: "PENGAKUAN" atau "KETIDAKCOCOKAN": setelah aksara kendali dinetralkan sebuah nilai memang
+#: tinggal satu baris, tetapi mata juri (dan `grep -q PENGAKUAN` yang dipakai sebagai bukti AC)
+#: masih bisa dibelokkan oleh kalimat yang ditanam di dalam nilai.
+_RESERVED = re.compile(r"PENGAKUAN|KETIDAKCOCOKAN|SINTETIS|PELANGGARAN|MENUNGGU", re.IGNORECASE)
+
+#: `source_id` yang diklaim blok `synthetic` berkas, mis. `"foo (source_id 2492)"`.
+_CLAIMED_SOURCE_ID = re.compile(r"source_id\s*(\d+)")
+
+#: Penanda di `warnings` envelope sumber yang menyatakan envelopenya dibentuk, bukan diterima.
+_SYNTHETIC_WARNING = "SYNTHETIC"
+
+
 class DemoError(Exception):
     """Naskah tidak bisa dijalankan sampai selesai — sebabnya disebut, bukan disembunyikan."""
+
+
+def _safe(value: object, limit: int = FIELD_LIMIT) -> str:
+    """Teks asal-BERKAS dalam bentuk yang tidak bisa menimpa maupun memalsukan baris naskah ini.
+
+    Sama tiga lapisnya dengan :func:`agent.replay._safe`, dan sebabnya sama: nilai di berkas
+    fixture tidak dilindungi hash apa pun, sedangkan ia dicetak ke layar yang dibaca juri.
+
+    1. :func:`core.skill.clean_text` — sanitizer tunggal repo (TASKS 1.5b): setiap aksara tak
+       tercetak menjadi ``\\uXXXX`` yang TERLIHAT. Itu mematikan `\\x1b[2J` (menghapus layar),
+       `\\x1b[10A\\x1b[1G` (menimpa baris pengakuan di atasnya), dan `\\r\\n` (menyisipkan baris
+       palsu) — mekanisme yang sama dengan temuan KRITIS di jalur payload tool.
+    2. batas panjang, dibawa `clean_text` sendiri berikut penanda potongnya.
+    3. kosakata naskah dinetralkan: `PENGAKUAN` di dalam sebuah NILAI ditulis ``P\\x45NGAKUAN``,
+       supaya berkas tidak bisa mengarang kalimat kepatuhan atas nama naskah ini.
+    """
+    text = clean_text(str(value), limit)
+    return _RESERVED.sub(lambda m: f"{m.group()[0]}\\x{ord(m.group()[1]):02x}{m.group()[2:]}", text)
 
 
 @dataclass(slots=True)
@@ -171,11 +220,11 @@ def _head(fixture: DemoFixture) -> list[str]:
         BANNER,
         "naskah docs/spec.md §7 langkah 1-6 — seluruhnya dari fixture offline, nol panggilan RYO",
         "",
-        f"fixture   : {fixture.name}",
-        f"bukti     : {len(fixture.snapshots)} snapshot disalin dari {fixture.source_db} "
+        f"fixture   : {_safe(fixture.name)}",
+        f"bukti     : {len(fixture.snapshots)} snapshot disalin dari {_safe(fixture.source_db)} "
         f"id {list(fixture.source_ids)}",
         f"jam beku  : {fixture.now.isoformat()} (jam keputusan; BUKAN jam dinding)",
-        f"params    : params_hash {fixture.params_hash}",
+        f"params    : params_hash {_safe(fixture.params_hash)}",
         "",
         "determinisme, ditulis eksplisit:",
         "  - tiap run membangun DB SQLite BARU di direktori sementara dari fixture JSON;",
@@ -222,7 +271,7 @@ def step1(
     lines = [
         "",
         heading,
-        f"satu envelope RYO untuk {symbol}; jam kesegaran = jam beku fixture, bukan jam dinding",
+        f"satu envelope RYO untuk {_safe(symbol)}; jam kesegaran = jam beku fixture, bukan jam dinding",
         "",
         f"status={result.status}  data_mode={result.data_mode}  "
         f"as_of={result.as_of.isoformat() if result.as_of else None}",
@@ -269,56 +318,134 @@ def _synthetic_note(path: str | Path) -> dict[str, Any] | None:
     return note if isinstance(note, dict) else None
 
 
-def _step2_disclosure(path: str | Path) -> list[str]:
+def _is_shaped(snapshot: FixtureSnapshot) -> bool:
+    """Apakah envelope INI berbentuk padam yang dibentuk — dinilai dari isinya, bukan dari klaim.
+
+    Dua tanda, `or` bukan `and`, dan itu disengaja:
+
+    * ``status == "unavailable"`` — status itu BELUM PERNAH teramati dari RYO (`docs/api-facts.md`;
+      enumnya dari Builder MCP Guide, bukan dari sampel), jadi envelope berstatus itu tidak mungkin
+      salinan apa adanya bukti nyata, apa pun yang ditulis blok `synthetic` berkasnya;
+    * ``warnings`` memuat ``SYNTHETIC`` — penanda yang ditulis `preflight/outage_fixture.py` saat ia
+      membentuk envelope.
+
+    `and` akan membuat berkas yang MENGHAPUS warning-nya lolos sebagai "salinan apa adanya".
+    """
+    envelope = snapshot.envelope or {}
+    if str(envelope.get("status") or "") == "unavailable":
+        return True
+    warnings = envelope.get("warnings")
+    if not isinstance(warnings, list):
+        return False
+    return any(_SYNTHETIC_WARNING in str(entry).upper() for entry in warnings)
+
+
+def _claimed_synthetic_ids(raw: dict[str, Any], note: dict[str, Any] | None) -> set[int]:
+    """`source_id` yang BERKASnya akui dibentuk — dari dua tempat berkas itu menyatakannya.
+
+    Keduanya diambil (union) karena keduanya adalah klaim: daftar
+    `synthetic.envelopes_rewritten_to_unavailable` dan bendera `snapshots[*].synthetic`. Berkas
+    yang mengaku di satu tempat dan menyangkal di tempat lain tetap terhitung mengaku, sehingga
+    selisihnya terhadap envelope yang benar-benar dimuat tetap bisa dihitung.
+    """
+    claimed: set[int] = set()
+    for entry in (note or {}).get("envelopes_rewritten_to_unavailable") or []:
+        claimed.update(int(found) for found in _CLAIMED_SOURCE_ID.findall(str(entry)))
+    rows = raw.get("snapshots")
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, dict) and row.get("synthetic") and isinstance(row.get("source_id"), int):
+            claimed.add(int(row["source_id"]))
+    return claimed
+
+
+def _disclosure_mismatch(shaped: set[int], claimed: set[int]) -> list[str]:
+    """Selisih antara envelope yang DIMUAT dan yang DIAKUI berkas — dicetak mencolok, bukan diam.
+
+    Blok `synthetic` sebuah berkas tidak bisa mengaudit berkas itu sendiri: fixture yang envelope
+    `unavailable`-nya ada tetapi blok pengakuannya diedit menjadi kosong akan membuat naskah ini
+    mencetak klaim afirmatif yang SALAH ("id 2492 adalah salinan apa adanya bukti nyata") — lebih
+    buruk daripada diam. Karena itu himpunan sintetis dihitung dari envelope yang benar-benar
+    dimuat (:func:`_is_shaped`), lalu DIBANDINGKAN dengan klaim berkas; tiap selisih dicetak.
+    """
+    undisclosed = sorted(shaped - claimed)
+    overclaimed = sorted(claimed - shaped)
+    if not undisclosed and not overclaimed:
+        return []
+    lines = [
+        "  KETIDAKCOCOKAN — blok `synthetic` BERKAS ini tidak cocok dengan envelope yang benar-benar",
+        "  dimuat; yang dipakai naskah di bawah adalah hasil PEMERIKSAAN envelope, bukan klaim berkas:",
+    ]
+    if undisclosed:
+        lines.append(
+            "    berkas TIDAK mengaku membentuk source_id "
+            f"{', '.join(str(entry) for entry in undisclosed)} — padahal envelopenya berstatus "
+            "unavailable atau ber-warning SYNTHETIC"
+        )
+    if overclaimed:
+        lines.append(
+            "    berkas mengaku membentuk source_id "
+            f"{', '.join(str(entry) for entry in overclaimed)} — padahal envelope itu tidak berbentuk padam"
+        )
+    return lines
+
+
+def _step2_disclosure(path: str | Path, fixture: DemoFixture) -> list[str]:
     """Pengakuan asal-usul envelope padam langkah 2 — DIBACA dari fixture, bukan ditulis di sini.
 
     Ini kepatuhan, bukan kosmetik. §7 langkah 2 hanya bisa diperagakan bila satu tool wajib
     menjawab `unavailable`, dan `docs/api-facts.md` mencatat status itu BELUM PERNAH teramati dari
-    RYO (0 dari 476 envelope; enumnya dari Builder MCP Guide). Fixture TASKS 2.2c sudah menandai
+    RYO (0 dari 3645 envelope, id <= 3645 per 6 Sep 2026; enumnya dari Builder MCP Guide).
+    Fixture TASKS 2.2c sudah menandai
     dirinya jujur — blok `synthetic`, bendera per baris snapshot, kata `SYNTHETIC` di `warnings`
     envelope sumber — tetapi `preflight` tidak meneruskan `warnings` envelope padam ke envelope
     hasil, jadi tanpa baris-baris ini layar juri tidak pernah melihat bahwa padamnya dibuat-buat.
     Memperagakan pemadaman yang dibentuk tanpa mengaku dibentuk adalah klaim menyesatkan
     (`docs/rules-compliance.md`), dan itu menikam tesis produk ini sendiri.
 
-    Kalimatnya tidak dikarang di sini: yang dicetak adalah isi blok `synthetic` milik berkas yang
-    ditunjuk. Fixture yang TIDAK mengaku dibentuk tidak pernah dicetak sebagai sintetis — yang
-    dicetak untuknya hanyalah bahwa asal-usulnya tidak dinyatakan.
+    Kalimatnya tidak dikarang di sini, dan juga TIDAK dipercaya begitu saja. Kata-kata pengakuan
+    (`task`, `derived_from`, `why`) memang dikutip dari berkas — tetapi HIMPUNAN envelope yang
+    dibentuk dihitung dari envelope yang benar-benar dimuat (:func:`_is_shaped`), lalu dibandingkan
+    dengan klaim berkas (:func:`_disclosure_mismatch`). Berkas yang berbohong tidak bisa membuat
+    naskah ini menyebut envelope karangan sebagai "salinan apa adanya bukti nyata"; selisihnya
+    dicetak mencolok. Setiap teks asal-berkas lewat :func:`_safe` lebih dulu.
+
+    Fixture yang TIDAK mengaku dibentuk tetap tidak dicap sintetis — kecuali envelopenya sendiri
+    berbentuk padam, dan itu justru disebut sebagai ketidakcocokan.
     """
     raw = _fixture_json(path)
     note = _synthetic_note(path)
+    shaped = [snapshot for snapshot in fixture.snapshots if _is_shaped(snapshot)]
+    shaped_ids = {snapshot.source_id for snapshot in shaped}
+    copied = [snapshot.source_id for snapshot in fixture.snapshots if snapshot.source_id not in shaped_ids]
+    claimed = _claimed_synthetic_ids(raw, note)
     if note is None:
-        return [
+        lines = [
             "  asal-usul envelope di fixture ini TIDAK DINYATAKAN: berkasnya tidak memuat blok",
             "  `synthetic`, jadi naskah ini tidak mengarang pengakuan apa pun tentangnya.",
         ]
-    rows = raw.get("snapshots")
-    rows = rows if isinstance(rows, list) else []
-    copied = [
-        row.get("source_id")
-        for row in rows
-        if isinstance(row, dict) and not row.get("synthetic") and row.get("source_id") is not None
-    ]
-    rewritten = [str(entry) for entry in (note.get("envelopes_rewritten_to_unavailable") or [])]
+        lines.extend(_disclosure_mismatch(shaped_ids, claimed))
+        return lines
+    rewritten = [f"{_safe(snapshot.tool)} (source_id {snapshot.source_id})" for snapshot in shaped]
     lines = [
         "  PENGAKUAN — dibaca dari blok `synthetic` BERKAS fixture, bukan ditulis oleh naskah ini:",
         f"    envelope PADAM di bawah SINTETIS: ditulis ulang menjadi status=unavailable oleh "
-        f"{note.get('task', '?')},",
-        f"    dari {note.get('derived_from', '?')}. Yang dibentuk: {len(rewritten)} envelope, yaitu",
+        f"{_safe(note.get('task', '?'))},",
+        f"    dari {_safe(note.get('derived_from', '?'))}. Yang dibentuk: {len(rewritten)} envelope, yaitu",
     ]
     lines.extend(f"      {entry}" for entry in rewritten)
     lines.append("    alasannya, apa adanya dari berkas itu:")
-    lines.extend(f"      {chunk}" for chunk in textwrap.wrap(str(note.get("why", "")), width=94))
+    lines.extend(f"      {chunk}" for chunk in textwrap.wrap(_safe(note.get("why", ""), WHY_LIMIT), width=94))
     lines.extend(
         [
             f"    yang TIDAK dibentuk: {len(copied)} envelope yang MENJAWAB adalah salinan apa adanya",
-            f"      bukti nyata {raw.get('source_db', '?')} id "
+            f"      bukti nyata {_safe(raw.get('source_db', '?'))} id "
             f"{', '.join(str(entry) for entry in copied) or '-'} — jadi item hijau di bawah",
             "      benar-benar dinilai atas angka RYO, bukan atas angka yang diketik tangan.",
             "    yang dikarang hanyalah BENTUK padamnya; bila RYO kelak benar-benar mengirim",
             "    `status: unavailable`, bentuk ini wajib dibandingkan ulang (api-verifier).",
         ]
     )
+    lines.extend(_disclosure_mismatch(shaped_ids, claimed))
     return lines
 
 
@@ -351,8 +478,8 @@ def step2(step2_fixture: str | Path | None) -> list[str]:
         return lines
     fixture = load_fixture(step2_fixture)
     symbol = fixture.symbols[0] if fixture.symbols else STEP1_SYMBOL
-    lines.append(f"fixture   : {fixture.name}")
-    lines.extend(_step2_disclosure(step2_fixture))
+    lines.append(f"fixture   : {_safe(fixture.name)}")
+    lines.extend(_step2_disclosure(step2_fixture, fixture))
     with tempfile.TemporaryDirectory(prefix="tenko-demo-step2-") as tmp:
         db_path = Path(tmp) / "step2.db"
         materialize(fixture, db_path)
@@ -361,7 +488,7 @@ def step2(step2_fixture: str | Path | None) -> list[str]:
                 fixture,
                 db_path,
                 symbol,
-                heading=f'--- make skill ARGS="preflight {symbol}" atas fixture langkah 2 ---',
+                heading=f'--- make skill ARGS="preflight {_safe(symbol)}" atas fixture langkah 2 ---',
             )
         )
     return lines
@@ -679,19 +806,36 @@ def demo_lines(
 
 
 def _step2_summary(step2_fixture: str | Path | None) -> str:
-    """Satu baris ringkasan langkah 2 — termasuk pengakuan sintetisnya, bila fixture mengaku."""
+    """Satu baris ringkasan langkah 2 — termasuk pengakuan sintetisnya, bila fixture mengaku.
+
+    Ekor naskah tidak boleh lebih optimistis daripada badannya: bila klaim `synthetic` berkas tidak
+    cocok dengan envelope yang benar-benar dimuat, baris ini ikut menyebutkannya. Juri yang hanya
+    membaca ringkasan tetap melihat bahwa ada yang tidak cocok.
+    """
     if not step2_fixture:
         return f"  langkah 2 MENUNGGU {STEP2_TASK} (fixture 'satu tool wajib unavailable' tidak diberikan)"
+    name = _safe(Path(step2_fixture).name)
     note = _synthetic_note(step2_fixture)
+    flag = ""
+    if _mismatched(step2_fixture):
+        flag = " — KETIDAKCOCOKAN: klaim `synthetic` berkas tidak cocok dengan envelopenya"
     if note is None:
-        return (
-            f"  langkah 2 dijalankan dari {Path(step2_fixture).name} "
-            "(berkas itu tidak menyatakan asal-usul envelopenya)"
-        )
+        return f"  langkah 2 dijalankan dari {name} (berkas itu tidak menyatakan asal-usul envelopenya){flag}"
     return (
-        f"  langkah 2 dijalankan dari {Path(step2_fixture).name} — envelope PADAMNYA SINTETIS "
-        f"({note.get('task', '?')}); envelope yang menjawab salinan bukti nyata"
+        f"  langkah 2 dijalankan dari {name} — envelope PADAMNYA SINTETIS "
+        f"({_safe(note.get('task', '?'))}); envelope yang menjawab salinan bukti nyata{flag}"
     )
+
+
+def _mismatched(step2_fixture: str | Path) -> bool:
+    """`True` bila klaim `synthetic` berkas berselisih dengan envelope yang benar-benar dimuat."""
+    try:
+        fixture = load_fixture(step2_fixture)
+    except DemoFixtureError:
+        return False
+    raw = _fixture_json(step2_fixture)
+    shaped = {snapshot.source_id for snapshot in fixture.snapshots if _is_shaped(snapshot)}
+    return bool(_disclosure_mismatch(shaped, _claimed_synthetic_ids(raw, _synthetic_note(step2_fixture))))
 
 
 def build_parser() -> argparse.ArgumentParser:

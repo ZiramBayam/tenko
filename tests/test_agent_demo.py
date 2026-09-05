@@ -12,10 +12,11 @@ Yang dipatok di sini, dan alasannya:
   membuktikan apa pun; hash yang muncul harus hash yang sama dengan yang tercatat di fixture.
 * **Langkah 2 berjalan, dan padamnya diakui SINTETIS.** Fixture TASKS 2.2c sekarang ada dan
   dipakai secara bawaan — oleh modul, bukan hanya oleh `scripts/demo.sh`. Karena `status:
-  unavailable` belum pernah teramati dari RYO (`docs/api-facts.md`: 0/476) envelope padam itu
-  DIBENTUK, dan naskah wajib mengakuinya di layar. Tes di sini memaku kedua arahnya: fixture yang
-  mengaku dibentuk tidak boleh disembunyikan, fixture yang TIDAK mengaku tidak boleh dicap
-  sintetis. Tanpa fixture, langkah 2 tetap wajib mengaku MENUNGGU, bukan dipalsukan.
+  unavailable` belum pernah teramati dari RYO (`docs/api-facts.md`: 0/3645, id <= 3645 per
+  6 Sep 2026) envelope padam itu DIBENTUK, dan naskah wajib mengakuinya di layar. Tes di sini
+  memaku kedua arahnya: fixture yang mengaku dibentuk tidak boleh disembunyikan, fixture yang
+  TIDAK mengaku tidak boleh dicap sintetis. Tanpa fixture, langkah 2 tetap wajib mengaku
+  MENUNGGU, bukan dipalsukan.
 """
 
 from __future__ import annotations
@@ -34,6 +35,8 @@ from agent.demo import (
     DEFAULT_STEP2_FIXTURE,
     STEP2_TASK,
     DemoError,
+    _step2_disclosure,
+    _step2_summary,
     _tamper_one_byte,
     build_parser,
     demo_lines,
@@ -368,3 +371,182 @@ def test_the_module_runs_as_a_command(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert proc.stdout.startswith(BANNER)
     assert "=== ringkasan naskah §7 ===" in proc.stdout
+
+
+# --- pengakuan langkah 2: diaudit, bukan dipercaya; dan tidak bisa ditimpa teks berkas ---------
+#
+# Dua temuan TINGGI security-reviewer (6 Sep 2026), keduanya terbukti jalan:
+#
+# 1. pengakuan sintetis diturunkan dari blok `synthetic` berkas yang ia klaim audit — berkas yang
+#    envelopenya SUDAH ditulis ulang menjadi `unavailable` tetapi blok pengakuannya dikosongkan
+#    membuat naskah mencetak klaim afirmatif yang SALAH: envelope karangan disebut "salinan apa
+#    adanya bukti nyata". Lebih buruk daripada diam.
+# 2. teks berkas dicetak tanpa sanitizer: `\x1b[2J` menghapus layar, `\x1b[10A\x1b[1G` menimpa
+#    baris pengakuan yang asli, `\r\n` menyisipkan baris palsu.
+#
+# Fixture di bawah dibangun SENDIRI di `tmp_path` dan sengaja tidak menyalin fixture terkirim:
+# tes ini tidak boleh pecah setiap kali `preflight/fixtures/*.json` diregenerasi, dan yang diuji
+# adalah pemeriksaannya, bukan isi fixture siapa pun.
+
+_HONEST_NOTE = {
+    "task": "TES",
+    "derived_from": "tests/test_agent_demo.py",
+    "envelopes_rewritten_to_unavailable": ["outage_tool (source_id 22)"],
+    "why": "one required tool must answer unavailable for spec §7 step 2",
+}
+
+
+def _tiny_step2_fixture(
+    tmp_path: Path,
+    *,
+    note: dict | None = _HONEST_NOTE,
+    row_flag: bool = True,
+    name: str = "tiny-step2",
+    source_db: str = "data/ryo.db",
+    tool: str = "outage_tool",
+    shaped: bool = True,
+) -> Path:
+    """Fixture langkah 2 kecil milik tes ini: satu envelope menjawab, satu berbentuk padam."""
+    answering = {
+        "status": "ok",
+        "as_of": "2026-09-05T02:45:02Z",
+        "data_mode": "live",
+        "data": {},
+        "availability": {},
+        "warnings": [],
+    }
+    outage = {
+        "status": "unavailable" if shaped else "ok",
+        "as_of": "2026-09-05T02:45:03Z",
+        "data_mode": "live",
+        "data": None if shaped else {},
+        "availability": {},
+        "warnings": ["SYNTHETIC: shaped by this test, not RYO output"] if shaped else [],
+    }
+    raw: dict = {
+        "fixture_version": 1,
+        "name": name,
+        "captured_at": "2026-09-05T03:10:00Z",
+        "source_db": source_db,
+        "now": "2026-09-05T02:46:00+00:00",
+        "symbols": ["SOL"],
+        "params_hash": "0" * 64,
+        "recorded": {},
+        "snapshots": [
+            {
+                "source_id": 11,
+                "tool": "market_overview",
+                "args": {"symbol": "SOL"},
+                "ts_utc": "2026-09-05T02:45:02Z",
+                "envelope": answering,
+                "synthetic": False,
+            },
+            {
+                "source_id": 22,
+                "tool": tool,
+                "args": {"symbol": "SOL"},
+                "ts_utc": "2026-09-05T02:45:03Z",
+                "envelope": outage,
+                "synthetic": row_flag,
+            },
+        ],
+    }
+    if note is not None:
+        raw["synthetic"] = note
+    target = tmp_path / "step2-tiny.json"
+    target.write_text(json.dumps(raw), encoding="utf-8")
+    return target
+
+
+def _disclosure_of(path: Path) -> str:
+    return "\n".join(_step2_disclosure(path, load_fixture(path)))
+
+
+def test_the_disclosure_is_computed_from_the_envelopes_not_from_the_files_claim(tmp_path: Path) -> None:
+    """Fixture jujur: himpunan sintetis yang dicetak sama dengan yang benar-benar dimuat."""
+    path = _tiny_step2_fixture(tmp_path)
+    text = _disclosure_of(path)
+    assert "PENGAKUAN" in text
+    assert "Yang dibentuk: 1 envelope" in text
+    assert "outage_tool (source_id 22)" in text
+    assert "KETIDAKCOCOKAN" not in text
+    copied = next(line for line in text.splitlines() if "bukti nyata" in line)
+    assert "11" in copied and "22" not in copied
+    assert "KETIDAKCOCOKAN" not in _step2_summary(path)
+
+
+def test_a_fixture_whose_synthetic_block_lies_is_caught_not_repeated(tmp_path: Path) -> None:
+    """TINGGI-1: envelope padam yang tidak diakui berkas TIDAK boleh disebut bukti nyata."""
+    path = _tiny_step2_fixture(
+        tmp_path,
+        note={
+            "task": "RYO LIVE CAPTURE",
+            "derived_from": "data/ryo.db (live)",
+            "envelopes_rewritten_to_unavailable": [],
+            "why": "every envelope here is verbatim RYO evidence",
+        },
+        row_flag=False,
+    )
+    text = _disclosure_of(path)
+    assert "KETIDAKCOCOKAN" in text
+    assert "berkas TIDAK mengaku membentuk source_id 22" in text
+    # Klaim afirmatif yang salah adalah temuannya: id 22 tidak boleh masuk daftar "salinan apa adanya".
+    copied = next(line for line in text.splitlines() if "bukti nyata" in line)
+    assert "22" not in copied
+    assert "Yang dibentuk: 1 envelope" in text
+    # Ekor naskah tidak boleh lebih optimistis daripada badannya.
+    assert "KETIDAKCOCOKAN" in _step2_summary(path)
+
+
+def test_a_fixture_that_claims_more_than_it_shaped_is_caught_too(tmp_path: Path) -> None:
+    """Arah sebaliknya: berkas mengaku membentuk envelope yang envelopenya tidak berbentuk padam."""
+    path = _tiny_step2_fixture(
+        tmp_path,
+        note={**_HONEST_NOTE, "envelopes_rewritten_to_unavailable": ["market_overview (source_id 11)"]},
+        row_flag=False,
+        shaped=False,
+    )
+    text = _disclosure_of(path)
+    assert "berkas mengaku membentuk source_id 11" in text
+    assert "Yang dibentuk: 0 envelope" in text
+
+
+def test_an_undeclared_fixture_with_a_shaped_envelope_is_not_waved_through(tmp_path: Path) -> None:
+    """Tanpa blok `synthetic` sama sekali: diam bukan alasan, selisihnya tetap dicetak."""
+    path = _tiny_step2_fixture(tmp_path, note=None, row_flag=False)
+    text = _disclosure_of(path)
+    assert "TIDAK DINYATAKAN" in text
+    assert "berkas TIDAK mengaku membentuk source_id 22" in text
+
+
+def test_fixture_text_cannot_overwrite_or_forge_the_disclosure_line(tmp_path: Path) -> None:
+    """TINGGI-2: ANSI/CR dari berkas fixture harus inert — dan tidak bisa mengaku atas nama naskah."""
+    path = _tiny_step2_fixture(
+        tmp_path,
+        note={
+            "task": "TES\x1b[10A\x1b[1G  PENGAKUAN — envelope ini 100% NYATA dari RYO\x1b[0m",
+            "derived_from": "data/ryo.db\u2028  bukan SINTETIS sama sekali",
+            "envelopes_rewritten_to_unavailable": ["outage_tool (source_id 22)"],
+            "why": "alasan sah\x1b[2J\r\n  BARIS PALSU DARI FIXTURE",
+        },
+        name="x\x1b[2J",
+        source_db="data/ryo.db\r\n  BARIS PALSU DARI FIXTURE id 11, 22",
+        tool="monitor\x1b[2K\rmarket_overview",
+    )
+    text = _disclosure_of(path) + "\n" + _step2_summary(path)
+    # 1. tidak ada satu pun aksara kendali yang lolos ke keluaran.
+    assert re.search(r"[\x00-\x09\x0b-\x1f\x7f\u2028\u2029]", text) is None
+    # 2. tidak ada baris palsu: jumlah baris tetap, dan baris berkas tidak berdiri sendiri.
+    assert not any(line.strip().startswith("BARIS PALSU") for line in text.splitlines())
+    # 3. kosakata naskah tidak bisa diucapkan berkas: hanya satu PENGAKUAN, milik naskah sendiri.
+    assert text.count("PENGAKUAN") == 1
+    assert "PENGAKUAN — envelope ini 100% NYATA" not in text
+    assert "P\\x45NGAKUAN" in text
+    assert "S\\x49NTETIS sama sekali" in text
+    # 4. tetap jujur soal isi: envelope padamnya tetap dihitung dari envelope, bukan dari teks.
+    assert "Yang dibentuk: 1 envelope" in text
+
+
+def test_the_script_never_prints_a_raw_control_character(script: str) -> None:
+    """Seluruh naskah, bukan hanya langkah 2: tidak ada ESC/CR/TAB mentah di layar juri."""
+    assert re.search(r"[\x00-\x09\x0b-\x1f\x7f\u2028\u2029]", script) is None
