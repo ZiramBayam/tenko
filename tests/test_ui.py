@@ -1121,6 +1121,16 @@ def render_clock() -> datetime:
     return datetime.now(UI_JST)
 
 
+def aria_rows(html: str) -> list[str]:
+    """Baris tabel yang membawa `aria-label`-nya sendiri, dalam urutan dokumen.
+
+    Dipilih dari atributnya, BUKAN dari `html.split("<tr>")[2]`: baris header dan tabel bukti
+    juga memakai `<tr>`, jadi indeks posisi diam-diam bergeser setiap kali kartu tumbuh satu
+    seksi — dan tes yang bergeser diam-diam berhenti menguji apa yang tertulis di namanya.
+    """
+    return re.findall(r"<tr aria-label=.*?</tr>", html, re.S)
+
+
 def strip_tags(html: str) -> str:
     """Teks yang benar-benar terbaca juri: tag dibuang, entitas dikembalikan, spasi dirapatkan.
 
@@ -1486,7 +1496,7 @@ def test_green_neutral_is_rendered_differently_from_green_confirmation(client: T
         {"item_id": "10_relative", "veto_rank": 10, "status": "green", "value": {"stance": "bullish"}},
     ]
     html = render_card(payload, BANNER, render_clock())
-    neutral_row, confirming_row = html.split("<tr>")[2], html.split("<tr>")[3]
+    neutral_row, confirming_row = aria_rows(html)
     assert "03_regime" in neutral_row and "10_relative" in confirming_row
     assert "s-green-neutral" in neutral_row and "s-green-neutral" not in confirming_row
     assert NEUTRAL_MARK in strip_tags(neutral_row) and NEUTRAL_MARK not in strip_tags(confirming_row)
@@ -1527,7 +1537,7 @@ def test_every_narration_line_is_labelled_beside_the_deterministic_reason(client
         "reason": "",
     }
     html = render_card(payload, BANNER, render_clock())
-    row = html.split("<tr>")[2]
+    (row,) = aria_rows(html)
     readable = strip_tags(row)
     # Vonis karangan model tetap ditampilkan apa adanya — dan tidak pernah tanpa labelnya.
     assert "GO, buy now" in readable
@@ -1669,7 +1679,8 @@ def test_screen_b_offers_a_replay_button_that_reruns_on_the_server(client: TestC
     """Tombolnya tautan biasa (keyboard-first, tanpa JS); yang membuatnya jujur ada di server."""
     payload = card_payload(client)
     html = render_card(payload, BANNER, render_clock())
-    assert f'<a class="badge" href="/ui/decision/{payload["decision_id"]}">putar ulang sekarang' in html
+    assert f'<a class="badge" href="/ui/decision/{payload["decision_id"]}" aria-label=' in html
+    assert "putar ulang sekarang" in strip_tags(html)
     readable = strip_tags(html)
     assert "dihitung ULANG di server" in readable
     assert f"make replay ID={payload['decision_id']}" in readable
@@ -2070,3 +2081,217 @@ def test_preflight_counts_the_warnings_it_does_not_print(
     assert cut["n_items"] == cut["n_items_total"] == full["n_items"] > cut["n_items_rendered"] == 1
     assert sorted(assert_count_naming(cut)) == ["blocking", "items", "warnings"]
     assert any(f"{full['n_warnings']} peringatan envelope ada" in note for note in cut["notes"])
+
+
+# --- TASKS 4.6: keyboard & aksesibilitas ---------------------------------------------------
+def aria_label_of(row: str) -> str:
+    """Isi `aria-label` sebuah baris, sudah di-unescape — yaitu teks yang DIBACAKAN."""
+    (label,) = re.findall(r'<tr aria-label="([^"]*)"', row)
+    return unescape(label)
+
+
+def test_every_call_row_is_announced_as_a_point_then_speak_sentence(client: TestClient) -> None:
+    """Nama tiap baris kartu = tunjuk→sebut utuh: nilai YANG DISEBUT dan DARI MANA ia dibaca.
+
+    Ini bukan hiasan a11y: baris yang dibacakan "liquidity_floor, red" menghapus separuh produk
+    untuk pemakai pembaca layar — bagian "dari tool/snapshot/jam mana" justru yang dijual Tenko.
+    Payload-nya payload NYATA dari route, bukan dict karangan.
+    """
+    payload = card_payload(client)
+    rows = aria_rows(render_card(payload, BANNER, render_clock()))
+    assert len(rows) == len(payload["items"]) >= 1
+    for item, row in zip(payload["items"], rows, strict=True):
+        label = aria_label_of(row)
+        assert label.startswith(f"baris {item['item_id']}; ")
+        assert f"; status {item['status']}" in label
+        assert f"; sumber {item['tool']}.{item['field']}, " in label
+        # `02_completeness` dibaca dari SEMUA envelope sekaligus, jadi `snapshot_id`-nya memang
+        # None; yang dibacakan kemudian "snapshot tidak disebut", bukan nomor yang dikarang.
+        assert (
+            f"snapshot {item['snapshot_id']}" in label
+            if item["snapshot_id"] is not None
+            else "snapshot tidak disebut" in label
+        )
+        assert f"as_of {item['as_of_jst']}" in label
+        # Bagian "sebut": nilainya, atau kalimat yang mengaku nilainya tidak ada.
+        assert ("nilai yang disebut: " in label) or ("nilai: " in label)
+        # Anggaran `aria-label` cukup untuk data hari ini: kalimatnya utuh sampai klausa sumber.
+        assert len(label) <= ui_screens.ARIA_LABEL_LIMIT
+
+
+def test_an_unspoken_row_is_announced_as_not_spoken_never_as_zero(client: TestClient) -> None:
+    """ADR-013 di telinga, bukan hanya di mata: kosong tidak boleh terdengar seperti nol."""
+    payload = card_payload(client)
+    payload["items"] = [
+        {
+            "item_id": "06_liquidity",
+            "veto_rank": 6,
+            "status": "unspoken",
+            "value": None,
+            "tool": "analyze_token",
+            "field": "data.liquidity.depth_usd",
+            "snapshot_id": 2166,
+            "as_of_jst": "2026-09-04 23:42 JST",
+        }
+    ]
+    (row,) = aria_rows(render_card(payload, BANNER, render_clock()))
+    label = aria_label_of(row)
+    assert f"nilai: {UNSPOKEN_MARK}" in label
+    assert "nilai yang disebut" not in label  # tidak ada nilai yang disebut untuk baris ini
+    assert "nilai: 0" not in label and "nilai: null" not in label and "nilai: -" not in label
+    # Sumbernya tetap disebut: yang tidak ada adalah NILAInya, bukan tempat kami mencarinya.
+    assert "sumber analyze_token.data.liquidity.depth_usd, snapshot 2166" in label
+
+
+def test_a_null_value_on_a_spoken_row_is_still_never_announced_as_zero(client: TestClient) -> None:
+    payload = card_payload(client)
+    payload["items"] = [{"item_id": "07_flow", "veto_rank": 7, "status": "green", "value": None}]
+    (row,) = aria_rows(render_card(payload, BANNER, render_clock()))
+    label = aria_label_of(row)
+    assert ui_screens.ARIA_NULL in label and "bukan nol" in label
+    assert ui_screens.ARIA_NO_SOURCE in label  # tool/field memang tidak ada di baris ini
+
+
+def test_every_watchlist_row_is_announced_with_its_blocker_and_where_it_came_from(
+    client: TestClient,
+) -> None:
+    payload = client.get("/api/watchlist").json()
+    rows = aria_rows(render_watchlist(payload, BANNER, render_clock()))
+    assert len(rows) == len(payload["symbols"]) >= 1
+    for entry, row in zip(payload["symbols"], rows, strict=True):
+        label = aria_label_of(row)
+        assert label.startswith(f"simbol {entry['symbol']}; keputusan {entry['decision']}; ")
+        assert f"ditahan {entry['n_blocking']} dari {entry['n_items']} baris panggilan" in label
+        assert f"{entry['n_unspoken']} baris tidak disebut" in label
+        assert f"as_of bundle {entry['as_of_jst']}" in label
+        blocker = entry["top_blocker"]
+        if blocker:
+            assert f"penahan terberat {blocker['item_id']}" in label
+            assert f"sumber {blocker['tool']}.{blocker['field']}, as_of {blocker['as_of_jst']}" in label
+            # `top_blocker` tidak membawa `snapshot_id`; layar TIDAK boleh mengaku bukti itu
+            # tak bernomor hanya karena ringkasan barisnya tidak memuat nomornya.
+            assert "snapshot tidak disebut" not in label
+        else:
+            assert "nol baris menahan keputusan ini" in label
+
+
+def test_the_symbol_link_says_what_enter_will_open(client: TestClient) -> None:
+    payload = client.get("/api/watchlist").json()
+    html = render_watchlist(payload, BANNER, render_clock())
+    entry = payload["symbols"][0]
+    assert (
+        f'aria-label="buka kartu panggilan {entry["symbol"]}; keputusan {entry["decision"]}; '
+        f'kartu nomor {entry["decision_id"]}"' in html
+    )
+
+
+def test_the_replay_link_says_what_it_replays_not_just_an_arrow(client: TestClient) -> None:
+    """Tautannya berisi `&#8635;`; tanpa nama, pembaca layar hanya mengumumkan panah itu."""
+    payload = card_payload(client)
+    html = render_card(payload, BANNER, render_clock())
+    assert (
+        f'aria-label="putar ulang keputusan nomor {payload["decision_id"]}; '
+        "memuat ulang kartu ini dan menghitung ulang vonis dari snapshot beku yang sama"
+        '">putar ulang sekarang' in html
+    )
+
+
+def test_escape_has_nothing_to_close_because_no_screen_traps_focus(client: TestClient) -> None:
+    """Esc dijawab dengan MENGHAPUS yang harus ditutup, bukan dengan JS (yang dilarang CSP).
+
+    Tidak ada dialog, tidak ada blok yang harus dibuka, tidak ada `autofocus`, dan tidak ada
+    `tabindex` — jadi tidak ada keadaan yang hanya bisa dibatalkan, dan tidak ada perangkap
+    fokus. Klaim itu tercetak di kaki setiap layar, jadi ia bisa dibantah oleh pembaca.
+    """
+    for path in ("/ui", "/ui/decision/1", "/ui/decision/999999"):
+        text = client.get(path).text.lower()
+        for forbidden in ("<dialog", "<details", "<summary", 'role="dialog"', "autofocus", "tabindex"):
+            assert forbidden not in text
+        assert ui_screens.KEYBOARD_NOTE in unescape(client.get(path).text)
+    css = client.get("/ui/tenko.css").text
+    assert "position: fixed" not in css and "position:fixed" not in css
+
+
+def test_every_skip_link_points_at_an_id_that_exists_on_the_page(client: TestClient) -> None:
+    """Tautan lompat yang menunjuk id yang tidak ada = tombol yang berbohong kepada keyboard."""
+    for path in ("/ui", "/ui/decision/1"):
+        text = client.get(path).text
+        targets = re.findall(r'href="#([\w-]+)"', text)
+        assert targets, f"{path} tidak menawarkan satu pun tautan lompat"
+        for target in targets:
+            assert f'id="{target}"' in text or f"id='{target}'" in text
+        assert 'id="isi"' in text  # landmark <main> yang sama di setiap layar
+    assert "#watchlist" in client.get("/ui").text
+    assert "#panggilan" in client.get("/ui/decision/1").text
+
+
+def contrast_ratio(front: str, back: str) -> float:
+    """Rasio kontras WCAG 2.1 dari dua warna sRGB `#rrggbb` — rumus, bukan taksiran.
+
+    Dihitung di sini karena ADR-001 melarang toolchain npm: alat audit a11y arus utama semuanya
+    Node. Rumusnya standar (WCAG 2.1 SC 1.4.3), dan yang dijaga tes ini adalah ANGKAnya.
+    """
+
+    def channel(value: int) -> float:
+        ratio = value / 255
+        return ratio / 12.92 if ratio <= 0.04045 else ((ratio + 0.055) / 1.055) ** 2.4
+
+    def luminance(colour: str) -> float:
+        red, green, blue = (int(colour[index : index + 2], 16) for index in (1, 3, 5))
+        return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
+
+    high, low = sorted((luminance(front), luminance(back)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+def test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed(client: TestClient) -> None:
+    """Kontras ≥4.5:1 (teks) dan ≥3:1 (garis/cincin fokus), dari CSS yang BENAR-BENAR dilayani.
+
+    Dua hal dijaga sekaligus: (1) tiap pasangan yang dipakai memenuhi batasnya, dan (2) tidak
+    ada warna baru yang bisa masuk `:root` tanpa ikut diukur — daftar `hex` di CSS harus habis
+    oleh pasangan di bawah. Tanpa (2), warna kelima belas akan lolos diam-diam.
+    """
+    css = client.get("/ui/tenko.css").text
+    palette = dict(re.findall(r"--([a-z]+): (#[0-9a-f]{6})", css))
+    assert palette.keys() >= {"bg", "panel", "line", "ink", "dim", "go", "nogo", "warn", "link"}
+    even, banner_bg, banner_ink = "#11151d", "#3a1d1d", "#ffe8e5"
+    backgrounds = (palette["bg"], palette["panel"], even)
+    text_pairs = [
+        (palette[name], background)
+        for name in ("ink", "dim", "go", "nogo", "warn", "link")
+        for background in backgrounds
+    ] + [(banner_ink, banner_bg), (palette["ink"], banner_bg)]
+    non_text_pairs = [(palette["line"], background) for background in backgrounds] + [
+        (palette["nogo"], banner_bg)  # garis banner
+    ]
+    for front, back in text_pairs:
+        assert contrast_ratio(front, back) >= 4.5, f"teks {front} di atas {back}"
+    for front, back in non_text_pairs:
+        assert contrast_ratio(front, back) >= 3.0, f"non-teks {front} di atas {back}"
+    # Angka yang ditulis `ui/README.md` adalah angka yang sama, bukan angka lama:
+    assert round(contrast_ratio(palette["nogo"], palette["panel"]), 2) == 8.45  # teks paling ketat
+    assert round(contrast_ratio(palette["line"], palette["panel"]), 2) == 3.38  # garis paling ketat
+    assert round(contrast_ratio(palette["warn"], palette["bg"]), 2) == 13.55  # cincin fokus
+    measured = {colour for pair in text_pairs + non_text_pairs for colour in pair}
+    assert set(re.findall(r"#[0-9a-f]{6}", css)) == measured
+
+
+def test_the_ui_readme_carries_the_a11y_checklist_and_admits_the_missing_recording() -> None:
+    """AC 4.6: checklist ada, dan rekamannya TIDAK diklaim ada selama berkasnya tidak ada."""
+    readme = (ROOT / "ui" / "README.md").read_text(encoding="utf-8")
+    assert BANNER in readme
+    for claim in (
+        "Tab / Shift+Tab",
+        "Esc tidak punya apa pun untuk ditutup",
+        "Fokus terlihat",
+        "`aria-label` memuat nilai + sumber",
+        "Tanpa hover-only",
+        "8.45:1",
+        "3.38:1",
+    ):
+        assert claim in readme, claim
+    assert "- [ ] **Rekaman 30 detik**" in readme  # belum dicentang, dan itu memang jujur
+    assert "Rekaman 30 detik BELUM DIBUAT" in readme
+    assert "Skrip rekaman 30 detik" in readme
+    for key in ("`Tab` ×2", "`Enter`", "`Esc`", "`Shift+Tab` lalu `Tab`"):
+        assert key in readme, key

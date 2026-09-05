@@ -147,6 +147,27 @@ FOREIGN_MARK_NOTE = (
 NEUTRAL_MARK = "netral — tidak menentang, bukan konfirmasi"
 UNSPOKEN_MARK = "tidak disebut — bukti tidak cukup, dan itu bukan nol"
 
+#: Batas panjang SATU `aria-label`. Ia bukan batas kejujuran melainkan batas kesabaran: pembaca
+#: layar membacakan atribut ini utuh dan tanpa jeda, jadi kalimat 1500 aksara mengubur nilai yang
+#: harus terdengar. Bila ia menggigit, `clean_text` menempelkan penandanya sehingga PENDENGAR
+#: tahu ada yang dipotong — dan sel di sebelahnya tetap memuat bentuk penuhnya.
+ARIA_LABEL_LIMIT = 600
+#: Batas nilai DI DALAM `aria-label`; `value` item bisa ratusan aksara `k=v`.
+ARIA_VALUE_LIMIT = 200
+#: Nilai yang tidak ada di bukti, dibacakan sebagai "tidak disebut" — TIDAK PERNAH sebagai 0 dan
+#: tidak pernah sebagai kesunyian (ADR-013). Sel kosong yang terdengar seperti nol adalah
+#: kebohongan yang paling murah dilakukan pembaca layar, dan produk ini persis menjual lawannya.
+ARIA_NULL = "nilai tidak ada di bukti — tidak disebut, dan itu bukan nol"
+ARIA_NO_SOURCE = "sumber tidak disebut"
+#: Kalimat keyboard yang tercetak di kaki SETIAP layar (TASKS 4.6). Ia bukan hiasan: "Esc tidak
+#: punya yang harus ditutup" adalah klaim yang dipatok tes (nol dialog, nol details, nol tabindex).
+KEYBOARD_NOTE = (
+    "Keyboard: Tab / Shift+Tab menelusuri seluruh layar dalam urutan dokumen, Enter membuka "
+    "tautan yang sedang berfokus, dan fokus itu selalu bergaris kuning tebal. Tidak ada modal, "
+    "overlay, menu, maupun blok yang harus dibuka — jadi Esc tidak punya apa pun untuk ditutup "
+    "dan tidak ada perangkap fokus. Tidak ada isi yang muncul hanya saat kursor melayang."
+)
+
 #: Kalimat umur bundle. `as_of` dijaga `payload_hash`; `ts_utc` tidak dijaga apa pun.
 AGE_NOTE = (
     "Umur ini TAMPILAN: dihitung dari `as_of` bundle (dijaga `payload_hash`), bukan dari "
@@ -165,9 +186,13 @@ CARD_COLUMNS = (
     NARRATION_LABEL,
 )
 
-STYLESHEET = """/* Tenko — Layar A & B. Tanpa library, tanpa CDN, tanpa animasi (ADR-001). */
+STYLESHEET = """/* Tenko — Layar A & B. Tanpa library, tanpa CDN, tanpa animasi (ADR-001).
+   Kontras (WCAG 2.1, dihitung `tests/test_ui.py::test_every_colour_pair_...`, bukan ditaksir):
+   teks terendah nogo #ff9a90 di atas panel #161b24 = 8.45:1 (batas 4.5:1); garis #646e84
+   di atas panel = 3.38:1 (batas non-teks 3:1). Warna tidak pernah membawa informasi sendirian:
+   tiap lencana membawa teksnya. */
 :root {
-  --bg: #0d1016; --panel: #161b24; --line: #2c3442; --ink: #f3f5f9; --dim: #c3cad6;
+  --bg: #0d1016; --panel: #161b24; --line: #646e84; --ink: #f3f5f9; --dim: #c3cad6;
   --go: #7ff0a0; --nogo: #ff9a90; --warn: #ffd479; --link: #9fd0ff;
 }
 * { box-sizing: border-box; }
@@ -177,7 +202,13 @@ body {
   font: 15px/1.45 ui-monospace, "DejaVu Sans Mono", "Courier New", monospace;
 }
 a { color: var(--link); }
-a:focus-visible, summary:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
+/* Fokus keyboard: `:focus` ikut disebut supaya cincin ini tidak bergantung pada dukungan
+   `:focus-visible`; 3px kuning di atas latar segelap ini = 13.55:1, jauh di atas 3:1 yang
+   diminta 1.4.11 dan terlihat pada video 1280x720. */
+a:focus, a:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
+/* Tautan lompat memindahkan fokus ke tabel; `:target` menandai TEMPAT MENDARATNYA supaya
+   pemakai keyboard tidak kehilangan jejak. Tanpa JS, tanpa animasi. */
+:target { outline: 3px solid var(--warn); outline-offset: 3px; }
 .banner {
   background: #3a1d1d; border: 2px solid var(--nogo); color: #ffe8e5;
   padding: 8px 12px; margin: 0 -16px 12px; font-weight: 700; letter-spacing: .01em;
@@ -271,6 +302,33 @@ def _key(pair: tuple[Any, Any]) -> str:
     return str(pair[0])
 
 
+# --- aria-label ---------------------------------------------------------------------------
+def _aria(*parts: Any) -> str:
+    """Satu-satunya pintu `aria-label`: gabung → :func:`core.skill.clean_text` → escape kutip.
+
+    `aria-label` adalah TEKS di dalam atribut, bukan HTML. Ia karena itu tidak boleh lewat
+    :func:`_bdi` (tag `<bdi>` akan ikut terbaca sebagai nama) dan tidak boleh lewat `escape`
+    saja: U+202E, NUL, dan ESC lolos dari `escape` — dan justru atribut inilah yang dibacakan
+    pembaca layar (security review 3.2, SEDANG). Bagian yang kosong DIBUANG, bukan diisi
+    "null": nama yang berbunyi "null" sama menyesatkannya dengan nama yang berbunyi "0".
+    """
+    words = [str(part).strip() for part in parts if part is not None and str(part).strip()]
+    return escape(clean_text("; ".join(words), ARIA_LABEL_LIMIT), quote=True)
+
+
+def _said(value: Any, limit: int = KEY_LIMIT) -> str | None:
+    """Teks untuk `aria-label`, atau None bila memang tidak ada — tidak pernah `0`/`null`."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return _plain(value, limit)
+
+
+def _phrase(label: str, value: Any, absent: str, limit: int = KEY_LIMIT) -> str:
+    """`label nilai`, atau kalimat `absent` bila nilainya memang tidak ada."""
+    said = _said(value, limit)
+    return f"{label} {said}" if said is not None else absent
+
+
 def _text(value: Any, limit: int = WARNING_LIMIT) -> str:
     """Teks panjang (reason, detail, notes) — escape + isolasi arah, tanpa pemotongan sendiri.
 
@@ -327,10 +385,11 @@ def _shell(title: str, banner: str, body: str, now: datetime) -> str:
         '<link rel="stylesheet" href="/ui/tenko.css">'
         "</head><body>"
         f'<p class="banner" role="note">{escape(banner, quote=True)}</p>'
-        f"<main>{body}</main>"
+        f'<main id="isi">{body}</main>'
         "<footer><p>Semua jam JST. Halaman ini dirender di server, tanpa satu pun skrip: "
         f"dirender {escape(_now_jst(now), quote=True)}. Tenko membaca store BACA-SAJA; "
         "tidak ada tool RYO dan tidak ada LLM yang dipanggil untuk menampilkan layar ini.</p>"
+        f'<p class="sub">{escape(KEYBOARD_NOTE, quote=True)}</p>'
         "</footer></body></html>"
     )
 
@@ -434,8 +493,13 @@ def _watchlist_row(entry: dict[str, Any], now: datetime) -> str:
     decision_id = entry.get("decision_id")
     href = f"/ui/decision/{int(decision_id)}" if isinstance(decision_id, int) else None
     symbol = _bdi(entry.get("symbol"), KEY_LIMIT)
+    open_label = _aria(
+        _phrase("buka kartu panggilan", entry.get("symbol"), "buka kartu panggilan simbol ini"),
+        _phrase("keputusan", entry.get("decision"), "keputusan tidak disebut"),
+        _phrase("kartu nomor", decision_id, "tanpa nomor kartu"),
+    )
     link = (
-        f'<a href="{escape(href, quote=True)}">{symbol}</a>'
+        f'<a href="{escape(href, quote=True)}" aria-label="{open_label}">{symbol}</a>'
         if href
         else f'{symbol} <span class="mark">baris ini tidak punya id yang bisa dibuka</span>'
     )
@@ -452,8 +516,39 @@ def _watchlist_row(entry: dict[str, Any], now: datetime) -> str:
         )
     else:
         held = '<span class="mark">nol baris menahan keputusan ini</span>'
+    # Nama baris Layar A menjawab pertanyaan juri untuk SATU simbol tanpa membaca sembilan sel:
+    # keputusannya, berapa yang menahan, penahan terberatnya, dan dari mana penahan itu dibaca.
+    n_unspoken = _said(entry.get("n_unspoken"))
+    unspoken_phrase = (
+        f"{n_unspoken} baris tidak disebut"
+        if n_unspoken is not None
+        else "cacah baris tidak-disebut tidak ada"
+    )
+    label = _aria(
+        _phrase("simbol", entry.get("symbol"), "simbol tidak disebut"),
+        _phrase("keputusan", entry.get("decision"), "keputusan tidak disebut"),
+        (
+            _phrase("ditahan", entry.get("n_blocking"), "cacah penahan tidak disebut")
+            + _phrase(" dari", entry.get("n_items"), " dari cacah baris yang tidak disebut")
+            + " baris panggilan"
+        ),
+        (
+            "; ".join(
+                (
+                    _phrase("penahan terberat", blocker.get("item_id"), "penahan terberat tanpa id"),
+                    _phrase("daya veto", blocker.get("veto_rank"), "daya veto tidak disebut"),
+                    _aria_status(blocker),
+                    _aria_source(blocker),
+                )
+            )
+            if blocker
+            else "nol baris menahan keputusan ini"
+        ),
+        unspoken_phrase,
+        _phrase("as_of bundle", entry.get("as_of_jst"), "as_of bundle tidak terbaca"),
+    )
     return (
-        "<tr>"
+        f'<tr aria-label="{label}">'
         f'<th scope="row">{link}</th>'
         f"<td>{_decision_badge(entry.get('decision'))}</td>"
         f'<td class="num">{_bdi(entry.get("veto_rank"))}</td>'
@@ -489,7 +584,7 @@ def render_watchlist(payload: dict[str, Any], banner: str, now: datetime) -> str
     )
     rows = "".join(_watchlist_row(entry, now) for entry in entries)
     table = (
-        f"<table><caption class='sub'>n={len(entries)} simbol; dibaca dari "
+        f"<table id='watchlist'><caption class='sub'>n={len(entries)} simbol; dibaca dari "
         f"{_bdi(payload.get('scan_limit'))} baris keputusan TERBARU, bukan seluruh tabel. "
         f"{_bdi(payload.get('n_legacy_hidden'))} baris generasi lama tidak ditampilkan di sini."
         f"</caption><thead><tr>{header}</tr></thead><tbody>{rows}</tbody></table>"
@@ -498,7 +593,9 @@ def render_watchlist(payload: dict[str, Any], banner: str, now: datetime) -> str
     )
     body = (
         "<h1>Tenko 点呼 — panggilan pra-berangkat (simulasi)</h1>"
-        '<p class="sub"><a href="/api/watchlist">JSON layar ini, apa adanya</a></p>'
+        '<p class="sub"><a href="/api/watchlist">JSON layar ini, apa adanya</a>'
+        + (' · <a href="#watchlist">lompat ke tabel watchlist</a>' if entries else "")
+        + "</p>"
         f"{_watchlist_lede(entries)}"
         f"{table}"
         f"{_notes_list(payload.get('notes'))}"
@@ -513,6 +610,77 @@ def _stance_of(value: Any) -> str | None:
     return None
 
 
+def _status_words(item: dict[str, Any]) -> tuple[str, str, str]:
+    """`(status, kelas CSS, penanda tekstual)` — SATU turunan untuk sel DAN untuk `aria-label`.
+
+    Dipisah dari :func:`_status_cell` supaya baris kartu dan namanya di pembaca layar tidak bisa
+    berselisih: kalau penanda hijau-netral dihitung dua kali, salah satunya akan tertinggal saat
+    ADR-017 diamandemen lagi, dan yang tertinggal hampir pasti yang tidak terlihat di layar.
+
+    `status` dibersihkan :func:`core.skill.clean_text` DULU (lewat :func:`_plain`), bukan dipakai
+    mentah: `escape(quote=True)` mengurus kutip tetapi tidak menyentuh U+202E/NUL/ESC, dan
+    atribut inilah yang dibacakan pembaca layar (security review 3.2, SEDANG).
+    """
+    status = item.get("status")
+    text = _plain(status, KEY_LIMIT) if isinstance(status, str) else "?"
+    stance = _stance_of(item.get("value"))
+    css = f"s-{text}" if text.isidentifier() else "s-unknown"
+    mark = ""
+    if stance == "neutral":
+        mark = NEUTRAL_MARK
+        if text == "green":
+            css = "s-green-neutral"
+    elif text == "unspoken":
+        mark = UNSPOKEN_MARK
+    return text, css, mark
+
+
+def _aria_status(item: dict[str, Any]) -> str:
+    text, _, mark = _status_words(item)
+    return f"status {text}, {mark}" if mark else f"status {text}"
+
+
+def _aria_value(item: dict[str, Any]) -> str:
+    """Klausa NILAI untuk `aria-label` — bagian "sebut" dari tunjuk→sebut.
+
+    Yang tidak ada di bukti dibacakan sebagai kalimatnya sendiri, bukan sebagai sel kosong dan
+    bukan sebagai 0. Baris `unspoken` yang kebetulan MASIH membawa `value` (mis. `stance` saja)
+    tetap dibacakan "tidak disebut" lebih dulu, lalu apa yang memang terbaca di bukti — urutan
+    itu yang menjaga vonisnya tidak tertukar dengan angkanya.
+    """
+    value = item.get("value")
+    _, _, mark = _status_words(item)
+    if mark == UNSPOKEN_MARK:
+        head = f"nilai: {UNSPOKEN_MARK}"
+        if value is None:
+            return head
+        return f"{head}; yang terbaca di bukti: {clean_text(_scalar(value), ARIA_VALUE_LIMIT)}"
+    if value is None:
+        return f"nilai: {ARIA_NULL}"
+    return f"nilai yang disebut: {clean_text(_scalar(value), ARIA_VALUE_LIMIT)}"
+
+
+def _aria_source(item: dict[str, Any]) -> str:
+    """Klausa SUMBER untuk `aria-label` — bagian "tunjuk": tool.field, snapshot, as_of.
+
+    Kartu ini menjual "nilai ini datang dari SINI, pada JAM INI". Nama baris yang hanya berbunyi
+    "liquidity_floor, red" menghapus separuh produk untuk pemakai pembaca layar, jadi tiap baris
+    membawa asalnya di namanya sendiri.
+    """
+    tool, field = _said(item.get("tool"), KEY_LIMIT), _said(item.get("field"), TEXT_LIMIT)
+    if tool is None and field is None:
+        return ARIA_NO_SOURCE
+    where = f"{tool or 'tool tidak disebut'}.{field or 'field tidak disebut'}"
+    parts = [f"sumber {where}"]
+    # Klausa snapshot hanya bila field-nya MEMANG bagian kontrak baris ini: `top_blocker`
+    # Layar A tidak membawa `snapshot_id` sama sekali, dan "snapshot tidak disebut" di sana akan
+    # menuduh buktinya tak bernomor padahal yang tidak lengkap adalah ringkasan barisnya.
+    if "snapshot_id" in item:
+        parts.append(_phrase("snapshot", item.get("snapshot_id"), "snapshot tidak disebut"))
+    parts.append(_phrase("as_of", item.get("as_of_jst"), "as_of tidak disebut"))
+    return ", ".join(parts)
+
+
 def _status_cell(item: dict[str, Any]) -> str:
     """Status baris + penanda TEKSTUAL-nya (amandemen ADR-017, dan `unspoken` yang bukan nol).
 
@@ -520,26 +688,10 @@ def _status_cell(item: dict[str, Any]) -> str:
     `ItemStatus`: yang berbeda adalah kelas CSS **dan** kalimatnya, dan kalimat itu ikut ke
     `aria-label` supaya pembaca layar mendapat perbedaan yang sama, bukan hanya warna.
     """
-    status = item.get("status")
-    # `aria-label` adalah TEKS, bukan HTML: `escape(quote=True)` mengurus kutipnya tetapi tidak
-    # menyentuh U+202E, NUL, atau ESC — dan atribut inilah yang dibacakan pembaca layar. Karena
-    # itu statusnya dibersihkan `clean_text` DULU (lewat `_plain`), bukan dipakai mentah: pintu
-    # kedua yang melewati sanitizer adalah pintu yang tidak dijaga (security review 3.2, SEDANG).
-    text = _plain(status, KEY_LIMIT) if isinstance(status, str) else "?"
-    stance = _stance_of(item.get("value"))
-    mark = ""
-    css = f"s-{text}" if text.isidentifier() else "s-unknown"
-    aria = f"status {text}"
-    if stance == "neutral":
-        mark = NEUTRAL_MARK
-        aria = f"status {text}, {NEUTRAL_MARK}"
-        if text == "green":
-            css = "s-green-neutral"
-    elif text == "unspoken":
-        mark = UNSPOKEN_MARK
-        aria = f"status unspoken, {UNSPOKEN_MARK}"
+    text, css, mark = _status_words(item)
+    aria = _aria_status(item)
     badge = (
-        f'<span class="badge {escape(css, quote=True)}" aria-label="{escape(aria, quote=True)}">'
+        f'<span class="badge {escape(css, quote=True)}" aria-label="{_aria(aria)}">'
         f"{_bdi(text, KEY_LIMIT)}</span>"
     )
     return badge + (f'<span class="mark">{escape(mark, quote=True)}</span>' if mark else "")
@@ -607,14 +759,27 @@ def _item_row(item: dict[str, Any]) -> str:
     )
     reason = _reason_cell(item.get("reason"))
     value = _bdi(item.get("value"), VALUE_LIMIT) + _cut_marks(item.get("value"), VALUE_LIMIT)
+    source = _aria_source(item)
+    # Nama BARIS, bukan nama sel: pembaca layar mengumumkannya sekali saat pindah baris, dan
+    # kalimat itulah seluruh janji produk untuk baris ini — status, nilai yang disebut, dan dari
+    # tool/snapshot/jam mana ia datang. Isi selnya tidak diubah sedikit pun; yang ditambah hanya
+    # namanya, sehingga layar tetap terbaca sama oleh mata dan oleh telinga.
+    label = _aria(
+        _phrase("baris", item.get("item_id"), "baris tanpa item_id"),
+        _phrase("daya veto", item.get("veto_rank"), "daya veto tidak disebut"),
+        _aria_status(item),
+        _aria_value(item),
+        source,
+    )
     return (
-        "<tr>"
+        f'<tr aria-label="{label}">'
         f'<td class="num">{_bdi(item.get("veto_rank"))}</td>'
         f'<th scope="row">{_bdi(item.get("item_id"), KEY_LIMIT)}</th>'
         f"<td>{_status_cell(item)}</td>"
         f"<td>{reason}</td>"
         f'<td class="mono">{value}</td>'
-        f'<td class="mono">{_bdi(item.get("tool"), KEY_LIMIT)}.{_bdi(item.get("field"), TEXT_LIMIT)}</td>'
+        f'<td class="mono" aria-label="{_aria(source)}">'
+        f"{_bdi(item.get('tool'), KEY_LIMIT)}.{_bdi(item.get('field'), TEXT_LIMIT)}</td>"
         f'<td class="num">{_bdi(item.get("snapshot_id"))}</td>'
         f"<td>{_bdi(item.get('as_of_jst'), KEY_LIMIT)}"
         f'<span class="mark">{_bdi(item.get("as_of"), KEY_LIMIT)}</span></td>'
@@ -679,7 +844,14 @@ def _replay_link(payload: dict[str, Any]) -> str:
     href = _self_href(payload, "/ui/decision/")
     if href is None:
         return '<span class="mark">baris ini tidak punya id yang bisa diputar ulang</span>'
-    return f'<a class="badge" href="{escape(href, quote=True)}">putar ulang sekarang &#8635;</a>'
+    label = _aria(
+        _phrase("putar ulang keputusan nomor", payload.get("decision_id"), "putar ulang kartu ini"),
+        "memuat ulang kartu ini dan menghitung ulang vonis dari snapshot beku yang sama",
+    )
+    return (
+        f'<a class="badge" href="{escape(href, quote=True)}" aria-label="{label}">'
+        "putar ulang sekarang &#8635;</a>"
+    )
 
 
 def _card_meta(payload: dict[str, Any], now: datetime) -> str:
@@ -806,14 +978,15 @@ def render_card(payload: dict[str, Any], banner: str, now: datetime) -> str:
         f"Peringatan envelope ({warnings_caption})", payload.get("warnings"), "nol peringatan (n=0)"
     )
     body = (
-        f'<p class="sub"><a href="/ui">← kembali ke watchlist</a>{json_link}</p>'
+        f'<p class="sub"><a href="/ui">← kembali ke watchlist</a>{json_link}'
+        ' · <a href="#panggilan">lompat ke sepuluh baris tunjuk→sebut</a></p>'
         f"<h1>{_bdi(payload.get('symbol'), KEY_LIMIT)} — {_decision_badge(payload.get('decision'))} "
         f"<span class='sub'>(keputusan #{_bdi(payload.get('decision_id'))}, "
         f"generasi {_bdi(payload.get('generation'), KEY_LIMIT)})</span></h1>"
         f"{_card_answer(payload, items)}"
         f'<p class="sub">{_text(payload.get("headline"))}</p>'
         f"{_card_meta(payload, now)}"
-        f"<h2>Sepuluh baris tunjuk→sebut</h2>{table}"
+        f'<h2 id="panggilan">Sepuluh baris tunjuk→sebut</h2>{table}'
         f"{_narration_block(payload)}"
         f"{warnings_block}"
         f"{_bundle_table(payload, now)}"
