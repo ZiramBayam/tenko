@@ -56,6 +56,7 @@ from preflight.skill import (
     preflight,
     tool_args,
 )
+from tests.helpers_agent import align_inner_clocks
 
 ROOT = Path(__file__).resolve().parent.parent
 SAMPLES = ROOT / "docs" / "samples"
@@ -112,9 +113,17 @@ def build_store(
     """
     store = Store(tmp_path / name)
     args = tool_args(symbol, intent, DEFAULT_PARAMS)
-    ts = (at - timedelta(minutes=age_min)).isoformat()
+    # Presisi detik — lihat alasan di `tests/helpers_agent.py::build_store`.
+    ts = (at - timedelta(minutes=age_min)).replace(microsecond=0).isoformat()
     for tool in tools:
         envelope = sample(tool)
+        # `as_of` MENGIKUTI `ts_utc` baris ini. Envelope sampel membawa `as_of` 1 Sep, jadi
+        # baris uji "berumur 2 menit" akan ber-skew berhari-hari — bentuk yang sejak TASKS 2.2b
+        # AC(7) ditolak `latest_fresh`, dan yang tidak pernah ada di produksi (sapuan 2537 baris
+        # nyata: maksimum 71 detik). Menyelaraskannya membuat baris uji realistis.
+        stamp = ts.replace("+00:00", "Z")
+        envelope["as_of"] = stamp
+        align_inner_clocks(envelope, stamp)
         if mutate is not None:
             mutate(tool, envelope)
         store.insert_snapshot(tool, args[tool], envelope, ts_utc=ts)
@@ -292,6 +301,63 @@ def test_decision_hash_can_be_recomputed_from_the_store(tmp_path: Path) -> None:
     assert result.data["params_hash"] == DEFAULT_PARAMS.params_hash()
 
 
+def test_shifting_ts_utc_alone_cannot_make_stale_evidence_look_fresh(tmp_path: Path) -> None:
+    """Regresi eksperimen-2 security-reviewer (TASKS 2.2b AC(7)), dari ujung ke ujung.
+
+    Serangannya: satu penulisan mentah ke kolom `ts_utc` atas bukti berumur 3 hari membuatnya
+    tampak berumur menit, dan `verify_bundle` LOLOS karena `payload_hash` tidak menyentuh kolom
+    itu. Hasilnya dulu `unavailable/NO_GO` berubah menjadi bukti yang dipakai.
+
+    Yang menutupnya bukan hash baru melainkan `as_of`: ia ADA di dalam `payload_json`, jadi
+    penyerang tidak bisa menggesernya tanpa menghitung ulang `payload_hash`.
+    """
+    stale = NOW - timedelta(days=3)
+    store = build_store(tmp_path, age_min=3 * 24 * 60)  # seluruh bukti berumur 3 hari
+    with store:
+        assert (
+            store.latest_fresh(
+                DEEP,
+                sha256_hex(tool_args("SOL", "swing", DEFAULT_PARAMS)[DEEP]),
+                DEFAULT_PARAMS.max_age_min,
+                now=NOW,
+            )
+            is None
+        )
+        path = store.path
+
+    # Penulisan MENTAH ke satu kolom, meniru penyerang — tidak lewat API Store.
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute("UPDATE snapshots SET ts_utc = ?", ((NOW - timedelta(minutes=2)).isoformat(),))
+        connection.commit()
+    finally:
+        connection.close()
+
+    with Store(path) as reopened:
+        skipped: list[str] = []
+        fresh = reopened.latest_fresh(
+            DEEP,
+            sha256_hex(tool_args("SOL", "swing", DEFAULT_PARAMS)[DEEP]),
+            DEFAULT_PARAMS.max_age_min,
+            now=NOW,
+            skipped=skipped,
+        )
+        assert fresh is None, "bukti tua yang di-`ts_utc`-geser tidak boleh lolos sebagai segar"
+        assert skipped and "ts_utc and as_of disagree" in skipped[0]
+
+        result = preflight("SOL", "swing", store=reopened, now=NOW)
+
+    # Seluruh bukti ditolak, jadi envelope-nya `unavailable` dengan `data=None` — BUKAN NO_GO
+    # yang dikarang di atas nol bukti. Itu yang benar: "tidak ada yang bisa dinilai" berbeda
+    # dari "dinilai dan ditolak", dan kartu tidak boleh menyamakan keduanya.
+    assert result.status == "unavailable"
+    assert result.data is None
+    assert (result.data or {}).get("decision") != "GO"
+    # Barisnya DISEBUT di envelope, bukan hilang diam-diam.
+    assert any("disagree" in str(w) for w in result.warnings)
+    assert stale < NOW  # jangkar niat: yang diserang memang bukti 3 hari
+
+
 def test_plan_is_a_passthrough_of_item_nine(tmp_path: Path) -> None:
     """`plan` = `value` item 9 apa adanya + sumbernya. Tanpa aritmetika (itu TASKS 2.4)."""
     result = run(build_store(tmp_path))
@@ -303,7 +369,13 @@ def test_plan_is_a_passthrough_of_item_nine(tmp_path: Path) -> None:
     assert plan["value"] == item.value
     assert plan["source"]["tool"] == DEEP
     assert plan["source"]["field"] == "data.trade_plan"
-    assert plan["source"]["as_of"] == sample(DEEP)["as_of"]
+    # Dipatok ke jangkar LUAR, bukan keluaran-vs-keluaran: `as_of` baris uji diketahui sejak
+    # disemai (`NOW - 2 mnt`, presisi detik), jadi bandingkan dengan nilai itu. Versi antara
+    # membandingkan `plan["source"]` dengan `store_reads` — keduanya keluaran fungsi yang sama,
+    # jadi ia akan tetap hijau kalau keduanya salah bersama (temuan RENDAH security-reviewer).
+    expected_as_of = (NOW - timedelta(minutes=2)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    assert plan["source"]["as_of"] == expected_as_of
+    assert result.data["store_reads"]["tools"][DEEP]["as_of"] == expected_as_of
     assert set(plan) == {"item_id", "item_status", "source", "value"}
 
 

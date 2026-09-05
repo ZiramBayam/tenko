@@ -76,7 +76,11 @@ def build_store(
     `mutate(tool, symbol, envelope)` dipanggil sebelum baris ditulis — dipakai membuat satu
     simbol NO_GO tanpa menyentuh simbol lain (mis. `confluence.state = "MIXED"`).
     """
-    moment = at if at is not None else datetime.now(UTC)
+    # Presisi DETIK, bukan mikrodetik: envelope RYO berpresisi detik (ADR-015 poin 5, 476/476
+    # baris), dan pemancar kami memotong ke detik. `as_of` bermikrodetik membuat
+    # `agent.anchor.recompute` membandingkan nilai terpotong dengan nilai beku mentah, lalu
+    # menolak SETIAP baris — 48 tes merah, ditemukan frontend-engineer 5 Sep 2026.
+    moment = (at if at is not None else datetime.now(UTC)).replace(microsecond=0)
     ts = (moment - timedelta(minutes=age_min)).isoformat()
     store = Store(tmp_path / name)
     written: set[tuple[str, str]] = set()
@@ -90,6 +94,10 @@ def build_store(
                 continue
             written.add(key)
             envelope = envelope_for(tool, symbol)
+            # `as_of` mengikuti `ts_utc` — lihat alasan lengkapnya di `tests/test_preflight_skill.py`.
+            stamp = ts.replace("+00:00", "Z")
+            envelope["as_of"] = stamp
+            align_inner_clocks(envelope, stamp)
             if mutate is not None:
                 mutate(tool, symbol, envelope)
             store.insert_snapshot(tool, args[tool], envelope, ts_utc=ts)
@@ -129,6 +137,30 @@ def price_snapshot(
     """
     envelope = envelope_for(ANALYZE, symbol)
     envelope["data"]["market"]["price_usd"] = price
-    moment = at if at is not None else datetime.now(UTC)
+    moment = (at if at is not None else datetime.now(UTC)).replace(microsecond=0)
     ts = (moment - timedelta(minutes=age_min)).isoformat()
+    # `as_of` mengikuti `ts_utc` — tanpa ini baris harga ber-skew berhari-hari dan sejak
+    # TASKS 2.2b AC(7) ia dibuang, sehingga posisi tidak pernah menemukan harga keluar.
+    stamp = ts.replace("+00:00", "Z")
+    envelope["as_of"] = stamp
+    align_inner_clocks(envelope, stamp)
     return store.insert_snapshot(ANALYZE, {"symbol": symbol}, envelope, ts_utc=ts)
+
+
+def align_inner_clocks(envelope: dict[str, Any], stamp: str) -> None:
+    """Selaraskan cap waktu DI DALAM `data` dengan `as_of` envelope.
+
+    Di sampel nyata ketiganya identik (`as_of`, `data.observation_as_of`,
+    `data.source.timestamp` = `2026-09-01T03:48:32Z`). Begitu baris uji memindahkan `as_of` ke
+    "sekarang" tanpa memindahkan dua yang di dalam, item 1 mengambil yang TERTUA dan membaca
+    bukti berumur berhari-hari — sehingga `01_freshness` menahan SETIAP simbol dan yang diuji
+    berubah diam-diam (ditemukan frontend-engineer, 5 Sep 2026).
+    """
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        return
+    if "observation_as_of" in data:
+        data["observation_as_of"] = stamp
+    source = data.get("source")
+    if isinstance(source, dict) and "timestamp" in source:
+        source["timestamp"] = stamp

@@ -190,6 +190,48 @@ FUTURE_SKEW_TOLERANCE_S = 120
 #: siklus 5 menit dengan 25 simbol (26 x 12 x 25 = 7800) tanpa memuat seluruh tabel.
 RECENT_ARGS_LIMIT = 8192
 
+#: Toleransi selisih (detik) antara `ts_utc` (kolom, TIDAK dijaga hash apa pun) dan `as_of`
+#: **yang dibaca dari dalam `payload_json`** — jadi DIJAGA `payload_hash`. Dibaca dari KOLOM
+#: `as_of`, penjaga ini tidak berguna: kolom itu sama-sama tidak terjaga, dan penyerang yang
+#: menggeser `ts_utc` tinggal menggesernya juga.
+#:
+#: **Apa yang ini lakukan, dan apa yang TIDAK** (TASKS 2.2b AC(7)). Ia **menaikkan biaya**
+#: serangan; ia tidak menutupnya. Jangan menulis "menutup" di sini lagi — security-reviewer
+#: membuktikan (5 Sep 2026) bahwa penulis mentah yang mengubah `payload_json` SELURUHNYA secara
+#: konsisten (`as_of` + `data.observation_as_of` + `data.source.timestamp`) lalu menghitung ulang
+#: `payload_hash` tetap mengubah `unavailable` menjadi `partial/GO` tanpa satu peringatan pun,
+#: dan `verify_bundle` LOLOS. Batas itu sudah diakui `core/replay.py` dan berlaku di sini juga.
+#: Yang berubah adalah harganya: dari satu penulisan mentah satu kolom menjadi penulisan ulang
+#: payload yang konsisten per baris, berikut hash-nya.
+#:
+#: **Sisi lain ambang ini, yang harus dieja dan bukan disembunyikan:** 300 detik adalah anggaran
+#: geser GRATIS. Bukti berumur sampai `max_age_min + 300` dtk bisa dicuci menjadi "segar" tanpa
+#: peringatan (terukur: 124 mnt → GO). Angka itu dipilih dari sisi false-positive (0 dari 2537
+#: baris nyata ditolak); menurunkannya mempersempit anggaran tetapi mulai membuang baris sah.
+#:
+#: **Yang lubangnya memang ditutup** dibanding `FUTURE_SKEW_TOLERANCE_S`:
+#: `latest_fresh` memilih dengan `ORDER BY ts_utc DESC` atas kolom yang tidak terjaga, jadi
+#: penulis mentah yang menggeser SATU kolom `ts_utc` mundur membuat bukti tua tampak baru —
+#: security-reviewer membuktikannya: satu penulisan mentah ke kolom itu atas bukti berumur 3
+#: hari mengubah `unavailable/NO_GO` menjadi `partial/GO` sementara `verify_bundle` tetap LOLOS. `as_of` tidak
+#: bisa ikut digeser tanpa menghitung ulang `payload_hash`, jadi pertengkaran keduanya adalah
+#: tanda tangan serangan itu.
+#:
+#: **Simetri `abs()` adalah permukaan, bukan pertahanan** (security-reviewer 2.2b): tanda tangan
+#: pemalsuan yang dinamai di atas selalu skew POSITIF (`ts_utc` digeser maju). Sisi negatif hanya
+#: lahir dari jam RYO yang memang di depan (≤2,33 dtk terukur). Ia dipertahankan karena gratis
+#: hari ini (0 dari 2537) dan karena `as_of` yang melompat maju tetap tanda sesuatu yang salah.
+#:
+#: Angka 300 dtk dari sapuan 5 Sep 2026 (`mode=ro`, 47 baris fixture dikecualikan): n=2537,
+#: median +0,47 dtk, min −2,33 dtk, maks **+71,04 dtk** — jadi ambang ini ~4,2x maksimum yang
+#: pernah teramati dan menolak **0 dari 2537** baris hari ini. Ia simetris (`abs`) karena 26-29 %
+#: baris ber-`as_of` MENDAHULUI `ts_utc` (jam server RYO di depan jam kami).
+#:
+#: Sengaja BUKAN field `Params`: seperti :data:`FUTURE_SKEW_TOLERANCE_S`, ia properti jam mesin
+#: dan bukan tombol kebijakan — menjadikannya params akan menggeser `params_hash` dan membuat
+#: seluruh buku besar `decisions` `STALE_PARAMS` tanpa imbalan.
+EVIDENCE_SKEW_TOLERANCE_S = 300
+
 _INT64_MAX = 2**63 - 1  # batas bind integer SQLite; di atas ini sqlite3 melempar OverflowError
 
 # Skema PERSIS seperti data/ryo.db yang hidup (`.schema`, 1 Sep 2026). Dijalankan HANYA oleh
@@ -824,6 +866,7 @@ class Store:
         max_age_min: float,
         *,
         now: datetime | None = None,
+        skipped: list[str] | None = None,
     ) -> Snapshot | None:
         """Snapshot terbaru untuk (tool, args_hash) yang umurnya di dalam
         `[-FUTURE_SKEW_TOLERANCE_S detik, max_age_min menit]`.
@@ -831,6 +874,11 @@ class Store:
         Tidak ada yang cukup segar → None. Pemanggil (preflight, spec §5 "store dulu") yang
         memutuskan memanggil live; store tidak pernah mengembalikan baris basi seolah baru.
         Baris dengan `ts_utc` yang tidak terbaca dilewati (dan dicatat), bukan dianggap segar.
+
+        Baris yang `ts_utc`-nya bertengkar dengan `as_of`-nya melebihi
+        :data:`EVIDENCE_SKEW_TOLERANCE_S` juga DILEWATI, dan notanya ditambahkan ke `skipped`
+        bila pemanggil menyediakan daftar — supaya bukti yang dibuang muncul di `warnings`
+        envelope, bukan hilang diam-diam (TASKS 2.2b AC(7)).
 
         Jendelanya punya batas ATAS juga: baris ber-`ts_utc` lebih dari
         :data:`FUTURE_SKEW_TOLERANCE_S` detik di depan `now` DILEWATI dan dicatat satu
@@ -878,6 +926,43 @@ class Store:
                 continue
             if ts < cutoff:
                 continue
+            # `as_of` dibaca dari `payload_json`, BUKAN dari kolom `as_of`. Keduanya biasanya
+            # sama — kolomnya disalin dari envelope saat penulisan — tetapi hanya yang di dalam
+            # payload yang dijaga `payload_hash`. Membaca kolomnya membuat penjaga ini bisa
+            # dikalahkan dengan menggeser DUA kolom yang sama-sama tidak terjaga, yaitu persis
+            # serangan yang hendak ditutup (dipatok
+            # `tests/test_store.py::test_shifting_both_unhashed_columns_still_cannot_fake_freshness`).
+            try:
+                payload = snapshot.payload
+            except ValueError:
+                # DISEBUT, bukan hanya dicatat. Tanpa ini kartu berbohong: `store_reads` berbunyi
+                # "no snapshot within N min in the store" padahal snapshotnya ADA dan segar —
+                # ia dibuang karena rusak. Itu persis veto senyap yang AC(7) ada untuk mencegah
+                # (temuan SEDANG security-reviewer 2.2b).
+                note = (
+                    f"{snapshot.tool}: snapshot_id={snapshot.id} skipped, payload_json is not "
+                    "readable JSON; the row exists and is fresh but cannot be used as evidence"
+                )
+                log.warning("%s", note)
+                if skipped is not None:
+                    skipped.append(note)
+                continue
+            raw_as_of = payload.get("as_of") if isinstance(payload, Mapping) else None
+            as_of = _parse_ts(raw_as_of if isinstance(raw_as_of, str) else None)
+            if as_of is not None:
+                skew = (ts - as_of).total_seconds()
+                if abs(skew) > EVIDENCE_SKEW_TOLERANCE_S:
+                    note = (
+                        f"{snapshot.tool}: snapshot_id={snapshot.id} skipped, ts_utc and as_of "
+                        f"disagree by {skew:.0f}s (tolerance {EVIDENCE_SKEW_TOLERANCE_S}s); "
+                        "ts_utc is not covered by any stored hash, the as_of inside payload_json is"
+                    )
+                    log.warning("%s", note)
+                    # DISEBUT ke pemanggil, bukan hanya ke log: baris yang hilang diam-diam
+                    # membuat item kesegaran memveto tanpa alasan yang bisa dibaca di kartu.
+                    if skipped is not None:
+                        skipped.append(note)
+                    continue
             if best_ts is None or ts > best_ts:
                 best, best_ts = snapshot, ts
         return best

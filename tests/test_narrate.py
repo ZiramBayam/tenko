@@ -55,6 +55,7 @@ from preflight.narrate import (
 )
 from preflight.params import DEFAULT_PARAMS, ITEM_ORDER
 from preflight.skill import DATA_BLOCKING, DATA_DECISION, check_aggregate_floor, preflight, tool_args
+from tests.helpers_agent import align_inner_clocks
 
 ROOT = Path(__file__).resolve().parent.parent
 SAMPLES = ROOT / "docs" / "samples"
@@ -103,9 +104,15 @@ def build_card(
     """Kartu `preflight` nyata dari bukti sampel (opsional dimutasi penyerang)."""
     store = Store(tmp_path / name)
     args = tool_args("SOL", "swing", DEFAULT_PARAMS)
-    ts = (NOW - timedelta(minutes=2)).isoformat()
+    ts = (NOW - timedelta(minutes=2)).replace(microsecond=0).isoformat()
     for tool in tools:
         envelope = sample(tool)
+        # `as_of` (dan cap waktu di dalam `data`) mengikuti `ts_utc` baris ini — lihat
+        # `tests/helpers_agent.py::build_store`. Tanpa ini skewnya 572 dtk dan sejak TASKS 2.2b
+        # AC(7) barisnya dibuang, sehingga tes narasi diam-diam menguji "tidak ada bukti".
+        stamp = ts.replace("+00:00", "Z")
+        envelope["as_of"] = stamp
+        align_inner_clocks(envelope, stamp)
         if mutate is not None:
             mutate(tool, envelope)
         store.insert_snapshot(tool, args[tool], envelope, ts_utc=ts)

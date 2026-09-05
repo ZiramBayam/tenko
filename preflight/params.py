@@ -69,6 +69,58 @@ Kalibrasi ambang (dibaca read-only dari ``data/ryo.db``, sapuan 756 baris, 2 Sep
 * ``trade_plan.risk_reward`` = ``[1.0, 2.0]`` di 294/294 baris. ``min_rr = 1.0``:
   ambang di atas 1.0 membuat item 9 merah untuk SETIAP plan yang pernah dikeluarkan RYO —
   item tanpa daya pisah, dan §7 langkah 3 ("≥1 GO dan ≥1 NO_GO") mustahil.
+* **Distribusi umur & skew, sapuan 5 Sep 2026 (TASKS 2.2b).** Semua dari
+  ``sqlite3.connect("file:data/ryo.db?mode=ro", uri=True)``, ``max(id)`` ≈ 2582, dengan 47 baris
+  fixture ``id 1597-1643`` DIKECUALIKAN (TASKS 0.19 — memasukkannya memiringkan setiap angka di
+  bawah). Ulangi dengan ``make age-sweep`` untuk kolom skew.
+
+  Jeda antar snapshot per tool, menit — inilah yang melahirkan angka ``max_age_min``::
+
+      tool                                n   median   p90     maks
+      analyze_token                    1188      0.5    1.4   1192.8
+      compare_tokens                     93      0.8   60.6   3137.5
+      deep_analysis                     979      0.5    1.4   1193.5
+      market_overview                    46     62.5  195.9   1463.6
+      monitor_market_sentiment_shift     45     62.6  195.9   1463.6
+      scan_market                        39     68.2  364.7   1193.6
+
+  Tool ber-simbol dipanggil berurutan di dalam satu siklus (jeda 0,5 mnt), jadi yang menentukan
+  kesegaran adalah tool market-wide: median **62,5 menit**, yaitu interval perekam itu sendiri.
+  Ekor maks (1193-3137 mnt) adalah perekam yang MATI, bukan irama normal — lihat TASKS 0.8a/0.8c.
+
+  Umur snapshot relatif terhadap baris terbaru, n per bucket::
+
+      tool                            0-60m  60-120m   2-6j  6-24j   >24j       n
+      analyze_token                      29       27     15    224   1030    1325
+      compare_tokens                      4        4      0     28     58      94
+      deep_analysis                      26       25     14    181    734     980
+      market_overview                     1        1      1      8     38      49
+      monitor_market_sentiment_shift      1        1      1      8     38      49
+      scan_market                         1        1      1      8     29      40
+
+  Skew ``ts_utc − as_of`` per tool, DETIK (TASKS 2.2b AC(6))::
+
+      tool                                n   median      min     maks   neg%
+      analyze_token                    1325    +0.41    -2.33   +36.01  29.0%
+      compare_tokens                     94    +0.48    -1.86   +15.22  26.6%
+      deep_analysis                     980    +0.48    -2.03   +71.04  26.2%
+      market_overview                    49    +0.83    -2.08   +55.39  16.3%
+      monitor_market_sentiment_shift     49    +1.03    -0.59    +3.93  12.2%
+      scan_market                        40    +0.46    -1.53    +2.25  22.5%
+      SEMUA                            2537    +0.47    -2.33   +71.04
+
+  Sekitar seperempat baris ber-``as_of`` MENDAHULUI ``ts_utc`` hingga 2,33 detik: jam server RYO
+  di depan jam kami. ``FUTURE_SKEW_TOLERANCE_S = 120`` di ``core/store.py`` jauh lebih longgar
+  dari itu, jadi tidak ada baris sah yang terbuang.
+
+* **Hasil kalibrasi atas DB nyata (AC 2 & 5), 5 Sep 2026:** ``preflight`` keempat simbol inti
+  memberi **3 GO / 1 NO_GO** — SOL/BTC/ETH ``GO`` dengan ``blocking`` kosong, BNB ``NO_GO``
+  dengan ``blocking = ['05_verdict_quick', '06_confluence']``. Blocking itu **bukan** item
+  kesegaran, jadi item 1 bukan satu-satunya yang punya daya pisah. Angka ini **HASIL**, bukan
+  sasaran: ``max_age_min`` diturunkan dari interval perekam (kalimat di bawah), dan campuran
+  GO/NO_GO dilaporkan apa adanya. Ia juga tidak stabil — 4 Sep pukul 21:00 keempatnya ``NO_GO``
+  ber-``blocking: 08_derivatives`` karena RYO menyajikan ``long_crowding`` + ``extreme``.
+
 * ``max_age_min = 120`` menit (TASKS 2.2b-lite, 3 Sep 2026) — aturannya satu kalimat:
   **umur maksimum bukti = 2× interval perekam (``RECORDER_INTERVAL_S`` = 3600 s = 60 menit),
   supaya satu siklus perekam boleh terlewat tanpa membuat bukti dianggap basi.** Angka ini

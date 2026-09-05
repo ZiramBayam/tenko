@@ -23,6 +23,7 @@ from urllib.parse import quote
 import pytest
 
 from core.store import (
+    EVIDENCE_SKEW_TOLERANCE_S,
     EXPECTED_SCHEMA,
     FRESH_SCAN_LIMIT,
     FUTURE_SKEW_TOLERANCE_S,
@@ -49,6 +50,18 @@ ENVELOPE = {
     "warnings": [],
 }
 ARGS = {"symbol": "SOL"}
+
+
+def envelope_at(ts: datetime) -> dict:
+    """`ENVELOPE` yang `as_of`-nya MENGIKUTI `ts_utc` baris itu — bentuk baris NYATA.
+
+    Sejak TASKS 2.2b AC(7), `latest_fresh` membuang baris yang `ts_utc`-nya bertengkar dengan
+    `as_of`-nya lebih dari `EVIDENCE_SKEW_TOLERANCE_S`. Tes umur yang menyemai `ts_utc` bebas
+    sambil membiarkan `as_of` fixture tetap sedang menyusun bentuk yang **tidak pernah ada di
+    produksi**: sapuan 2537 baris nyata memberi selisih maksimum 71 detik. Helper ini membuat
+    baris ujinya realistis, bukan melonggarkan penjaganya.
+    """
+    return {**ENVELOPE, "as_of": ts.astimezone(UTC).isoformat().replace("+00:00", "Z")}
 
 
 @pytest.fixture
@@ -291,7 +304,10 @@ def test_latest_fresh_returns_none_when_every_row_is_older_than_limit(store: Sto
     now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
     for minutes in (30, 60, 120):
         store.insert_snapshot(
-            "analyze_token", ARGS, ENVELOPE, ts_utc=(now - timedelta(minutes=minutes)).isoformat()
+            "analyze_token",
+            ARGS,
+            envelope_at(now - timedelta(minutes=minutes)),
+            ts_utc=(now - timedelta(minutes=minutes)).isoformat(),
         )
     assert store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now) is None
 
@@ -301,11 +317,16 @@ def test_latest_fresh_returns_newest_row_within_limit(store: Store) -> None:
     ids = {}
     for minutes in (60, 10, 3):
         ids[minutes] = store.insert_snapshot(
-            "analyze_token", ARGS, ENVELOPE, ts_utc=(now - timedelta(minutes=minutes)).isoformat()
+            "analyze_token",
+            ARGS,
+            envelope_at(now - timedelta(minutes=minutes)),
+            ts_utc=(now - timedelta(minutes=minutes)).isoformat(),
         )
     fresh = store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now)
     assert fresh is not None and fresh.id == ids[3]
-    assert fresh.payload == ENVELOPE
+    # `as_of` baris itu mengikuti `ts_utc`-nya (lihat `envelope_at`), jadi bandingkan dengan
+    # envelope baris yang sama — bukan dengan `ENVELOPE` yang `as_of`-nya tetap.
+    assert fresh.payload == envelope_at(now - timedelta(minutes=3))
 
 
 def test_latest_fresh_is_scoped_to_tool_and_args(store: Store) -> None:
@@ -321,14 +342,22 @@ def test_latest_fresh_skips_unparsable_timestamp(store: Store) -> None:
     store.insert_snapshot("analyze_token", ARGS, ENVELOPE, ts_utc="entah-kapan")
     assert store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now) is None
     good = store.insert_snapshot(
-        "analyze_token", ARGS, ENVELOPE, ts_utc=(now - timedelta(minutes=1)).isoformat()
+        "analyze_token",
+        ARGS,
+        envelope_at(now - timedelta(minutes=1)),
+        ts_utc=(now - timedelta(minutes=1)).isoformat(),
     )
     fresh = store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now)
     assert fresh is not None and fresh.id == good
 
 
 def test_latest_fresh_accepts_z_suffix_and_naive_now(store: Store) -> None:
-    store.insert_snapshot("analyze_token", ARGS, ENVELOPE, ts_utc="2026-09-01T11:59:00Z")
+    store.insert_snapshot(
+        "analyze_token",
+        ARGS,
+        envelope_at(datetime(2026, 9, 1, 11, 59, tzinfo=UTC)),
+        ts_utc="2026-09-01T11:59:00Z",
+    )
     fresh = store.latest_fresh(
         "analyze_token",
         sha256_hex(ARGS),
@@ -344,6 +373,180 @@ def test_latest_fresh_labels_bad_arguments(store: Store, bad: object) -> None:
         store.latest_fresh("analyze_token", sha256_hex(ARGS), bad)  # type: ignore[arg-type]
 
 
+# --- TASKS 2.2b AC(7): ts_utc yang bertengkar dengan as_of -----------------------------------
+def test_latest_fresh_drops_a_row_whose_ts_utc_and_as_of_disagree(store: Store) -> None:
+    """Baris ber-skew di atas ambang dibuang, DAN notanya disebut ke pemanggil.
+
+    Ambangnya menutup lubang yang `FUTURE_SKEW_TOLERANCE_S` tidak tutup: `ts_utc` adalah kolom
+    yang tidak dijaga hash apa pun, sementara `as_of` ada DI DALAM `payload_json` dan karenanya
+    dijaga `payload_hash`.
+    """
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    honest = store.insert_snapshot(
+        "analyze_token",
+        ARGS,
+        envelope_at(now - timedelta(minutes=9)),
+        ts_utc=(now - timedelta(minutes=9)).isoformat(),
+    )
+    # `ts_utc` 1 menit lalu, tetapi `as_of` di dalam payload berkata 3 hari lalu.
+    store.insert_snapshot(
+        "analyze_token",
+        ARGS,
+        envelope_at(now - timedelta(days=3)),
+        ts_utc=(now - timedelta(minutes=1)).isoformat(),
+    )
+    skipped: list[str] = []
+    fresh = store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now, skipped=skipped)
+
+    assert fresh is not None and fresh.id == honest  # baris jujur yang menang, bukan yang termuda
+    assert len(skipped) == 1
+    assert "ts_utc and as_of disagree" in skipped[0]
+    assert "analyze_token" in skipped[0]
+
+
+def test_the_rejected_row_is_named_not_silently_missing(store: Store) -> None:
+    """Veto senyap adalah kegagalan §7 langkah 1: notanya menyebut tool, id, dan skew."""
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    bad = store.insert_snapshot(
+        "analyze_token",
+        ARGS,
+        envelope_at(now - timedelta(hours=6)),
+        ts_utc=(now - timedelta(minutes=1)).isoformat(),
+    )
+    skipped: list[str] = []
+    assert store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now, skipped=skipped) is None
+    assert f"snapshot_id={bad}" in skipped[0]
+    assert "s (tolerance 300s)" in skipped[0]
+
+
+@pytest.mark.parametrize("skew_s, kept", [(299, True), (301, False)])
+def test_latest_fresh_pins_the_evidence_skew_tolerance(store: Store, skew_s: int, kept: bool) -> None:
+    """Ambangnya tepi, bukan usulan — dan simetris, karena 26-29 % baris nyata ber-skew negatif."""
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    recorded = now - timedelta(minutes=1)
+    store.insert_snapshot(
+        "analyze_token",
+        ARGS,
+        envelope_at(recorded - timedelta(seconds=skew_s)),
+        ts_utc=recorded.isoformat(),
+    )
+    assert (store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now) is not None) is kept
+
+
+def test_the_tolerance_is_symmetric_for_an_as_of_in_the_future(store: Store) -> None:
+    """`as_of` yang MENDAHULUI `ts_utc` jauh juga tidak wajar (jam RYO cuma ~2 dtk di depan)."""
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    recorded = now - timedelta(minutes=1)
+    store.insert_snapshot(
+        "analyze_token",
+        ARGS,
+        envelope_at(recorded + timedelta(seconds=400)),
+        ts_utc=recorded.isoformat(),
+    )
+    assert store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now) is None
+
+
+def test_shifting_both_unhashed_columns_still_cannot_fake_freshness(store: Store) -> None:
+    """Penjaga ini HARUS membaca `as_of` dari `payload_json`, bukan dari kolom `as_of`.
+
+    Kolom `as_of` disalin dari envelope saat penulisan dan — seperti `ts_utc` — TIDAK dijaga
+    `payload_hash`. Penyerang yang menggeser `ts_utc` bisa menggeser kolom itu juga; kalau
+    penjaganya membaca kolom, ia dikalahkan oleh serangan yang sama yang hendak ditutupnya.
+    Hanya nilai di dalam payload yang tidak bisa digeser tanpa menghitung ulang hash.
+    """
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    old_moment = now - timedelta(days=3)
+    row_id = store.insert_snapshot(
+        "analyze_token", ARGS, envelope_at(old_moment), ts_utc=old_moment.isoformat()
+    )
+    fresh_ts = (now - timedelta(minutes=1)).isoformat()
+    connection = sqlite3.connect(store.path)
+    try:
+        # DUA kolom digeser sekaligus — keduanya di luar jangkauan `payload_hash`.
+        connection.execute(
+            "UPDATE snapshots SET ts_utc = ?, as_of = ? WHERE id = ?",
+            (fresh_ts, fresh_ts.replace("+00:00", "Z"), row_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with Store(store.path) as reopened:
+        skipped: list[str] = []
+        fresh = reopened.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now, skipped=skipped)
+    assert fresh is None, "kedua kolom digeser, tetapi payload masih berkata 3 hari lalu"
+    assert skipped and "disagree" in skipped[0]
+
+
+def test_a_broken_payload_is_named_not_silently_dropped(store: Store) -> None:
+    """Baris rusak DISEBUT. Tanpa ini kartu berbohong (temuan SEDANG security-reviewer 2.2b).
+
+    Gejalanya halus: `store_reads` berbunyi "no snapshot within N min in the store" padahal
+    snapshotnya ADA dan segar — ia dibuang karena `payload_json` tidak terurai. Pembaca kartu
+    lalu menyimpulkan perekam tidak berjalan, bukan bahwa satu baris rusak.
+    """
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    row_id = store.insert_snapshot(
+        "analyze_token",
+        ARGS,
+        envelope_at(now - timedelta(minutes=2)),
+        ts_utc=(now - timedelta(minutes=2)).isoformat(),
+    )
+    connection = sqlite3.connect(store.path)
+    try:
+        connection.execute("UPDATE snapshots SET payload_json = ? WHERE id = ?", ("{rusak", row_id))
+        connection.commit()
+    finally:
+        connection.close()
+
+    with Store(store.path) as reopened:
+        skipped: list[str] = []
+        assert reopened.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now, skipped=skipped) is None
+    assert skipped, "baris rusak tidak boleh hilang tanpa satu kata pun"
+    assert f"snapshot_id={row_id}" in skipped[0]
+    assert "not readable JSON" in skipped[0]
+
+
+def test_the_tolerance_is_a_free_shift_budget_and_that_is_written_down(store: Store) -> None:
+    """Batas yang diakui: bukti sampai `max_age_min + 300` dtk bisa dicuci jadi segar.
+
+    Ini BUKAN tes yang menuntut perbaikan — ia mematok bahwa perilakunya memang seperti yang
+    ditulis di docstring konstanta, supaya klaimnya tidak bisa melenceng dari kenyataan.
+    """
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    honest_age = timedelta(minutes=15, seconds=200)  # di luar jendela 15 mnt
+    row_id = store.insert_snapshot(
+        "analyze_token", ARGS, envelope_at(now - honest_age), ts_utc=(now - honest_age).isoformat()
+    )
+    with Store(store.path) as check:
+        assert check.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now) is None
+
+    # Satu kolom digeser sampai TEPAT masuk jendela; skewnya jadi 210 dtk — di bawah ambang 300,
+    # jadi penjaga ini diam. Itulah anggaran gratisnya, dan besarnya persis `max_age_min + 300`.
+    laundered = now - timedelta(minutes=15) + timedelta(seconds=10)
+    connection = sqlite3.connect(store.path)
+    try:
+        connection.execute("UPDATE snapshots SET ts_utc = ? WHERE id = ?", (laundered.isoformat(), row_id))
+        connection.commit()
+    finally:
+        connection.close()
+
+    with Store(store.path) as reopened:
+        skipped: list[str] = []
+        fresh = reopened.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now, skipped=skipped)
+    assert fresh is not None  # LOLOS — inilah anggaran gratis itu
+    assert skipped == []  # dan tanpa satu peringatan pun
+    assert EVIDENCE_SKEW_TOLERANCE_S == 300  # angka yang membatasi anggarannya
+
+
+def test_a_row_without_as_of_is_still_usable(store: Store) -> None:
+    """Tanpa `as_of` tidak ada pertengkaran untuk dinilai — barisnya dipakai apa adanya."""
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    envelope = {k: v for k, v in ENVELOPE.items() if k != "as_of"}
+    store.insert_snapshot("analyze_token", ARGS, envelope, ts_utc=(now - timedelta(minutes=1)).isoformat())
+    assert store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now) is not None
+
+
 # --- TASKS 2.0d: batas ATAS kesegaran (toleransi jam) ---------------------------------------
 def test_latest_fresh_ignores_a_row_dated_ten_years_ahead(
     store: Store, caplog: pytest.LogCaptureFixture
@@ -351,10 +554,16 @@ def test_latest_fresh_ignores_a_row_dated_ten_years_ahead(
     """Baris +10 tahun tidak boleh menang `ORDER BY ts_utc DESC` atas baris sah."""
     now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
     legit = store.insert_snapshot(
-        "analyze_token", ARGS, ENVELOPE, ts_utc=(now - timedelta(minutes=5)).isoformat()
+        "analyze_token",
+        ARGS,
+        envelope_at(now - timedelta(minutes=5)),
+        ts_utc=(now - timedelta(minutes=5)).isoformat(),
     )
     ahead = store.insert_snapshot(
-        "analyze_token", ARGS, ENVELOPE, ts_utc=(now + timedelta(days=3653)).isoformat()
+        "analyze_token",
+        ARGS,
+        envelope_at(now + timedelta(days=3653)),
+        ts_utc=(now + timedelta(days=3653)).isoformat(),
     )
     with caplog.at_level(logging.WARNING, logger="core.store"):
         fresh = store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now)
@@ -369,7 +578,12 @@ def test_latest_fresh_ignores_a_row_dated_ten_years_ahead(
 def test_latest_fresh_returns_none_when_the_only_row_is_in_the_future(store: Store) -> None:
     """Tidak ada bukti sah → None yang jujur, bukan baris masa depan."""
     now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
-    store.insert_snapshot("analyze_token", ARGS, ENVELOPE, ts_utc=(now + timedelta(days=3653)).isoformat())
+    store.insert_snapshot(
+        "analyze_token",
+        ARGS,
+        envelope_at(now + timedelta(days=3653)),
+        ts_utc=(now + timedelta(days=3653)).isoformat(),
+    )
     assert store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now) is None
 
 
@@ -379,7 +593,10 @@ def test_latest_fresh_pins_the_future_skew_tolerance(store: Store, ahead_s: int,
     assert FUTURE_SKEW_TOLERANCE_S == 120
     now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
     made = store.insert_snapshot(
-        "analyze_token", ARGS, ENVELOPE, ts_utc=(now + timedelta(seconds=ahead_s)).isoformat()
+        "analyze_token",
+        ARGS,
+        envelope_at(now + timedelta(seconds=ahead_s)),
+        ts_utc=(now + timedelta(seconds=ahead_s)).isoformat(),
     )
     fresh = store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now)
     assert (fresh is not None and fresh.id == made) is accepted
@@ -395,11 +612,17 @@ def test_acknowledged_limit_future_rows_can_push_a_valid_row_out_of_the_scan(
     """
     now = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
     legit = store.insert_snapshot(
-        "analyze_token", ARGS, ENVELOPE, ts_utc=(now - timedelta(minutes=5)).isoformat()
+        "analyze_token",
+        ARGS,
+        envelope_at(now - timedelta(minutes=5)),
+        ts_utc=(now - timedelta(minutes=5)).isoformat(),
     )
     for i in range(FRESH_SCAN_LIMIT + 1):
         store.insert_snapshot(
-            "analyze_token", ARGS, ENVELOPE, ts_utc=(now + timedelta(days=3653 + i)).isoformat()
+            "analyze_token",
+            ARGS,
+            envelope_at(now + timedelta(days=3653 + i)),
+            ts_utc=(now + timedelta(days=3653 + i)).isoformat(),
         )
     with caplog.at_level(logging.WARNING, logger="core.store"):
         assert store.latest_fresh("analyze_token", sha256_hex(ARGS), 15, now=now) is None

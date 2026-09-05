@@ -527,8 +527,14 @@ def gather(
     """
     found: dict[str, int] = {}
     reads: dict[str, ToolRead] = {}
+    # Baris yang dibuang `latest_fresh` karena `ts_utc` bertengkar dengan `as_of` (TASKS 2.2b
+    # AC(7)) DISEBUT di `warnings` envelope. Tanpa ini, bukti yang ditolak membuat item
+    # kesegaran memveto tanpa satu pun alasan yang bisa dibaca di kartu — veto senyap.
+    skew_skipped: list[str] = []
     for tool, args in tool_args(symbol, intent, params).items():
-        snapshot = store.latest_fresh(tool, sha256_hex(args), params.max_age_min, now=now)
+        snapshot = store.latest_fresh(
+            tool, sha256_hex(args), params.max_age_min, now=now, skipped=skew_skipped
+        )
         if snapshot is None:
             reads[tool] = ToolRead(
                 tool=tool,
@@ -542,7 +548,7 @@ def gather(
     by_id = {entry.snapshot_id: entry for entry in bundle.entries}
 
     envelopes: dict[str, Mapping[str, Any]] = {}
-    warnings: list[str] = []
+    warnings: list[str] = list(skew_skipped)
     for tool in REQUIRED_TOOLS:
         snapshot_id = found.get(tool)
         if snapshot_id is None:
