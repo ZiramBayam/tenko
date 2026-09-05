@@ -18,19 +18,22 @@ Yang dipatok di sini, dan mengapa masing-masing ada:
   dengan nada `STALE_ALGO`/`STALE_PARAMS` (`not_assessed`), di kartu maupun di daftar.
 * **Teks asal-DB tidak bisa menutup tag**: simbol bermuatan `</script>` keluar sebagai escape
   JSON, dan `json.loads` tetap mengembalikan teks aslinya (escape-nya lossless).
-* **UI tidak menulis dan tidak memanggil apa pun**: hash berkas DB sebelum/sesudah semua route
-  identik, dan jalur klien RYO maupun narasi LLM dipasangi ranjau yang meledak bila disentuh.
+* **UI tidak menulis dan tidak memanggil apa pun**: yang diukur adalah perbuatan PROSES INI
+  (`sys.addaudithook`), bukan hash berkas — lihat `WriteWatch` di bawah untuk sebabnya. Jalur
+  klien RYO maupun narasi LLM dipasangi ranjau yang meledak bila disentuh.
 
 Fixture memakai `tests/helpers_agent.build_store` (envelope RYO nyata dari `docs/samples`).
 Satu-satunya tes yang menyentuh `data/ryo.db` adalah kelompok "DB hidup" di bawah, dan hanya
-lewat route yang membukanya BACA-SAJA; berkasnya tidak pernah ditulis (dipatok tes hash).
+lewat route yang membukanya BACA-SAJA; berkasnya tidak pernah ditulis (dipatok `WriteWatch`).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from html import escape, unescape
@@ -54,7 +57,7 @@ from agent.replay import (
 from agent.watchlist import plausible_symbol
 from core.replay import ALGO
 from core.skill import REASON_LIMIT, TEXT_LIMIT, TRUNCATED_MARK, ItemResult, clean_text
-from core.store import Store
+from core.store import Store, StoreReadOnlyError
 from preflight.params import DEFAULT_PARAMS, ITEM_ORDER
 from preflight.skill import symbol_evidence, symbol_tools
 from tests.helpers_agent import ANALYZE, CORE, DEEP, build_store
@@ -1092,11 +1095,152 @@ def test_live_decisions_start_at_the_first_current_generation_row(live_client: T
     assert all(entry["decision_id"] >= LIVE_FIRST_CURRENT_ID for entry in watch["symbols"])
 
 
-def test_live_database_is_not_modified_by_any_route(live_client: TestClient) -> None:
-    before = hashlib.sha256(LIVE_DB.read_bytes()).hexdigest()
+# --- penjaga tulis: yang diukur PROSES INI, bukan berkasnya ----------------------------------
+#: Mode `open()` yang berniat menulis (`r+` juga menulis; `b`/`t` tidak menambah niat apa pun).
+WRITE_MODES = frozenset("wxa+")
+#: Flag `os.open()` yang berniat menulis.
+WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+
+
+class WriteWatch:
+    """Pembukaan BER-NIAT-TULIS di bawah satu direktori, oleh proses ini saja.
+
+    **Kenapa bukan hash berkas.** Versi lama tes di bawah meng-hash `data/ryo.db` sebelum dan
+    sesudah empat request. Yang benar-benar diukurnya adalah "tidak ada SIAPA PUN yang menulis
+    berkas ini selama jendela tes" — sementara namanya menjanjikan "tidak ada ROUTE yang
+    mengubahnya". Perekam produksi menulis berkas yang sama ~1000 dtk tiap siklus, jadi suite
+    yang mulai pada saat acak bisa MERAH tanpa satu pun route menyentuh apa pun: false positive
+    yang, di layar juri, terbaca sebagai UI yang menulis DB. `agent/demo.py` sudah menuliskan
+    alasan yang persis sama dan sudah memilih audit hook; ini menyamakan tes UI dengan repo.
+
+    **Yang ditangkap, dan yang tidak.** `sys.addaudithook` mencatat perbuatan PROSES INI:
+    `open`/`os.open` ber-niat-tulis, dan `sqlite3.connect` yang TIDAK membawa `mode=ro`. SQLite
+    membuka berkasnya di lapisan C dan tidak memicu event `open`, jadi URI koneksinyalah yang
+    diperiksa — dan itu justru lapisan yang sama dengan jaminan `Store(read_only=True)`
+    (`ui/app.py:_open_store`). Proses lain (perekam) tidak terlihat di sini; memang itu maunya.
+
+    **Batasnya, terus terang.** `sqlite3` tidak mengaudit `execute`, jadi yang terlihat adalah
+    PEMBUKAAN koneksi, bukan pernyataannya; route yang menulis lewat koneksi rw yang sudah
+    terbuka sebelum jendela tes akan lolos. Itu tidak bisa terjadi di sini karena
+    `_open_store` membuka koneksi baru PER REQUEST (alasannya ada di docstring-nya), dan
+    lapisan keduanya adalah `test_the_route_store_is_opened_read_only` + tiga lapis
+    `core/store.py` (authorizer, `PRAGMA query_only`, URI `mode=ro`). Jendela bersenjatanya
+    sengaja sempit — satu tes — supaya perbuatan utas lain di proses ini tidak ikut terhitung.
+
+    Yang dicatat hanya PELANGGARAN, supaya hook tetap murah dan pesan gagalnya menyebut jalur.
+    """
+
+    def __init__(self) -> None:
+        self.prefix: str | None = None
+        self.hits: list[str] = []
+
+    def arm(self, directory: Path) -> None:
+        # `abspath` (bukan `resolve`) supaya hook tidak melakukan syscall di dalam audit hook.
+        self.prefix = os.path.abspath(directory) + os.sep
+        self.hits.clear()
+
+    def disarm(self) -> None:
+        self.prefix = None
+
+    def under_watch(self, target: object) -> str | None:
+        if self.prefix is None or not isinstance(target, str | bytes | os.PathLike):
+            return None
+        text = target.decode("utf-8", "replace") if isinstance(target, bytes) else str(target)
+        # `Store` membuka lewat URI (`file:...?mode=ro`); prefiks + query dibuang dulu.
+        plain = text[5:].split("?", 1)[0] if text.startswith("file:") else text
+        return plain if os.path.abspath(plain).startswith(self.prefix) else None
+
+    def note(self, how: str, target: str) -> None:
+        entry = f"{how}: {target}"
+        if entry not in self.hits:
+            self.hits.append(entry)
+
+    def hook(self, event: str, args: tuple[Any, ...]) -> None:
+        if self.prefix is None:  # tidak dipersenjatai: satu perbandingan, lalu keluar
+            return
+        try:
+            if event == "open":
+                target = self.under_watch(args[0])
+                if target is None:
+                    return
+                mode, flags = args[1], args[2]
+                writing = bool(set(mode) & WRITE_MODES) if isinstance(mode, str) else False
+                if isinstance(flags, int) and flags & WRITE_FLAGS:
+                    writing = True
+                if writing:
+                    self.note(f"open(mode={mode!r})", target)
+            elif event == "sqlite3.connect":
+                target = self.under_watch(args[0])
+                text = args[0] if isinstance(args[0], str) else ""
+                if target is not None and "mode=ro" not in text:
+                    self.note("sqlite3.connect tanpa mode=ro", target)
+        except Exception:  # noqa: BLE001 — exception di audit hook membunuh proses; diamkan
+            return
+
+
+WRITE_WATCH = WriteWatch()
+sys.addaudithook(WRITE_WATCH.hook)  # tidak bisa dicabut; karena itu `prefix=None` yang menjaga
+
+
+@pytest.fixture
+def write_watch() -> Iterator[WriteWatch]:
+    """Penjaga proses ini, dilucuti lagi setelah tes — dipersenjatai oleh tesnya, eksplisit."""
+    try:
+        yield WRITE_WATCH
+    finally:
+        WRITE_WATCH.disarm()
+
+
+def test_no_route_opens_the_live_database_with_write_intent(
+    live_client: TestClient, write_watch: WriteWatch
+) -> None:
+    """Pengganti tes hash: subjeknya route, bukan berkas.
+
+    Perekam boleh menulis `data/ryo.db` di sebelah tes ini tanpa mengubah hasilnya; sebuah route
+    yang membuka DB-nya untuk ditulis tetap MERAH.
+    """
+    write_watch.arm(Path(str(app.state.db_path)).parent)  # direktori DB yang BENAR-BENAR dilayani
     for path in ("/api/health", "/api/watchlist", "/api/decisions", f"/api/decision/{LIVE_LEGACY_ID}"):
         assert live_client.get(path).status_code == 200
-    assert hashlib.sha256(LIVE_DB.read_bytes()).hexdigest() == before
+    assert write_watch.hits == []
+    assert write_watch.prefix is not None  # penjaga benar-benar hidup, bukan diam-diam mati
+
+
+def test_the_write_watch_would_actually_catch_a_writing_route(
+    write_watch: WriteWatch, tmp_path: Path
+) -> None:
+    """Penjaga yang tidak pernah bisa merah tidak menjaga apa pun: buktikan arah gagalnya.
+
+    Penulisnya diarahkan ke SALINAN di tmp — `data/ryo.db` tidak pernah ditulis oleh tes.
+    """
+    copy = tmp_path / "ryo.db"
+    Store(copy).close()  # skema lengkap, di tmp
+    write_watch.arm(tmp_path)
+    with copy.open("ab") as handle:
+        handle.write(b"")
+    Store(copy).close()  # inilah "route yang menulis": koneksi tulis ke DB yang dilayani
+    assert [hit.split(":", 1)[0] for hit in write_watch.hits] == [
+        "open(mode='a')",  # FileIO melaporkan niatnya, bukan huruf `b`
+        "sqlite3.connect tanpa mode=ro",
+    ]
+    assert all(str(copy) in hit for hit in write_watch.hits)
+    # ...dan koneksi baca-saja yang benar-benar dipakai route TIDAK dihitung sebagai tulisan.
+    write_watch.arm(tmp_path)
+    Store(copy, read_only=True).close()
+    with copy.open("rb") as handle:
+        handle.read(1)
+    assert write_watch.hits == []
+
+
+def test_the_route_store_is_opened_read_only(live_client: TestClient) -> None:
+    """Lapis kedua, struktural: koneksi yang dipakai route menolak tulisan (core/store.py)."""
+    store = ui_app._open_store()
+    try:
+        assert store.read_only is True
+        with pytest.raises(StoreReadOnlyError):
+            store.insert_snapshot("analyze_token", {}, {})
+    finally:
+        store.close()
 
 
 # --- Layar A & Layar B (TASKS 3.2) ------------------------------------------------------------
