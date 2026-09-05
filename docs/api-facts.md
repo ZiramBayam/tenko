@@ -102,6 +102,7 @@ hanya lebih tua ~25 baris / ~19 menit. Himpunan nilainya identik; yang berubah h
   Ulangi (satu baris, mencetak sebaran + id kemunculan pertama + max id yang disapu):
   `python3 -c 'import sqlite3,json,collections;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);r=list(c.execute("SELECT id,tool,payload_json FROM snapshots ORDER BY id"));m=[(i,json.loads(p)["data"]["regime"]) for i,t,p in r if t=="market_overview"];print("max id",r[-1][0]);print(collections.Counter(v for _,v in m));print({v:min(i for i,w in m if w==v) for _,v in m})'`
   → `max id 835` · `Counter({'neutral': 13, 'risk_on': 6, 'risk_off': 1})` · `{'risk_on': 1, 'neutral': 135, 'risk_off': 763}`.
+- **[`Urutan breadth memang rapi` DICABUT oleh sapuan `id <= 3238`, 5 Sep 2026 — rentang breadth `neutral` (0,2088) dan `risk_off` (0,3846) kini TUMPANG TINDIH; lihat blok "Sapuan 5 Sep 2026" di bawah.]**
 - **Konteks `risk_off` — n=1, DESKRIPTIF, BUKAN kontrak.** Amatan itu datang dengan `breadth` 0.3846, terendah dari 20 amatan
   (`risk_on`: 0.8571 ×4 dan 0.9011 ×2; `neutral`: 0.4835–0.8022), dan `sentiment.label` `greed` (bukan `extreme_greed`).
   Urutan breadth memang rapi, **tetapi jangan diturunkan menjadi aturan**: n=1 untuk `risk_off`, dan `label: greed` sama sekali
@@ -118,6 +119,7 @@ hanya lebih tua ~25 baris / ~19 menit. Himpunan nilainya identik; yang berubah h
   **0×** pada `change_direction` (yang di sana `down` 20/20). Namespace berbeda; kemunculan `"up"` di `trend` BUKAN bukti untuk
   `FEAR_GREED_CHANGE_DIRECTION`. Pencabutan baris `up` (provenance = tebakan kami; spec §4 item 4 tidak pernah menulis string itu)
   tetap BERLAKU.
+- **[DICABUT oleh sapuan `id <= 3238`, 5 Sep 2026: `material_shift = true` TERAMATI 5×, pertama id=910 `2026-09-02T01:13:09Z`; `change_7d_points` kini −11..0, bukan {−5,−6,−7}. Lihat blok "Sapuan 5 Sep 2026" di bawah.]**
 - `monitor….data.evidence.fear_greed.material_shift` = `false` di **20/20** (`id <= 835`) → cabang "pergeseran material" item 4 spec §4 —
   SATU-SATUNYA cabang yang membaca `change_direction` — belum pernah dijalankan oleh data nyata.
 - Kunci `monitor` yang lengkap di 20/20 (baris "Field nyata" di atas hanya menyebut yang dipakai item): `data` =
@@ -622,6 +624,74 @@ print("nyata n",len(N),"median_dtk",statistics.median(N),"min",min(N),"max",max(
 `grep -niE "membeku|usang|stale|basi|tertinggal" docs/api-facts.md` (5 Sep 2026): satu-satunya hasil bernuansa itu adalah
 pencabutan `risk_off` (baris ~92) dan peringatan bahwa hitungan kosakata cepat basi — keduanya soal lain. Yang perlu dicabut ada
 di `TASKS.md` 2.2e (bukan berkas saya).
+
+### Sapuan 5 Sep 2026 — `id <= 3238` (lahir dari verifikasi TASKS 2.1b), MENGGANTIKAN hitungan sapuan 697/762/835/2165
+`data/ryo.db` dibuka read-only saat perekam live masih menulis (`sqlite3.connect("file:data/ryo.db?mode=ro", uri=True)` +
+`PRAGMA query_only=ON`; nol byte ditulis), **3238 snapshot**, ts `2026-09-01T03:51:43Z`–`2026-09-05T13:31:36Z` (≈ 105,7 j):
+analyze_token 1680 · deep_analysis 1245 · compare_tokens 142 · market_overview 60 · monitor_market_sentiment_shift 60 · scan_market 51.
+**HIMPUNAN nilai tidak bertambah untuk verdict/call/confluence/regime/label — yang berubah hanya frekuensinya:**
+`analyze_token.data.verdict` accumulate 714 · caution — overbought 530 · neutral 415 · avoid 21 ·
+`deep_analysis.data.verdict.call` constructive 593 · neutral 590 · cautious 62 ·
+`deep_analysis.data.confluence.state` CONFIRMED 731 · MIXED 514 ·
+`market_overview.data.regime` neutral 30 · risk_on 22 · risk_off 8 · `market_overview.data.sentiment.label` extreme_greed 41 · greed 19 ·
+`monitor….sentiment_regime` extreme_greed_unconfirmed 33 · mixed_sentiment 19 · complacent_crowding 8 ·
+`monitor….funding.crowding_state` normal 52 · long_crowding 8 · `monitor….liquidation.pressure_state` normal 52 · extreme 8 ·
+`monitor….fear_greed.change_direction` down 58 · flat 2 (**`up` masih 0 dari 3238**) ·
+`monitor….liquidation.dominant_liquidated_side` shorts 30 · longs 18 · balanced 12 · `monitor….altseason.phase` transition 59 · bitcoin_season 1.
+
+**NILAI BARU: `monitor….data.evidence.fear_greed.material_shift = true` TERAMATI — 5 dari 60.**
+**DICABUT: klaim "`material_shift` = `false` di 20/20 (`id <= 835`) → cabang 'pergeseran material' item 4 spec §4 — SATU-SATUNYA
+cabang yang membaca `change_direction` — belum pernah dijalankan oleh data nyata."** Klaim itu benar untuk jendelanya dan salah
+sejak `id=910`. Kelima baris (semuanya `status: ok`, `data_mode: live`, `availability.evidence: available`, `change_direction: down`):
+id **910** (`2026-09-02T01:13:09Z`, `change_7d_points` −10) · **1081** (`2026-09-02T08:58:46Z`, −11) · **1144** (`2026-09-02T10:13:28Z`, −11) ·
+**1208** (`2026-09-03T10:37:01Z`, −10) · **1280** (`2026-09-03T11:39:08Z`, −10). Cabang itu bukan lagi teori: pada tabel veto TASKS 2.1b
+(201 amatan pada run 2026-09-05T19:21Z — `n` bergeser turun dari 226 seiring perekam tumbuh karena `FRESH_SCAN_LIMIT` relatif ke ujung DB, lihat peringatan di docstring `preflight/items.py`; jangkar `analyze_token` 4 simbol inti) item 4 merah **20×**, dan **20/20 bernilai `material_shift=true` + `change_direction=down` + plan long**.
+**Ikut DICABUT: `change_7d_points ∈ {−5, −6, −7}` dan kalimat "jendela ini secara aritmetis tidak bisa menghasilkan arah lain".**
+Sebaran teramati (`id <= 3238`, n=60): −11 (2) · −10 (3) · −9 (3) · −8 (2) · −7 (3) · −6 (6) · −5 (15) · −4 (6) · −3 (17) · −2 (1) · **0 (2)**.
+`baseline_7d_value` tidak lagi tetap 80 dan `baseline_7d_date` tidak lagi tetap `2026-08-25`; hanya nilai `up` yang tetap nol amatan.
+Ulangi (mencetak max id, sebaran `material_shift`, baris `true`, dan sebaran `change_7d_points`):
+```
+python3 -c 'import sqlite3,json,collections;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);c.execute("PRAGMA query_only=ON");R=[(i,ts,json.loads(p)["data"]["evidence"]) for i,ts,p in c.execute("select id,ts_utc,payload_json from snapshots where tool=\"monitor_market_sentiment_shift\" order by id")];print("max id",c.execute("select max(id) from snapshots").fetchone()[0],"n monitor",len(R));print(collections.Counter(e["fear_greed"]["material_shift"] for _,_,e in R));print([(i,ts[:19],e["fear_greed"]["change_7d_points"],e["fear_greed"]["change_direction"]) for i,ts,e in R if e["fear_greed"]["material_shift"]]);print(collections.Counter(e["fear_greed"]["change_7d_points"] for _,_,e in R))'
+```
+
+**`funding` + `liquidation` adalah KONSTANTA PER `data_date` — 60 panggilan `monitor…` = 5 titik data, bukan 60 amatan independen.**
+Tuple `(funding.data_date, funding.crowding_state, liquidation.pressure_state, funding.current_7d_percentile_90d, liquidation.percentile_90d)`
+hanya punya **lima** nilai berbeda di seluruh 60 baris, dan tiap nilai dipetakan satu-lawan-satu ke satu `data_date`:
+
+| `funding.data_date` | crowding_state | pressure_state | funding pct90d | liq pct90d | n baris |
+|---|---|---|---|---|---|
+| 2026-08-31 | normal | normal | 56,666667 | 32,222222 | 22 |
+| 2026-09-01 | normal | normal | 68,888889 | 63,333333 | 5 |
+| 2026-09-02 | normal | normal | 82,222222 | 36,666667 | 12 |
+| **2026-09-03** | **long_crowding** | **extreme** | **91,111111** | **92,222222** | **8** |
+| 2026-09-04 | normal | normal | 53,333333 | 82,222222 | 13 |
+
+Konsekuensi yang WAJIB ikut dikutip setiap kali angka `long_crowding`/`extreme` disebut: kedelapan baris itu
+(id 1976 · 2047 · 2106 · 2167 · 2231 · 2291 · 2356 · 2417, `2026-09-04T11:21:24Z`–`19:18:28Z`) membawa persentil yang **identik
+sampai enam desimal** dan `data_date` yang sama → mereka adalah **delapan kali polling atas SATU hari data funding**, bukan delapan
+peristiwa pasar. Ini penajaman dari fakta yang sudah tercatat di bagian skew (`funding`/`liquidation` selalu D-1): yang baru di sini
+adalah bahwa NILAI-nya pun tidak bergerak di dalam satu `data_date`. Siapa pun yang menulis "32 veto `08_derivatives`" harus
+menyebut bahwa 32 = 8 baris `monitor…` × 4 simbol inti = **1 hari data funding**. Perhatikan juga `data_date` 2026-09-04:
+`liquidation.percentile_90d` 82,2 TETAPI `pressure_state` `normal` → persentil tinggi tidak menentukan state; jangan mengarang ambang.
+Ulangi: `python3 -c 'import sqlite3,json,collections;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);c.execute("PRAGMA query_only=ON");print(collections.Counter((e["funding"]["data_date"],e["funding"]["crowding_state"],e["liquidation"]["pressure_state"],e["funding"]["current_7d_percentile_90d"],e["liquidation"]["percentile_90d"]) for e in (json.loads(p)["data"]["evidence"] for (p,) in c.execute("select payload_json from snapshots where tool=\"monitor_market_sentiment_shift\""))))'`
+
+**DICABUT sebagian: "urutan breadth memang rapi" (blok konteks `risk_off`, 2 Sep 2026).** Dengan n=60 `market_overview`
+(`risk_off` kini 8, bukan 1), rentang `market.breadth` per regime **TUMPANG TINDIH**: risk_on 0,5604 (id 2105)–0,9565 (id 1843) ·
+neutral **0,2088 (id 2230)**–0,8043 (id 3173) · risk_off **0,1758 (id 2416)**–0,3846 (id 763). `neutral` 0,2088 berada DI BAWAH
+`risk_off` 0,3846 → breadth tidak memisahkan kedua regime itu. Larangan yang sudah ada ("tidak ada ambang breadth yang boleh
+dikodekan; regime dibaca apa adanya dari `data.regime`, tidak pernah dihitung ulang dari `breadth`") sekarang punya bukti
+langsung, bukan hanya peringatan n=1. Minimum breadth baru **0,1758** menggantikan 0,3846.
+
+**Cakupan `compare_tokens` per `args_hash` simbol inti (dipakai `preflight/skill.tool_args`), `id <= 3238`.**
+Empat args yang benar-benar dipakai jalur preflight: `{"symbols":"SOL, BNB, ETH","intent":"swing"}` ·
+`{"symbols":"BTC, BNB, ETH",…}` · `{"symbols":"ETH, BNB",…}` · `{"symbols":"BNB, ETH",…}` — **32 baris masing-masing**,
+baris pertama id **1260/1261/1262/1263** (`2026-09-03T10:50:49Z`–`10:55:07Z`). 14 baris `compare_tokens` sesi manual 1 Sep
+(id 41–211) memakai args LAIN (pembanding BTC+ETH) sehingga `args_hash`-nya tidak pernah cocok untuk jalur ini.
+**Konsekuensi untuk klaim mana pun tentang "lubang `compare_tokens`":** ketiadaan sebelum `2026-09-03T10:50:49Z` menjelaskan
+**97** dari 110 amatan TASKS 2.1b yang ber-`missing_tools=[compare_tokens]`; **13 sisanya** jatuh SESUDAH tanggal itu dan
+disebabkan perekam mati/senyap — baris `compare_tokens` terdekat berumur 181–700 mnt, di atas `max_age_min=120`
+(tiga celah yang sama dengan yang sudah didokumentasikan di "Atribusi 3 celah > 120 mnt": 3 Sep 20:26Z, 4 Sep 11:21Z, 5 Sep 01:45Z).
+Jadi "compare_tokens baru direkam sejak 2026-09-03" TIDAK menjelaskan ke-110; kalimat yang benar adalah 97 + 13.
 
 ## B–D. Sumber eksternal — TIDAK DIPAKAI (ADR-012/013)
 Jalur nyata hanya memakai tool RYO (§A) + satu LLM untuk narasi (SDK/model dipin di docs/versions.md saat TASKS 2.3). Sumber lain
