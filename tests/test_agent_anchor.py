@@ -221,6 +221,22 @@ def test_a_ghost_source_snapshot_id_is_rejected(tmp_path: Path) -> None:
         check_against_evidence(result, bundle, DEFAULT_PARAMS)
 
 
+@pytest.mark.parametrize("bogus", ["2166", b"2166", 2166, {"id": 2166}, None])
+def test_snapshot_ids_that_is_not_a_list_is_rejected(tmp_path: Path, bogus: object) -> None:
+    """Cabang bentuk `snapshot_ids`, yang sebelumnya ada di kode tetapi tidak dipatok tes.
+
+    Ditemukan lewat mutation testing 5 Sep 2026: melumpuhkan `raise` di cabang ini membiarkan
+    114 tes tetap hijau. Bahayanya khusus untuk `str`/`bytes` — keduanya `Sequence`, jadi tanpa
+    penjagaan eksplisit `"2166"` akan diiterasi sebagai karakter dan menghasilkan himpunan id
+    KOSONG, yang lalu dibandingkan dengan bundle dan bisa lolos untuk bundle kosong.
+    """
+    store = build_store(tmp_path, symbols=("SOL",))
+    result, bundle = run(store)
+    result.data["snapshot_ids"] = bogus
+    with pytest.raises(EvidenceMismatchError, match="daftar id baris"):
+        check_against_evidence(result, bundle, DEFAULT_PARAMS)
+
+
 def test_snapshot_ids_must_be_exactly_the_frozen_evidence(tmp_path: Path) -> None:
     store = build_store(tmp_path, symbols=("SOL",))
     result, bundle = run(store)
