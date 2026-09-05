@@ -299,7 +299,11 @@ def test_gate_pytest_leg_is_skipped_inside_a_running_suite(tmp_path: Path) -> No
     gate = _sandbox(tmp_path, FORMATTED, test_body=FAILING_TEST)
     result = _run_gate(gate, selftest=True).proc
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "pytest" not in result.stderr
+    assert "GATE MERAH" not in result.stderr
+    # Dilewati TAPI diumumkan (temuan SEDANG security-reviewer 6 Sep 2026): sebelumnya leg
+    # pytest mati tanpa satu baris pun yang mengatakannya, jadi stop hook bisa hijau di atas
+    # suite merah tanpa suara. Yang dijaga di sini bukan kesenyapannya, melainkan suaranya.
+    assert "leg pytest DILEWATI" in result.stderr
 
 
 @skip_if_nested
