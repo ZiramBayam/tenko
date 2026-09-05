@@ -1,0 +1,1640 @@
+{
+  "fixture_version": 1,
+  "name": "demo-2026-09-05 (go+no_go, spec §7 langkah 3)",
+  "captured_at": "2026-09-05T14:48:18.741118+00:00",
+  "source_db": "data/ryo.db",
+  "source_ids": [
+    2491,
+    2492,
+    2494,
+    2495,
+    2496,
+    2497,
+    2498,
+    2499,
+    2500,
+    2501,
+    2544,
+    2545,
+    2546,
+    2547
+  ],
+  "now": "2026-09-05T03:03:19.707701+00:00",
+  "symbols": [
+    "SOL",
+    "BTC",
+    "ETH",
+    "BNB"
+  ],
+  "params_hash": "3d39fb1bd1a03b7f5269f53fec347d34645d2b402ff1c2de47e53f19d69616b7",
+  "recorded": {
+    "SOL": {
+      "decision": "GO",
+      "blocking": [],
+      "decision_hash": "083d3ed082e56116168e8bed4a3384d627fd32559cea125c56d55067b72dcad1"
+    },
+    "BTC": {
+      "decision": "GO",
+      "blocking": [],
+      "decision_hash": "38836bf708dc6fb6cfa485c9e54586791e3bd00366da5de2bd9bab87789c6f16"
+    },
+    "ETH": {
+      "decision": "GO",
+      "blocking": [],
+      "decision_hash": "1cf9ef6e34de5232f964b37919c0373e5c4cd2a8f5fe65dc5e058f998a0862a4"
+    },
+    "BNB": {
+      "decision": "NO_GO",
+      "blocking": [
+        "05_verdict_quick",
+        "06_confluence"
+      ],
+      "decision_hash": "f273ea05000a3bf9d620ba1d8765cd58231d2f8c7727c816cc5dd5597ea85b00"
+    }
+  },
+  "snapshots": [
+    {
+      "source_id": 2491,
+      "tool": "market_overview",
+      "args": {},
+      "ts_utc": "2026-09-05T02:45:02.079689+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T02:45:02Z",
+        "availability": {
+          "market_breadth": "available",
+          "market_regime": "available",
+          "market_sentiment": "available",
+          "market_totals": "available",
+          "top_movers": "available"
+        },
+        "data": {
+          "market": {
+            "breadth": 0.3626,
+            "breadth_details": {
+              "advancing": 33,
+              "declining": 58,
+              "method": "share_of_non_stable_top_listings_with_positive_24h_change",
+              "unchanged": 0,
+              "universe_size": 91
+            },
+            "btc_dominance_pct": 59.644220916061,
+            "eth_dominance_pct": 11.167399922388,
+            "market_cap_change_24h_pct": -1.1865348,
+            "total_market_cap_usd": 2680848530040.5093,
+            "total_volume_24h_usd": 97047047101.37
+          },
+          "regime": "neutral",
+          "sentiment": {
+            "fear_greed_index": 75.0,
+            "label": "extreme_greed"
+          },
+          "top_movers": {
+            "gainers": [
+              {
+                "chain": null,
+                "change_24h_pct": 41.23453873,
+                "name": "Dash",
+                "price_usd": 68.0141827869721,
+                "symbol": "DASH"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": 14.26110507,
+                "name": "NEAR Protocol",
+                "price_usd": 2.2188099980417584,
+                "symbol": "NEAR"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": 9.28872322,
+                "name": "MemeCore",
+                "price_usd": 1.1332627934462771,
+                "symbol": "M"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": 9.23314515,
+                "name": "Zcash",
+                "price_usd": 1024.1757324671407,
+                "symbol": "ZEC"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": 7.82194267,
+                "name": "Lighter",
+                "price_usd": 4.728589632229907,
+                "symbol": "LIT"
+              }
+            ],
+            "losers": [
+              {
+                "chain": null,
+                "change_24h_pct": -9.01522249,
+                "name": "LayerZero",
+                "price_usd": 1.037426906392524,
+                "symbol": "ZRO"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": -5.99435071,
+                "name": "Cardano",
+                "price_usd": 0.21060976205367798,
+                "symbol": "ADA"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": -5.5090652,
+                "name": "Pepe",
+                "price_usd": 3.4652077144512912e-06,
+                "symbol": "PEPE"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": -4.85873874,
+                "name": "Jupiter",
+                "price_usd": 0.21592414819525965,
+                "symbol": "JUP"
+              },
+              {
+                "chain": null,
+                "change_24h_pct": -4.71613627,
+                "name": "ether.fi",
+                "price_usd": 0.5568048473605298,
+                "symbol": "ETHFI"
+              }
+            ]
+          }
+        },
+        "data_mode": "live",
+        "request": {},
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "Market regime: neutral; sentiment: extreme greed (75/100).",
+          "key_points": [
+            "24h market-cap change: -1.19%.",
+            "BTC dominance: +59.64%.",
+            "ETH dominance: +11.17%.",
+            "Total market cap: $2.68T.",
+            "24h market volume: $97.05B."
+          ]
+        },
+        "tool": "market_overview",
+        "warnings": []
+      }
+    },
+    {
+      "source_id": 2492,
+      "tool": "monitor_market_sentiment_shift",
+      "args": {},
+      "ts_utc": "2026-09-05T02:45:03.276488+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T02:45:03Z",
+        "availability": {
+          "diagnostics": "available",
+          "evidence": "available",
+          "research": "available"
+        },
+        "data": {
+          "diagnostics": {
+            "execution": {
+              "elapsed_ms": 654,
+              "status": "completed"
+            }
+          },
+          "evidence": {
+            "altseason": {
+              "data_date": "2026-09-05",
+              "index": 35,
+              "phase": "transition"
+            },
+            "fear_greed": {
+              "baseline_7d_date": "2026-08-29",
+              "baseline_7d_value": 78,
+              "change_7d_points": -3,
+              "change_direction": "down",
+              "data_date": "2026-09-05",
+              "label": "extreme_greed",
+              "material_shift": false,
+              "value": 75
+            },
+            "funding": {
+              "crowding_state": "normal",
+              "current_7d_percentile_90d": 53.333333,
+              "current_7d_window": {
+                "end_date": "2026-09-04",
+                "mean_bps": 0.569357,
+                "start_date": "2026-08-29"
+              },
+              "data_date": "2026-09-04",
+              "latest_bps": -0.0335,
+              "previous_7d_window": {
+                "end_date": "2026-08-28",
+                "mean_bps": 0.664943,
+                "start_date": "2026-08-22"
+              },
+              "wow_change_bps": -0.095586,
+              "wow_change_pct": -14.375027
+            },
+            "liquidation": {
+              "coverage_scope": "BTC perpetuals across major derivatives markets",
+              "data_date": "2026-09-04",
+              "dominant_liquidated_side": "longs",
+              "long_share_pct": 86.309757,
+              "percentile_90d": 82.222222,
+              "pressure_state": "normal",
+              "total_usd": 80987280.56
+            },
+            "sentiment_regime": "extreme_greed_unconfirmed"
+          },
+          "observation_as_of": "2026-09-05T02:45:03Z",
+          "source": {
+            "attribution": "Powered by CoinMarketCap",
+            "skill_id": "monitor_market_sentiment_shift",
+            "timestamp": "2026-09-05T02:45:03Z",
+            "type": "evidence_pack"
+          },
+          "source_attribution": "Powered by CoinMarketCap",
+          "status": "ok",
+          "summary": "Fear & Greed is 75, down 3 points over seven days (not a material shift). BTC perpetual daily funding averages 0.569357 bps per day over the latest seven days, down 0.095586 bps per day week over week, with no funding crowding signal. BTC perpetual daily liquidations total $80.99 million, with long liquidations dominant and normal pressure. Overall sentiment regime: extreme greed unconfirmed."
+        },
+        "data_mode": "live",
+        "request": {
+          "time_window": "7d"
+        },
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "Fear & Greed is 75, down 3 points over seven days (not a material shift). BTC perpetual daily funding averages 0.569357 bps per day over the latest seven days, down 0.095586 bps per day week over week, with no funding crowding signal. BTC perpetual daily liquidations total $80.99 million, with long liquidations dominant and normal pressure. Overall sentiment regime: extreme greed unconfirmed.",
+          "key_points": [
+            "Sentiment regime: extreme greed unconfirmed."
+          ]
+        },
+        "tool": "monitor_market_sentiment_shift",
+        "warnings": []
+      }
+    },
+    {
+      "source_id": 2494,
+      "tool": "analyze_token",
+      "args": {
+        "symbol": "SOL"
+      },
+      "ts_utc": "2026-09-05T02:45:05.030733+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T02:45:05Z",
+        "availability": {
+          "market_data": "available",
+          "market_intelligence": "available",
+          "technical_analysis": "available"
+        },
+        "data": {
+          "asset": {
+            "chain": null,
+            "contract": null,
+            "name": "Solana",
+            "rank": 7,
+            "symbol": "SOL"
+          },
+          "intelligence": {
+            "catalysts": [
+              "Top-7 asset — deep liquidity",
+              "EMA trend is up"
+            ],
+            "narrative": "Solana ranks #7 by market cap (coin) — pos, platform, solana-ecosystem",
+            "risks": []
+          },
+          "market": {
+            "fully_diluted_value_usd": 64586893517.61,
+            "market_cap_usd": 59683137257.58693,
+            "price_usd": 101.95973958624005,
+            "volume_24h_usd": 3139068838.8813095
+          },
+          "performance": {
+            "change_1h_pct": -0.17897889,
+            "change_24h_pct": -1.60767061,
+            "change_30d_pct": 38.78364165,
+            "change_7d_pct": -1.89264434
+          },
+          "technical_analysis": {
+            "atr_14_pct": 4.54,
+            "momentum_30d_pct": 38.78364165,
+            "rsi_14": 63.9,
+            "trend": "up"
+          },
+          "verdict": "neutral"
+        },
+        "data_mode": "live",
+        "request": {
+          "symbol": "SOL"
+        },
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "SOL analysis: neutral.",
+          "key_points": [
+            "Price: $101.96.",
+            "24h change: -1.61%."
+          ]
+        },
+        "tool": "analyze_token",
+        "warnings": []
+      }
+    },
+    {
+      "source_id": 2495,
+      "tool": "deep_analysis",
+      "args": {
+        "include_perp": true,
+        "symbol": "SOL"
+      },
+      "ts_utc": "2026-09-05T02:45:39.012971+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T02:45:39Z",
+        "availability": {
+          "derivatives": "unavailable",
+          "market_data": "available",
+          "technical_analysis": "available",
+          "token_profile": "unavailable",
+          "trade_plan": "available"
+        },
+        "data": {
+          "asset": {
+            "chain": null,
+            "contract": null,
+            "name": "Solana",
+            "rank": 7,
+            "symbol": "SOL"
+          },
+          "confluence": {
+            "gates": [
+              {
+                "detail": {
+                  "rsi_14": 63.9,
+                  "trend": "up"
+                },
+                "name": "momentum",
+                "passed": true
+              },
+              {
+                "detail": {
+                  "volume_to_market_cap": 0.0526
+                },
+                "name": "market_activity",
+                "passed": true
+              }
+            ],
+            "score": 1.0,
+            "state": "CONFIRMED",
+            "status": "available"
+          },
+          "derivatives": null,
+          "intelligence": {
+            "catalysts": [
+              "Daily technical trend is upward."
+            ],
+            "narrative": "coin, pos, platform, solana-ecosystem, cms-holdings-portfolio",
+            "risks": []
+          },
+          "market": {
+            "circulating_supply": 585359843.9912204,
+            "dominance_pct": 2.2264,
+            "fdv_usd": 64586893517.61,
+            "max_supply": null,
+            "mcap_usd": 59683137257.58693,
+            "price_usd": 101.95973958624005,
+            "volume_24h_usd": 3139068838.8813095
+          },
+          "performance": {
+            "d30": 38.78364165,
+            "d7": -1.89264434,
+            "h1": -0.17897889,
+            "h24": -1.60767061
+          },
+          "technical_analysis": {
+            "atr_14_pct": 4.54,
+            "momentum_30d_pct": 38.78364165,
+            "rsi_14": 63.9,
+            "trend": "up"
+          },
+          "token_profile": null,
+          "trade_plan": {
+            "atr_14_pct": 4.54,
+            "atr_14_usd": 4.629,
+            "atr_multiplier": 1.5,
+            "entry": 101.9597,
+            "method": "wilder_atr_14_from_daily_ohlcv",
+            "preview_only": true,
+            "risk_reward": [
+              1.0,
+              2.0
+            ],
+            "stop": 95.0163,
+            "targets": [
+              108.9032,
+              115.8467
+            ]
+          },
+          "verdict": {
+            "bottom_line": "The measured market and technical signals are mixed.",
+            "call": "neutral",
+            "confluence_score": 1.0,
+            "headline": "SOL deep analysis: neutral.",
+            "key_driver": "The measured market and technical signals are mixed.",
+            "what_changes_it": "A material change in trend, momentum, activity, or derivatives posture."
+          }
+        },
+        "data_mode": "live",
+        "request": {
+          "include_perp": true,
+          "symbol": "SOL"
+        },
+        "schema_version": "1.0",
+        "status": "partial",
+        "summary": {
+          "headline": "SOL deep analysis: neutral.",
+          "key_points": [
+            "The measured market and technical signals are mixed.",
+            "Key driver: The measured market and technical signals are mixed.",
+            "What changes the view: A material change in trend, momentum, activity, or derivatives posture."
+          ]
+        },
+        "tool": "deep_analysis",
+        "warnings": [
+          "Optional Skill Hub token-profile evidence is incomplete or unavailable.",
+          "Derivatives analysis is unavailable or was not requested."
+        ]
+      }
+    },
+    {
+      "source_id": 2496,
+      "tool": "analyze_token",
+      "args": {
+        "symbol": "BTC"
+      },
+      "ts_utc": "2026-09-05T02:45:39.922086+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T02:45:40Z",
+        "availability": {
+          "market_data": "available",
+          "market_intelligence": "available",
+          "technical_analysis": "available"
+        },
+        "data": {
+          "asset": {
+            "chain": null,
+            "contract": null,
+            "name": "Bitcoin",
+            "rank": 1,
+            "symbol": "BTC"
+          },
+          "intelligence": {
+            "catalysts": [
+              "Top-1 asset — deep liquidity",
+              "EMA trend is up"
+            ],
+            "narrative": "Bitcoin ranks #1 by market cap (coin) — mineable, pow, sha-256",
+            "risks": []
+          },
+          "market": {
+            "fully_diluted_value_usd": 1672212855513.67,
+            "market_cap_usd": 1598940310385.878,
+            "price_usd": 79629.18359588926,
+            "volume_24h_usd": 35557954707.37137
+          },
+          "performance": {
+            "change_1h_pct": -0.01587378,
+            "change_24h_pct": -1.45136235,
+            "change_30d_pct": 23.42177098,
+            "change_7d_pct": 2.59268534
+          },
+          "technical_analysis": {
+            "atr_14_pct": 3.11,
+            "momentum_30d_pct": 23.42177098,
+            "rsi_14": 67.0,
+            "trend": "up"
+          },
+          "verdict": "accumulate"
+        },
+        "data_mode": "live",
+        "request": {
+          "symbol": "BTC"
+        },
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "BTC analysis: accumulate.",
+          "key_points": [
+            "Price: $79,629.18.",
+            "24h change: -1.45%."
+          ]
+        },
+        "tool": "analyze_token",
+        "warnings": []
+      }
+    },
+    {
+      "source_id": 2497,
+      "tool": "deep_analysis",
+      "args": {
+        "include_perp": true,
+        "symbol": "BTC"
+      },
+      "ts_utc": "2026-09-05T02:47:27.777140+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T02:47:27Z",
+        "availability": {
+          "derivatives": "unavailable",
+          "market_data": "available",
+          "technical_analysis": "available",
+          "token_profile": "unavailable",
+          "trade_plan": "available"
+        },
+        "data": {
+          "asset": {
+            "chain": null,
+            "contract": null,
+            "name": "Bitcoin",
+            "rank": 1,
+            "symbol": "BTC"
+          },
+          "confluence": {
+            "gates": [
+              {
+                "detail": {
+                  "rsi_14": 67.0,
+                  "trend": "up"
+                },
+                "name": "momentum",
+                "passed": true
+              },
+              {
+                "detail": {
+                  "volume_to_market_cap": 0.0222
+                },
+                "name": "market_activity",
+                "passed": true
+              }
+            ],
+            "score": 1.0,
+            "state": "CONFIRMED",
+            "status": "available"
+          },
+          "derivatives": null,
+          "intelligence": {
+            "catalysts": [
+              "Daily technical trend is upward."
+            ],
+            "narrative": "coin, mineable, pow, sha-256, store-of-value",
+            "risks": []
+          },
+          "market": {
+            "circulating_supply": 20079828.0,
+            "dominance_pct": 59.6373,
+            "fdv_usd": 1671922394290.06,
+            "max_supply": 21000000.0,
+            "mcap_usd": 1598662576509.1702,
+            "price_usd": 79615.35210905044,
+            "volume_24h_usd": 35525526688.88912
+          },
+          "performance": {
+            "d30": 23.39700544,
+            "d7": 2.54143504,
+            "h1": -0.05600256,
+            "h24": -1.35822759
+          },
+          "technical_analysis": {
+            "atr_14_pct": 3.11,
+            "momentum_30d_pct": 23.39700544,
+            "rsi_14": 67.0,
+            "trend": "up"
+          },
+          "token_profile": null,
+          "trade_plan": {
+            "atr_14_pct": 3.11,
+            "atr_14_usd": 2476.0375,
+            "atr_multiplier": 1.5,
+            "entry": 79615.3521,
+            "method": "wilder_atr_14_from_daily_ohlcv",
+            "preview_only": true,
+            "risk_reward": [
+              1.0,
+              2.0
+            ],
+            "stop": 75901.2959,
+            "targets": [
+              83329.4083,
+              87043.4645
+            ]
+          },
+          "verdict": {
+            "bottom_line": "Positive seven-day momentum with an upward technical trend.",
+            "call": "constructive",
+            "confluence_score": 1.0,
+            "headline": "BTC deep analysis: constructive.",
+            "key_driver": "Positive seven-day momentum with an upward technical trend.",
+            "what_changes_it": "A material change in trend, momentum, activity, or derivatives posture."
+          }
+        },
+        "data_mode": "live",
+        "request": {
+          "include_perp": true,
+          "symbol": "BTC"
+        },
+        "schema_version": "1.0",
+        "status": "partial",
+        "summary": {
+          "headline": "BTC deep analysis: constructive.",
+          "key_points": [
+            "Positive seven-day momentum with an upward technical trend.",
+            "Key driver: Positive seven-day momentum with an upward technical trend.",
+            "What changes the view: A material change in trend, momentum, activity, or derivatives posture."
+          ]
+        },
+        "tool": "deep_analysis",
+        "warnings": [
+          "Optional Skill Hub token-profile evidence is incomplete or unavailable.",
+          "Derivatives analysis is unavailable or was not requested."
+        ]
+      }
+    },
+    {
+      "source_id": 2498,
+      "tool": "analyze_token",
+      "args": {
+        "symbol": "ETH"
+      },
+      "ts_utc": "2026-09-05T02:47:28.603236+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T02:47:28Z",
+        "availability": {
+          "market_data": "available",
+          "market_intelligence": "available",
+          "technical_analysis": "available"
+        },
+        "data": {
+          "asset": {
+            "chain": null,
+            "contract": null,
+            "name": "Ethereum",
+            "rank": 2,
+            "symbol": "ETH"
+          },
+          "intelligence": {
+            "catalysts": [
+              "Top-2 asset — deep liquidity",
+              "EMA trend is up"
+            ],
+            "narrative": "Ethereum ranks #2 by market cap (coin) — pos, smart-contracts, ethereum-ecosystem",
+            "risks": []
+          },
+          "market": {
+            "fully_diluted_value_usd": 299364908099.59,
+            "market_cap_usd": 299364908099.5876,
+            "price_usd": 2453.3897676317206,
+            "volume_24h_usd": 18309862808.5909
+          },
+          "performance": {
+            "change_1h_pct": -0.03526564,
+            "change_24h_pct": -1.91962439,
+            "change_30d_pct": 29.2041594,
+            "change_7d_pct": 0.61767291
+          },
+          "technical_analysis": {
+            "atr_14_pct": 3.99,
+            "momentum_30d_pct": 29.2041594,
+            "rsi_14": 62.8,
+            "trend": "up"
+          },
+          "verdict": "accumulate"
+        },
+        "data_mode": "live",
+        "request": {
+          "symbol": "ETH"
+        },
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "ETH analysis: accumulate.",
+          "key_points": [
+            "Price: $2,453.39.",
+            "24h change: -1.92%."
+          ]
+        },
+        "tool": "analyze_token",
+        "warnings": []
+      }
+    },
+    {
+      "source_id": 2499,
+      "tool": "deep_analysis",
+      "args": {
+        "include_perp": true,
+        "symbol": "ETH"
+      },
+      "ts_utc": "2026-09-05T02:48:03.478863+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T02:47:58Z",
+        "availability": {
+          "derivatives": "unavailable",
+          "market_data": "available",
+          "technical_analysis": "available",
+          "token_profile": "unavailable",
+          "trade_plan": "available"
+        },
+        "data": {
+          "asset": {
+            "chain": null,
+            "contract": null,
+            "name": "Ethereum",
+            "rank": 2,
+            "symbol": "ETH"
+          },
+          "confluence": {
+            "gates": [
+              {
+                "detail": {
+                  "rsi_14": 62.8,
+                  "trend": "up"
+                },
+                "name": "momentum",
+                "passed": true
+              },
+              {
+                "detail": {
+                  "volume_to_market_cap": 0.0612
+                },
+                "name": "market_activity",
+                "passed": true
+              }
+            ],
+            "score": 1.0,
+            "state": "CONFIRMED",
+            "status": "available"
+          },
+          "derivatives": null,
+          "intelligence": {
+            "catalysts": [
+              "Daily technical trend is upward."
+            ],
+            "narrative": "coin, pos, smart-contracts, ethereum-ecosystem, coinbase-ventures-portfolio",
+            "risks": []
+          },
+          "market": {
+            "circulating_supply": 122020932.85347287,
+            "dominance_pct": 11.1677,
+            "fdv_usd": 299364908099.59,
+            "max_supply": null,
+            "mcap_usd": 299364908099.5876,
+            "price_usd": 2453.3897676317206,
+            "volume_24h_usd": 18309862808.5909
+          },
+          "performance": {
+            "d30": 29.2041594,
+            "d7": 0.61767291,
+            "h1": -0.03526564,
+            "h24": -1.91962439
+          },
+          "technical_analysis": {
+            "atr_14_pct": 3.99,
+            "momentum_30d_pct": 29.2041594,
+            "rsi_14": 62.8,
+            "trend": "up"
+          },
+          "token_profile": null,
+          "trade_plan": {
+            "atr_14_pct": 3.99,
+            "atr_14_usd": 97.8903,
+            "atr_multiplier": 1.5,
+            "entry": 2453.3898,
+            "method": "wilder_atr_14_from_daily_ohlcv",
+            "preview_only": true,
+            "risk_reward": [
+              1.0,
+              2.0
+            ],
+            "stop": 2306.5544,
+            "targets": [
+              2600.2251,
+              2747.0605
+            ]
+          },
+          "verdict": {
+            "bottom_line": "Positive seven-day momentum with an upward technical trend.",
+            "call": "constructive",
+            "confluence_score": 1.0,
+            "headline": "ETH deep analysis: constructive.",
+            "key_driver": "Positive seven-day momentum with an upward technical trend.",
+            "what_changes_it": "A material change in trend, momentum, activity, or derivatives posture."
+          }
+        },
+        "data_mode": "live",
+        "request": {
+          "include_perp": true,
+          "symbol": "ETH"
+        },
+        "schema_version": "1.0",
+        "status": "partial",
+        "summary": {
+          "headline": "ETH deep analysis: constructive.",
+          "key_points": [
+            "Positive seven-day momentum with an upward technical trend.",
+            "Key driver: Positive seven-day momentum with an upward technical trend.",
+            "What changes the view: A material change in trend, momentum, activity, or derivatives posture."
+          ]
+        },
+        "tool": "deep_analysis",
+        "warnings": [
+          "Optional Skill Hub token-profile evidence is incomplete or unavailable.",
+          "Derivatives analysis is unavailable or was not requested."
+        ]
+      }
+    },
+    {
+      "source_id": 2500,
+      "tool": "analyze_token",
+      "args": {
+        "symbol": "BNB"
+      },
+      "ts_utc": "2026-09-05T02:48:04.592517+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T02:48:05Z",
+        "availability": {
+          "market_data": "available",
+          "market_intelligence": "available",
+          "technical_analysis": "available"
+        },
+        "data": {
+          "asset": {
+            "chain": null,
+            "contract": null,
+            "name": "BNB",
+            "rank": 4,
+            "symbol": "BNB"
+          },
+          "intelligence": {
+            "catalysts": [
+              "Top-4 asset — deep liquidity",
+              "EMA trend is up"
+            ],
+            "narrative": "BNB ranks #4 by market cap (coin) — marketplace, centralized-exchange, payments",
+            "risks": []
+          },
+          "market": {
+            "fully_diluted_value_usd": 96054618069.86,
+            "market_cap_usd": 96054616829.1605,
+            "price_usd": 721.3363917309346,
+            "volume_24h_usd": 1576052830.5022075
+          },
+          "performance": {
+            "change_1h_pct": -0.21432866,
+            "change_24h_pct": -0.23637601,
+            "change_30d_pct": 21.69954197,
+            "change_7d_pct": 4.51685848
+          },
+          "technical_analysis": {
+            "atr_14_pct": 2.67,
+            "momentum_30d_pct": 21.69954197,
+            "rsi_14": 71.7,
+            "trend": "up"
+          },
+          "verdict": "caution — overbought"
+        },
+        "data_mode": "live",
+        "request": {
+          "symbol": "BNB"
+        },
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "BNB analysis: caution — overbought.",
+          "key_points": [
+            "Price: $721.34.",
+            "24h change: -0.24%."
+          ]
+        },
+        "tool": "analyze_token",
+        "warnings": []
+      }
+    },
+    {
+      "source_id": 2501,
+      "tool": "deep_analysis",
+      "args": {
+        "include_perp": true,
+        "symbol": "BNB"
+      },
+      "ts_utc": "2026-09-05T02:48:30.952738+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T02:48:31Z",
+        "availability": {
+          "derivatives": "unavailable",
+          "market_data": "available",
+          "technical_analysis": "available",
+          "token_profile": "unavailable",
+          "trade_plan": "available"
+        },
+        "data": {
+          "asset": {
+            "chain": null,
+            "contract": null,
+            "name": "BNB",
+            "rank": 4,
+            "symbol": "BNB"
+          },
+          "confluence": {
+            "gates": [
+              {
+                "detail": {
+                  "rsi_14": 71.7,
+                  "trend": "up"
+                },
+                "name": "momentum",
+                "passed": true
+              },
+              {
+                "detail": {
+                  "volume_to_market_cap": 0.0164
+                },
+                "name": "market_activity",
+                "passed": false
+              }
+            ],
+            "score": 0.5,
+            "state": "MIXED",
+            "status": "available"
+          },
+          "derivatives": null,
+          "intelligence": {
+            "catalysts": [
+              "Daily technical trend is upward."
+            ],
+            "narrative": "coin, marketplace, centralized-exchange, payments, smart-contracts",
+            "risks": []
+          },
+          "market": {
+            "circulating_supply": 133162028.05,
+            "dominance_pct": 3.5833,
+            "fdv_usd": 96054618069.86,
+            "max_supply": 133162029.77,
+            "mcap_usd": 96054616829.1605,
+            "price_usd": 721.3363917309346,
+            "volume_24h_usd": 1576052830.5022075
+          },
+          "performance": {
+            "d30": 21.69954197,
+            "d7": 4.51685848,
+            "h1": -0.21432866,
+            "h24": -0.23637601
+          },
+          "technical_analysis": {
+            "atr_14_pct": 2.67,
+            "momentum_30d_pct": 21.69954197,
+            "rsi_14": 71.7,
+            "trend": "up"
+          },
+          "token_profile": null,
+          "trade_plan": {
+            "atr_14_pct": 2.67,
+            "atr_14_usd": 19.2597,
+            "atr_multiplier": 1.5,
+            "entry": 721.3364,
+            "method": "wilder_atr_14_from_daily_ohlcv",
+            "preview_only": true,
+            "risk_reward": [
+              1.0,
+              2.0
+            ],
+            "stop": 692.4469,
+            "targets": [
+              750.2259,
+              779.1154
+            ]
+          },
+          "verdict": {
+            "bottom_line": "Positive seven-day momentum with an upward technical trend.",
+            "call": "constructive",
+            "confluence_score": 0.5,
+            "headline": "BNB deep analysis: constructive.",
+            "key_driver": "Positive seven-day momentum with an upward technical trend.",
+            "what_changes_it": "A material change in trend, momentum, activity, or derivatives posture."
+          }
+        },
+        "data_mode": "live",
+        "request": {
+          "include_perp": true,
+          "symbol": "BNB"
+        },
+        "schema_version": "1.0",
+        "status": "partial",
+        "summary": {
+          "headline": "BNB deep analysis: constructive.",
+          "key_points": [
+            "Positive seven-day momentum with an upward technical trend.",
+            "Key driver: Positive seven-day momentum with an upward technical trend.",
+            "What changes the view: A material change in trend, momentum, activity, or derivatives posture."
+          ]
+        },
+        "tool": "deep_analysis",
+        "warnings": [
+          "Optional Skill Hub token-profile evidence is incomplete or unavailable.",
+          "Derivatives analysis is unavailable or was not requested."
+        ]
+      }
+    },
+    {
+      "source_id": 2544,
+      "tool": "compare_tokens",
+      "args": {
+        "intent": "swing",
+        "symbols": "SOL, BNB, ETH"
+      },
+      "ts_utc": "2026-09-05T03:01:06.016207+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T03:01:06Z",
+        "availability": {
+          "comparison_factors": "available",
+          "conclusion": "available",
+          "token_market_data": "available",
+          "token_profiles": "unavailable"
+        },
+        "data": {
+          "conclusion": {
+            "confidence": "medium",
+            "headline": "BNB leads this comparison.",
+            "method": "deterministic",
+            "pick": "BNB",
+            "rationale": "It leads on Momentum / relative strength, Lower measured volatility.",
+            "runner_up_case": "SOL can take the lead if the measured factors rotate."
+          },
+          "coverage_by_token": {
+            "BNB": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            },
+            "ETH": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            },
+            "SOL": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            }
+          },
+          "factors": [
+            {
+              "key": "momentum",
+              "label": "Momentum / relative strength",
+              "scores": {
+                "BNB": 9.443141,
+                "ETH": 5.595197,
+                "SOL": 3.040816
+              },
+              "winner": "BNB"
+            },
+            {
+              "key": "market_activity",
+              "label": "Market activity",
+              "scores": {
+                "BNB": 0.016426,
+                "ETH": 0.060941,
+                "SOL": 0.05248
+              },
+              "winner": "ETH"
+            },
+            {
+              "key": "volatility",
+              "label": "Lower measured volatility",
+              "scores": {
+                "BNB": -2.67,
+                "ETH": -3.99,
+                "SOL": -4.54
+              },
+              "winner": "BNB"
+            }
+          ],
+          "intent": "swing",
+          "tokens": [
+            {
+              "chain": null,
+              "changes": {
+                "d30": 38.78182673,
+                "d7": -1.95918358,
+                "h1": 0.03446107,
+                "h24": -1.70122789
+              },
+              "metrics": {
+                "atr_14_pct": 4.54,
+                "market_cap_usd": 59680558600.37633,
+                "rsi_14": 63.9,
+                "trend": "up",
+                "volume_24h_usd": 3132063300.3710914
+              },
+              "name": "Solana",
+              "price_usd": 101.95533433494536,
+              "rank": 7,
+              "symbol": "SOL",
+              "token_profile": null,
+              "verdict": "neutral"
+            },
+            {
+              "chain": null,
+              "changes": {
+                "d30": 21.645968,
+                "d7": 4.44314119,
+                "h1": -0.12472296,
+                "h24": -0.35872656
+              },
+              "metrics": {
+                "atr_14_pct": 2.67,
+                "market_cap_usd": 96015541112.99763,
+                "rsi_14": 71.7,
+                "trend": "up",
+                "volume_24h_usd": 1577188119.6261723
+              },
+              "name": "BNB",
+              "price_usd": 721.0429468447678,
+              "rank": 4,
+              "symbol": "BNB",
+              "token_profile": null,
+              "verdict": "constructive"
+            },
+            {
+              "chain": null,
+              "changes": {
+                "d30": 29.30593164,
+                "d7": 0.59519683,
+                "h1": 0.00785133,
+                "h24": -2.04852847
+              },
+              "metrics": {
+                "atr_14_pct": 3.99,
+                "market_cap_usd": 299351967903.9333,
+                "rsi_14": 62.8,
+                "trend": "up",
+                "volume_24h_usd": 18242807356.46413
+              },
+              "name": "Ethereum",
+              "price_usd": 2453.283718650192,
+              "rank": 2,
+              "symbol": "ETH",
+              "token_profile": null,
+              "verdict": "constructive"
+            }
+          ],
+          "winner": "BNB"
+        },
+        "data_mode": "live",
+        "request": {
+          "intent": "swing",
+          "symbols": "SOL, BNB, ETH"
+        },
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "BNB leads this comparison.",
+          "key_points": [
+            "It leads on Momentum / relative strength, Lower measured volatility.",
+            "SOL can take the lead if the measured factors rotate."
+          ]
+        },
+        "tool": "compare_tokens",
+        "warnings": [
+          "Optional Skill Hub token-profile evidence is incomplete or unavailable for one or more tokens.",
+          "The conclusion was calculated from the returned factors; no narrative model was used."
+        ]
+      }
+    },
+    {
+      "source_id": 2545,
+      "tool": "compare_tokens",
+      "args": {
+        "intent": "swing",
+        "symbols": "BTC, BNB, ETH"
+      },
+      "ts_utc": "2026-09-05T03:01:50.576066+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T03:01:51Z",
+        "availability": {
+          "comparison_factors": "available",
+          "conclusion": "available",
+          "token_market_data": "available",
+          "token_profiles": "unavailable"
+        },
+        "data": {
+          "conclusion": {
+            "confidence": "medium",
+            "headline": "BNB leads this comparison.",
+            "method": "deterministic",
+            "pick": "BNB",
+            "rationale": "It leads on Momentum / relative strength, Lower measured volatility.",
+            "runner_up_case": "BTC can take the lead if the measured factors rotate."
+          },
+          "coverage_by_token": {
+            "BNB": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            },
+            "BTC": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            },
+            "ETH": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            }
+          },
+          "factors": [
+            {
+              "key": "momentum",
+              "label": "Momentum / relative strength",
+              "scores": {
+                "BNB": 9.443141,
+                "BTC": 7.437742,
+                "ETH": 5.595197
+              },
+              "winner": "BNB"
+            },
+            {
+              "key": "market_activity",
+              "label": "Market activity",
+              "scores": {
+                "BNB": 0.016426,
+                "BTC": 0.022166,
+                "ETH": 0.060941
+              },
+              "winner": "ETH"
+            },
+            {
+              "key": "volatility",
+              "label": "Lower measured volatility",
+              "scores": {
+                "BNB": -2.67,
+                "BTC": -3.11,
+                "ETH": -3.99
+              },
+              "winner": "BNB"
+            }
+          ],
+          "intent": "swing",
+          "tokens": [
+            {
+              "chain": null,
+              "changes": {
+                "d30": 23.37440619,
+                "d7": 2.43774171,
+                "h1": 0.0306449,
+                "h24": -1.54726679
+              },
+              "metrics": {
+                "atr_14_pct": 3.11,
+                "market_cap_usd": 1598033110533.058,
+                "rsi_14": 67.0,
+                "trend": "up",
+                "volume_24h_usd": 35421294189.19671
+              },
+              "name": "Bitcoin",
+              "price_usd": 79584.00393335332,
+              "rank": 1,
+              "symbol": "BTC",
+              "token_profile": null,
+              "verdict": "constructive"
+            },
+            {
+              "chain": null,
+              "changes": {
+                "d30": 21.645968,
+                "d7": 4.44314119,
+                "h1": -0.12472296,
+                "h24": -0.35872656
+              },
+              "metrics": {
+                "atr_14_pct": 2.67,
+                "market_cap_usd": 96015541112.99763,
+                "rsi_14": 71.7,
+                "trend": "up",
+                "volume_24h_usd": 1577188119.6261723
+              },
+              "name": "BNB",
+              "price_usd": 721.0429468447678,
+              "rank": 4,
+              "symbol": "BNB",
+              "token_profile": null,
+              "verdict": "constructive"
+            },
+            {
+              "chain": null,
+              "changes": {
+                "d30": 29.30593164,
+                "d7": 0.59519683,
+                "h1": 0.00785133,
+                "h24": -2.04852847
+              },
+              "metrics": {
+                "atr_14_pct": 3.99,
+                "market_cap_usd": 299351967903.9333,
+                "rsi_14": 62.8,
+                "trend": "up",
+                "volume_24h_usd": 18242807356.46413
+              },
+              "name": "Ethereum",
+              "price_usd": 2453.283718650192,
+              "rank": 2,
+              "symbol": "ETH",
+              "token_profile": null,
+              "verdict": "constructive"
+            }
+          ],
+          "winner": "BNB"
+        },
+        "data_mode": "live",
+        "request": {
+          "intent": "swing",
+          "symbols": "BTC, BNB, ETH"
+        },
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "BNB leads this comparison.",
+          "key_points": [
+            "It leads on Momentum / relative strength, Lower measured volatility.",
+            "BTC can take the lead if the measured factors rotate."
+          ]
+        },
+        "tool": "compare_tokens",
+        "warnings": [
+          "Optional Skill Hub token-profile evidence is incomplete or unavailable for one or more tokens.",
+          "The conclusion was calculated from the returned factors; no narrative model was used."
+        ]
+      }
+    },
+    {
+      "source_id": 2546,
+      "tool": "compare_tokens",
+      "args": {
+        "intent": "swing",
+        "symbols": "ETH, BNB"
+      },
+      "ts_utc": "2026-09-05T03:02:33.428629+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T03:02:33Z",
+        "availability": {
+          "comparison_factors": "available",
+          "conclusion": "available",
+          "token_market_data": "available",
+          "token_profiles": "unavailable"
+        },
+        "data": {
+          "conclusion": {
+            "confidence": "medium",
+            "headline": "BNB leads this comparison.",
+            "method": "deterministic",
+            "pick": "BNB",
+            "rationale": "It leads on Momentum / relative strength, Lower measured volatility.",
+            "runner_up_case": "ETH can take the lead if the measured factors rotate."
+          },
+          "coverage_by_token": {
+            "BNB": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            },
+            "ETH": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            }
+          },
+          "factors": [
+            {
+              "key": "momentum",
+              "label": "Momentum / relative strength",
+              "scores": {
+                "BNB": 9.449071,
+                "ETH": 5.592109
+              },
+              "winner": "BNB"
+            },
+            {
+              "key": "market_activity",
+              "label": "Market activity",
+              "scores": {
+                "BNB": 0.016425,
+                "ETH": 0.060903
+              },
+              "winner": "ETH"
+            },
+            {
+              "key": "volatility",
+              "label": "Lower measured volatility",
+              "scores": {
+                "BNB": -2.67,
+                "ETH": -3.99
+              },
+              "winner": "BNB"
+            }
+          ],
+          "intent": "swing",
+          "tokens": [
+            {
+              "chain": null,
+              "changes": {
+                "d30": 29.32834225,
+                "d7": 0.59210899,
+                "h1": 0.04179836,
+                "h24": -2.13847344
+              },
+              "metrics": {
+                "atr_14_pct": 3.99,
+                "market_cap_usd": 299394874518.8327,
+                "rsi_14": 62.8,
+                "trend": "up",
+                "volume_24h_usd": 18233957510.56834
+              },
+              "name": "Ethereum",
+              "price_usd": 2453.635351881442,
+              "rank": 2,
+              "symbol": "ETH",
+              "token_profile": null,
+              "verdict": "constructive"
+            },
+            {
+              "chain": null,
+              "changes": {
+                "d30": 21.63244672,
+                "d7": 4.44907096,
+                "h1": -0.128205,
+                "h24": -0.37138564
+              },
+              "metrics": {
+                "atr_14_pct": 2.67,
+                "market_cap_usd": 96016410252.65265,
+                "rsi_14": 71.7,
+                "trend": "up",
+                "volume_24h_usd": 1577094599.7673185
+              },
+              "name": "BNB",
+              "price_usd": 721.0494737779164,
+              "rank": 4,
+              "symbol": "BNB",
+              "token_profile": null,
+              "verdict": "constructive"
+            }
+          ],
+          "winner": "BNB"
+        },
+        "data_mode": "live",
+        "request": {
+          "intent": "swing",
+          "symbols": "ETH, BNB"
+        },
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "BNB leads this comparison.",
+          "key_points": [
+            "It leads on Momentum / relative strength, Lower measured volatility.",
+            "ETH can take the lead if the measured factors rotate."
+          ]
+        },
+        "tool": "compare_tokens",
+        "warnings": [
+          "Optional Skill Hub token-profile evidence is incomplete or unavailable for one or more tokens.",
+          "The conclusion was calculated from the returned factors; no narrative model was used."
+        ]
+      }
+    },
+    {
+      "source_id": 2547,
+      "tool": "compare_tokens",
+      "args": {
+        "intent": "swing",
+        "symbols": "BNB, ETH"
+      },
+      "ts_utc": "2026-09-05T03:03:18.707701+00:00",
+      "envelope": {
+        "as_of": "2026-09-05T03:03:19Z",
+        "availability": {
+          "comparison_factors": "available",
+          "conclusion": "available",
+          "token_market_data": "available",
+          "token_profiles": "unavailable"
+        },
+        "data": {
+          "conclusion": {
+            "confidence": "medium",
+            "headline": "BNB leads this comparison.",
+            "method": "deterministic",
+            "pick": "BNB",
+            "rationale": "It leads on Momentum / relative strength, Lower measured volatility.",
+            "runner_up_case": "ETH can take the lead if the measured factors rotate."
+          },
+          "coverage_by_token": {
+            "BNB": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            },
+            "ETH": {
+              "market_data": "available",
+              "token_profile": "unavailable"
+            }
+          },
+          "factors": [
+            {
+              "key": "momentum",
+              "label": "Momentum / relative strength",
+              "scores": {
+                "BNB": 9.449071,
+                "ETH": 5.592109
+              },
+              "winner": "BNB"
+            },
+            {
+              "key": "market_activity",
+              "label": "Market activity",
+              "scores": {
+                "BNB": 0.016425,
+                "ETH": 0.060903
+              },
+              "winner": "ETH"
+            },
+            {
+              "key": "volatility",
+              "label": "Lower measured volatility",
+              "scores": {
+                "BNB": -2.67,
+                "ETH": -3.99
+              },
+              "winner": "BNB"
+            }
+          ],
+          "intent": "swing",
+          "tokens": [
+            {
+              "chain": null,
+              "changes": {
+                "d30": 21.63244672,
+                "d7": 4.44907096,
+                "h1": -0.128205,
+                "h24": -0.37138564
+              },
+              "metrics": {
+                "atr_14_pct": 2.67,
+                "market_cap_usd": 96016410252.65265,
+                "rsi_14": 71.7,
+                "trend": "up",
+                "volume_24h_usd": 1577094599.7673185
+              },
+              "name": "BNB",
+              "price_usd": 721.0494737779164,
+              "rank": 4,
+              "symbol": "BNB",
+              "token_profile": null,
+              "verdict": "constructive"
+            },
+            {
+              "chain": null,
+              "changes": {
+                "d30": 29.32834225,
+                "d7": 0.59210899,
+                "h1": 0.04179836,
+                "h24": -2.13847344
+              },
+              "metrics": {
+                "atr_14_pct": 3.99,
+                "market_cap_usd": 299394874518.8327,
+                "rsi_14": 62.8,
+                "trend": "up",
+                "volume_24h_usd": 18233957510.56834
+              },
+              "name": "Ethereum",
+              "price_usd": 2453.635351881442,
+              "rank": 2,
+              "symbol": "ETH",
+              "token_profile": null,
+              "verdict": "constructive"
+            }
+          ],
+          "winner": "BNB"
+        },
+        "data_mode": "live",
+        "request": {
+          "intent": "swing",
+          "symbols": "BNB, ETH"
+        },
+        "schema_version": "1.0",
+        "status": "ok",
+        "summary": {
+          "headline": "BNB leads this comparison.",
+          "key_points": [
+            "It leads on Momentum / relative strength, Lower measured volatility.",
+            "ETH can take the lead if the measured factors rotate."
+          ]
+        },
+        "tool": "compare_tokens",
+        "warnings": [
+          "Optional Skill Hub token-profile evidence is incomplete or unavailable for one or more tokens.",
+          "The conclusion was calculated from the returned factors; no narrative model was used."
+        ]
+      }
+    }
+  ]
+}
