@@ -37,8 +37,8 @@ grep '^name = ' uv.lock          # 33 baris = 32 dependency + paket "tenko" send
 | pydantic | 2.13.5 | MIT | kontrak & validasi `SkillResult` — dipakai di `core/skill.py` |
 | pyyaml | 6.0.3 | MIT | baca `sources.yaml` — dipakai di `core/sources.py` |
 | anthropic | 1.2.0 | MIT | narasi kartu (di luar jalur keputusan, ADR-003) — **dipakai kode sejak TASKS 2.3**: hanya di `preflight/narrate.py`, satu panggilan `messages.create` per kartu, model `claude-opus-5`, setelah keputusan final; kredensial hanya dari env, tanpa kredensial tidak ada request sama sekali |
-| fastapi | 0.141.1 | MIT | route JSON UI — **terkunci di lock, BELUM dipakai kode** (TASKS 3.1 belum dikerjakan) |
-| uvicorn | 0.52.4 | BSD-3-Clause | server `make ui` — **terkunci di lock, BELUM dipakai kode** (TASKS 3.1 belum dikerjakan) |
+| fastapi | 0.141.1 | MIT | route JSON UI — **dipakai kode sejak TASKS 3.1**: `ui/app.py` (enam route `GET`: `/`, `/api/health`, `/api/watchlist`, `/api/decisions`, `/api/decision/{id}`, `/api/preflight/{symbol}`). Hanya membaca store (`Store(..., read_only=True)`); tidak ada `httpx` di `ui/`, `/api/health` melaporkan `calls_ryo_tools: false` dan `calls_llm: false`. Setiap respons — termasuk 400/404/405/422/500/503 — membawa `simulated: true` + banner SIMULATED. **Yang mendarat adalah API-nya, bukan layarnya**: Layar A/B (TASKS 3.2) belum ada |
+| uvicorn | 0.52.4 | BSD-3-Clause | server `make ui` — **dipakai sejak TASKS 3.1**, dijalankan dari `Makefile` (`uv run uvicorn ui.app:app --port $UI_PORT`), bukan diimpor kode; tanpa extra `[standard]` (`docs/versions.md`) |
 | pytest | 9.1.1 | MIT | dev — menjalankan `make test` |
 | ruff | 0.16.5 | MIT | dev — lint & format (`make lint`) |
 
@@ -82,8 +82,9 @@ pernah terpicu. Paket tetap terpasang utuh dari PyPI melalui `uv.lock`.
 
 ## Aset frontend JS — direncanakan (ADR-014), BELUM di-vendor
 
-**Status jujur per 1 Sep 2026: direktori `ui/static/` tidak ada di repo** (`ls ui/static` → tidak ditemukan; isi `ui/`
-hanya `ui/__init__.py`). Tidak satu pun berkas three/GSAP/Lenis pernah disalin ke repo ini. Fase 3.2 belum dikerjakan.
+**Status jujur per 5 Sep 2026: direktori `ui/static/` tidak ada di repo** (`ls ui/static` → tidak ditemukan; isi `ui/`
+hanya `ui/__init__.py` dan `ui/app.py` — route JSON, tanpa satu pun aset statis). Tidak satu pun berkas
+three/GSAP/Lenis pernah disalin ke repo ini. Fase 3.2 belum dikerjakan.
 
 Rencananya (ADR-014): saat layar dibangun, ketiga library **di-vendor lokal** ke `ui/static/vendor/<paket>/`, tanpa
 build step, tanpa npm, tanpa CDN saat runtime (ADR-001; `make demo` wajib jalan offline dari fixture dan chaos test

@@ -1,0 +1,999 @@
+"""`ui/app.py` — API baca-saja untuk Layar A & B (TASKS 3.1 + 3.1a, spec §4–§7).
+
+Empat route menjawab empat pertanyaan juri, dan tidak satu pun memanggil tool RYO atau LLM:
+
+* ``GET /api/watchlist`` — "simbol mana yang paling dekat GO, dan apa yang menahan yang lain?"
+  Satu baris per simbol (keputusan TERAKHIR simbol itu), diurutkan **daya veto** item
+  penahannya (:data:`preflight.params.ITEM_ORDER` = urutan spec §4, daya veto menurun).
+* ``GET /api/decisions`` — daftar keputusan terbaru, tanpa paginasi/pencarian (scope PM).
+* ``GET /api/decision/{id}`` — kartu panggilan 10 baris + bundle replay + vonis replay.
+* ``GET /api/preflight/{symbol}`` — panggilan pra-berangkat store-first untuk satu simbol.
+
+Ditambah dua route pelayan: ``GET /`` (indeks route, bukan landing page) dan ``GET /api/health``
+(``calls_ryo_tools: false``).
+
+Aturan yang ditegakkan di sini, bukan dijanjikan
+------------------------------------------------
+1. **`simulated: true` di SETIAP respons**, termasuk 404/405/422/500/503 — lewat :func:`_body`
+   dan TIGA exception handler: `starlette.exceptions.HTTPException` (induk dari
+   `fastapi.HTTPException`, sekaligus 404 rute tak dikenal dan 405 metode salah),
+   `RequestValidationError`, dan `Exception` (jaring terakhir, menggantikan "Internal Server
+   Error" teks polos bawaan). Ini kewajiban aturan lomba (docs/rules-compliance.md), bukan
+   hiasan — dan yang menjaganya adalah tes yang menembak path/metode yang TIDAK dideklarasikan,
+   bukan hanya yang dideklarasikan.
+2. **Nol panggilan RYO/LLM.** Yang dibaca hanya `data/ryo.db` lewat koneksi BACA-SAJA
+   (`Store(read_only=True)`) dan `agent/ledger.py`. `preflight.preflight` sendiri store-first.
+   Koneksi baca-saja itu sekarang meng-`quote()` path-nya dan memasang `PRAGMA query_only`
+   (TASKS **0.10**, ditutup di `c362fe2`), jadi path ber-`?`/`#` tidak lagi bisa membuka koneksi
+   yang BISA menulis. Modul ini tetap **tidak pernah menerima path DB dari request** — path
+   hanya dari `DB_PATH` (env) atau :attr:`app.state.db_path` yang dipasang tes — karena itu
+   kebijakan yang berdiri sendiri, bukan tambalan atas kelemahan yang sudah diperbaiki.
+3. **Dua generasi keputusan dipisah (TASKS 3.1a, ADR-016).** `/api/watchlist` dan
+   `/api/decisions` hanya menampilkan baris ber-`algo` (`DecisionRow.is_current_generation()`),
+   dan menyebut berapa baris warisan yang tidak ditampilkan — disembunyikan secara TERTULIS,
+   bukan diam-diam. `/api/decision/{id}` untuk id warisan menjawab **200** (barisnya ada) dengan
+   ``replay_status: "STALE_ALGO"``, ``items: []``, dan satu kalimat sebab; `blocking_json`
+   warisan **tidak dirender** karena isinya integer (indeks implementasi yang sudah dihapus),
+   bukan id item — merendernya akan menampilkan "blocking: 5, 6, 10" yang tidak berarti apa pun.
+4. **"Terverifikasi" hanya dari `ReplayReport.verified`**, tidak pernah dari string, exit code,
+   atau `grep`. `agent/replay.py` menyediakan `VERIFIED_VERDICTS = {IDENTICAL}` (satu anggota);
+   keempat vonis lain — `STALE_ALGO`, `STALE_PARAMS` (TASKS 0.14), `NO_EVIDENCE`, dan `MISMATCH`
+   — semuanya `verified = False`. Baris nol-bukti (`data/ryo.db` 20-23) karena itu tidak pernah
+   bisa tampil sebagai lencana hijau: field ``verified`` UI **adalah** field yang sama, bukan
+   tafsiran atasnya.
+4b. **Temuan dan ketidaktahuan tidak boleh sewarna** (AC 0.14 butir 4). Setiap baris ringkas dan
+   setiap kartu membawa :data:`VERDICT_TONE` dan :data:`VERDICT_LABEL` di samping
+   ``replay_status``. `MISMATCH` bernada ``finding`` (kami memeriksa buktinya dan ia tidak
+   mereproduksi keputusan); `STALE_ALGO`/`STALE_PARAMS` bernada ``not_assessed`` (kami tidak
+   memeriksanya sama sekali). Nada itu nama kelas CSS untuk Layar A/B (TASKS 3.2), sehingga
+   perbedaannya wajib terlihat sebagai warna DAN terbaca sebagai kalimat, bukan salah satunya.
+5. **Nilai asal-DB di-escape di sini.** Teks dari `card_json`/kolom `decisions` tidak dilindungi
+   hash apa pun (`agent/replay.py` membuktikan `algo` bermuatan `\\n` bisa memalsukan baris
+   keluaran CLI). Di HTML bahayanya berbeda: `</script>` di dalam string JSON yang ditempel ke
+   halaman menutup tag. Dua lapis: `core.skill.clean_text` (aksara kendali di-escape TERLIHAT,
+   panjang dibatasi — sanitizer tunggal repo, TASKS 1.5b) dan :class:`SafeJSONResponse` yang
+   menuliskan `<`, `>`, `&` sebagai escape JSON. Yang kedua **lossless**: `json.loads` atas
+   keluaran itu mengembalikan string yang sama persis, jadi `->` di `reason` tetap `->` di
+   konsumen. Yang TIDAK dijanjikan modul ini: keamanan `innerHTML` — Layar A/B (TASKS 3.2)
+   tetap wajib merender lewat `textContent`.
+6. **Tidak ada aset dari host.** `docs_url`/`redoc_url` dimatikan: halaman Swagger bawaan
+   FastAPI memuat JS/CSS dari CDN pihak ketiga yang tidak diputuskan ADR mana pun.
+
+Yang SENGAJA tidak ada (scope PM 4 Sep 2026): paginasi, pencarian, filter, dan penulisan apa
+pun. Batas jumlah baris dipatok konstanta modul dan **disebut di respons** (`limit`), supaya
+"20 keputusan" tidak pernah terbaca sebagai "hanya ada 20 keputusan".
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import UTC, datetime, timedelta, timezone
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi import Path as PathParam
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from agent.ledger import DecisionRow, LedgerError, read_decision, recent_decisions
+from agent.replay import (
+    VERDICT_IDENTICAL,
+    VERDICT_MISMATCH,
+    VERDICT_NO_EVIDENCE,
+    VERDICT_STALE_ALGO,
+    VERDICT_STALE_PARAMS,
+    ReplayReport,
+    replay,
+)
+from agent.watchlist import plausible_symbol
+from core.replay import ALGO
+from core.skill import KEY_LIMIT, TEXT_LIMIT, UNSPOKEN, WARNING_LIMIT, clean_text
+from core.store import Store, StoreError
+from preflight.narrate import SUMMARY_KEY, Narration
+from preflight.params import DEFAULT_PARAMS, ITEM_ORDER
+from preflight.skill import (
+    PreflightError,
+    normalize_symbol,
+    preflight,
+    symbol_evidence,
+    symbol_tools,
+)
+
+log = logging.getLogger("ui.app")
+
+#: Banner tetap — kalimat yang sama di tiap layar dan tiap respons (rules-compliance).
+BANNER = "SIMULATED — practice positions on read-only market intelligence. No real funds."
+
+#: Jam tampilan: JST (spec §7 & deadline lomba). `ts_utc` tetap ikut supaya angkanya bisa dicek.
+JST = timezone(timedelta(hours=9), "JST")
+
+#: Baris `decisions` yang dibaca untuk menyusun satu layar. Bukan paginasi: batas kerja, dan
+#: nilainya SELALU ikut ke respons (`limit`) supaya cacah yang terlihat tidak terbaca sebagai total.
+DECISIONS_LIMIT = 50
+WATCHLIST_SCAN_LIMIT = 200
+
+#: Kedalaman maksimum saat membersihkan nilai item (`value` item 1 bersarang dua tingkat).
+MAX_CLEAN_DEPTH = 6
+
+#: Id `decisions` terbesar yang MASIH muat di INTEGER SQLite. Id di luar rentang ini tidak
+#: pernah sampai ke `agent.ledger` (yang akan melempar `OverflowError` di luar `sqlite3.Error`,
+#: sehingga respons keluar sebagai teks polos tanpa `simulated`): ia ditolak di batas route
+#: sebagai 422, bentuk yang sama dengan `/api/decision/abc`.
+MAX_DECISION_ID = 2**63 - 1
+
+#: Batas render satu kartu. Kartu ditulis agen, bukan pemanggil, jadi ini bukan penjaga
+#: terhadap masukan bermusuhan melainkan janji bahwa SATU baris `decisions` yang rusak/besar
+#: tidak bisa membuat satu respons UI berukuran puluhan MB — dan setiap pemotongan DISEBUT
+#: (`n_items_total`, `n_warnings_total`, `n_snapshots`), tidak pernah diam-diam.
+MAX_ITEM_ROWS = 200
+MAX_WARNING_ROWS = 100
+MAX_BUNDLE_ROWS = 200
+
+#: Kalimat yang dipakai berulang; dipatok tes supaya tidak menguap saat teks diedit.
+LEGACY_SENTENCE = (
+    "Keputusan ini ditulis implementasi yang sudah dihapus (kartunya tidak menyebut algoritma "
+    f"hash {ALGO}), jadi item, blocking, dan hash-nya tidak bisa dinilai ulang dengan aturan "
+    "sekarang — barisnya ditampilkan apa adanya, tanpa satu pun angka yang dikarang."
+)
+NO_EVIDENCE_SENTENCE = (
+    "Baris ini dibukukan tanpa satu snapshot beku pun, jadi tidak ada bukti yang bisa diputar "
+    "ulang: yang cocok dengan hash tersimpannya hanyalah ketiadaan itu sendiri. Ini BUKAN "
+    "verifikasi."
+)
+STALE_PARAMS_SENTENCE = (
+    "Baris ini ditulis dengan ambang (`params_hash`) yang berbeda dari yang berlaku sekarang, "
+    "jadi kami TIDAK menilainya sama sekali — bukan menemukannya salah. Buktinya belum "
+    "diperiksa: untuk memeriksanya, putar ulang dengan params yang dipakai saat baris ini "
+    "ditulis. Ini bukan verifikasi, dan bukan pula temuan."
+)
+EMPTY_SENTENCE = "belum ada data (n=0)"
+WARNINGS_SENTENCE = (
+    "{n} peringatan envelope ditampilkan apa adanya di `warnings` — termasuk bukti yang DIBUANG "
+    "sebelum dinilai (mis. snapshot yang `ts_utc` dan `as_of`-nya bertengkar). Baris yang hilang "
+    "disebut di sini, bukan hanya di log."
+)
+
+#: Nada tiap vonis = nama kelas CSS Layar A/B (TASKS 3.2). Yang mengikat: `finding` (kami
+#: memeriksa dan menemukan) TIDAK PERNAH sama dengan `not_assessed` (kami tidak memeriksa),
+#: supaya `MISMATCH` dan `STALE_PARAMS` yang berdampingan di layar tidak terbaca sama.
+TONE_VERIFIED = "verified"
+TONE_FINDING = "finding"
+TONE_NOT_ASSESSED = "not_assessed"
+TONE_NO_EVIDENCE = "no_evidence"
+TONE_UNKNOWN = "unknown"
+
+VERDICT_TONE: dict[str, str] = {
+    VERDICT_IDENTICAL: TONE_VERIFIED,
+    VERDICT_MISMATCH: TONE_FINDING,
+    VERDICT_STALE_ALGO: TONE_NOT_ASSESSED,
+    VERDICT_STALE_PARAMS: TONE_NOT_ASSESSED,
+    VERDICT_NO_EVIDENCE: TONE_NO_EVIDENCE,
+}
+
+#: Teks pendek yang MENYERTAI nama vonis (tidak menggantikannya) — supaya juri tidak perlu tahu
+#: kosakata internal untuk membedakan temuan dari ketidaktahuan.
+VERDICT_LABEL: dict[str, str] = {
+    VERDICT_IDENTICAL: "terverifikasi: bukti beku menghasilkan hash yang sama",
+    VERDICT_MISMATCH: "temuan: bukti tidak mereproduksi keputusan ini",
+    VERDICT_STALE_ALGO: "tidak dinilai: kartunya tidak menyebut algoritma hash yang berlaku",
+    VERDICT_STALE_PARAMS: "tidak dinilai: ambangnya sudah berubah sejak baris ini ditulis",
+    VERDICT_NO_EVIDENCE: "tidak terverifikasi: baris ini dibukukan tanpa satu bukti pun",
+}
+UNKNOWN_LABEL = "tidak dinilai: replay atas baris ini tidak bisa dijalankan"
+
+
+class SafeJSONResponse(JSONResponse):
+    """JSON yang tidak bisa menutup tag HTML mana pun.
+
+    `<`, `>`, `&` ditulis sebagai escape JSON (`\\u003c`…). Struktur JSON sendiri tidak pernah
+    memuat ketiganya di luar string, jadi penggantian ini hanya menyentuh isi string dan
+    **lossless**: pembaca JSON mana pun mendapat teks aslinya kembali.
+    """
+
+    media_type = "application/json"
+
+    def render(self, content: Any) -> bytes:
+        text = json.dumps(content, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
+        text = text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+        return text.encode("ascii")
+
+
+app = FastAPI(
+    title="Tenko (点呼) — practice roll call",
+    description=BANNER,
+    default_response_class=SafeJSONResponse,
+    # Halaman /docs & /redoc bawaan memuat aset dari CDN pihak ketiga: dimatikan (checklist UI).
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+#: Path DB yang dipakai route. None = resolusi `core.store` (`DB_PATH`, default ./data/ryo.db).
+#: Hanya tes yang memasangnya; TIDAK PERNAH diisi dari request (lihat butir 2 docstring modul).
+app.state.db_path = None
+
+
+# --- pelayan ------------------------------------------------------------------------------
+def _open_store() -> Store:
+    """Koneksi baca-saja baru untuk satu request.
+
+    Dibuka per-request dengan sengaja: perekam menulis ke berkas yang sama, dan koneksi yang
+    hidup lama membuat layar menampilkan snapshot lama tanpa mengatakannya.
+    """
+    return Store(app.state.db_path, read_only=True)
+
+
+def _body(payload: dict[str, Any]) -> dict[str, Any]:
+    """Bungkus respons: `simulated` & `banner` ditempel TERAKHIR supaya tidak bisa ditimpa."""
+    return {**payload, "simulated": True, "banner": BANNER}
+
+
+def _clean(value: Any, limit: int = TEXT_LIMIT, depth: int = 0) -> Any:
+    """Nilai asal-DB dalam bentuk yang aman dicetak; angka & None dibiarkan apa adanya.
+
+    Mengubah angka menjadi teks adalah kebohongan tersendiri (aturan yang sama dengan
+    `preflight/items.py`), jadi yang disentuh hanya `str` — lewat sanitizer tunggal repo.
+    """
+    if isinstance(value, str):
+        return clean_text(value, limit)
+    if isinstance(value, dict) and depth < MAX_CLEAN_DEPTH:
+        return {
+            (clean_text(k, KEY_LIMIT) if isinstance(k, str) else k): _clean(v, limit, depth + 1)
+            for k, v in value.items()
+        }
+    if isinstance(value, list) and depth < MAX_CLEAN_DEPTH:
+        return [_clean(entry, limit, depth + 1) for entry in value]
+    if isinstance(value, dict | list):
+        return f"[{type(value).__name__} lebih dalam dari {MAX_CLEAN_DEPTH} tingkat]"
+    return value
+
+
+def _jst(iso_utc: Any) -> str | None:
+    """`2026-09-03T20:28:28Z` → `2026-09-04 05:28 JST`; bentuk yang tidak terbaca → None.
+
+    None dikembalikan apa adanya: jam yang tidak terbaca tidak diganti jam sekarang.
+
+    **Tiga jenis kegagalan, satu jawaban.** `as_of` datang dari envelope RYO dan disalin ke
+    store tanpa validasi rentang (`core/store.py`), jadi `9999-12-31T15:00:00Z` bisa benar-benar
+    ada di sebuah baris. `datetime.astimezone` atas jam itu melempar **`OverflowError`**, bukan
+    `ValueError` — dan karena fungsi ini dipakai enam kali di tiga route, satu baris seperti itu
+    memadamkan `/api/watchlist` DAN `/api/decisions` sekaligus dengan 500 teks polos yang TIDAK
+    membawa `simulated` (kewajiban docs/rules-compliance.md). Ketiga jenisnya ditangkap DI SINI,
+    bukan disaring di keenam pemanggil: jam yang tidak terbaca adalah `as_of_jst: null` di
+    samping `as_of` mentah yang tetap ditampilkan apa adanya, bukan layar yang padam.
+    """
+    if not isinstance(iso_utc, str) or not iso_utc.strip():
+        return None
+    try:
+        moment = datetime.fromisoformat(iso_utc.replace("Z", "+00:00"))
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        return moment.astimezone(JST).strftime("%Y-%m-%d %H:%M JST")
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _rank(item_id: Any) -> int | None:
+    """Peringkat daya veto (1 = terberat, spec §4). Id di luar :data:`ITEM_ORDER` → None."""
+    if isinstance(item_id, str) and item_id in ITEM_ORDER:
+        return ITEM_ORDER.index(item_id) + 1
+    return None
+
+
+def _sort_key(rank: int | None) -> int:
+    """Kunci urut untuk peringkat yang mungkin tidak dikenal (ditaruh SESUDAH yang dikenal)."""
+    return len(ITEM_ORDER) + 1 if rank is None else rank
+
+
+# --- pembacaan kartu ----------------------------------------------------------------------
+def _card_of(row: DecisionRow) -> dict[str, Any]:
+    """`card_json` sebagai dict; kartu yang tidak terbaca → dict kosong (bukan exception)."""
+    try:
+        card = row.card()
+    except LedgerError:
+        log.warning("decision %s: card_json tidak terbaca", row.id)
+        return {}
+    return card
+
+
+def _skill_of(card: dict[str, Any]) -> dict[str, Any]:
+    skill = card.get("skill")
+    return skill if isinstance(skill, dict) else {}
+
+
+def _narration_lines(skill: dict[str, Any]) -> dict[str, str]:
+    """`{item_id: kalimat}` dari `summary["narration"]` bila kartu membawanya."""
+    summary = skill.get("summary")
+    block = summary.get(SUMMARY_KEY) if isinstance(summary, dict) else None
+    if not isinstance(block, dict):
+        return {}
+    lines = block.get("lines")
+    if not isinstance(lines, list):
+        return {}
+    out: dict[str, str] = {}
+    for line in lines:
+        if isinstance(line, dict) and isinstance(line.get("item_id"), str):
+            out[clean_text(line["item_id"], KEY_LIMIT)] = clean_text(str(line.get("text", "")), TEXT_LIMIT)
+    return out
+
+
+def _narration_block(skill: dict[str, Any], n_items: int) -> dict[str, Any]:
+    """Blok narasi kartu ini, dalam bentuk `Narration.as_summary()` (status/n_lines/n_items/reason).
+
+    UI **tidak pernah** memanggil LLM (ADR-003 & butir 2 docstring modul): kalau kartunya tidak
+    membawa narasi, yang dikembalikan adalah `narration_unavailable` ber-sebab — bentuk yang
+    sama, sehingga Layar B (TASKS 3.2) bisa menempelkan narasi di samping `reason` deterministik
+    item yang sama dan melabelinya "tidak diverifikasi terhadap bukti" tanpa cabang khusus.
+    """
+    summary = skill.get("summary")
+    block = summary.get(SUMMARY_KEY) if isinstance(summary, dict) else None
+    if isinstance(block, dict) and block.get("status"):
+        return _clean(block, WARNING_LIMIT)
+    return Narration.unavailable(
+        "no narration was stored with this decision; the UI never calls an LLM, so the card "
+        "stands on its item list",
+        n_items,
+    ).as_summary()
+
+
+def _items_of(skill: dict[str, Any], narration: dict[str, str]) -> tuple[list[dict[str, Any]], int]:
+    """(baris tunjuk→sebut kartu ini urut daya veto, CACAH baris yang ada di kartu).
+
+    Envelope penolakan (`data is None`) tetap menyebut kesepuluh baris panggilan lewat
+    `availability` (`preflight._refusal`), jadi barisnya dibangun dari sana — dengan `value`,
+    `source`, dan `reason` KOSONG, bukan diisi nol.
+
+    Kartu sehat punya sepuluh baris. Yang dirender dibatasi :data:`MAX_ITEM_ROWS`, dan cacah
+    kedua yang dikembalikan adalah cacah SEBENARNYA — supaya pemotongan (kalau pernah terjadi)
+    muncul sebagai `n_items_total` di respons, bukan sebagai daftar yang diam-diam lebih pendek.
+    """
+    data = skill.get("data")
+    raw = data.get("items") if isinstance(data, dict) else None
+    rows: list[dict[str, Any]] = []
+    n_total = 0
+    if isinstance(raw, list) and raw:
+        n_total = len(raw)
+        for entry in raw[:MAX_ITEM_ROWS]:
+            if not isinstance(entry, dict):
+                continue
+            source = entry.get("source") if isinstance(entry.get("source"), dict) else {}
+            item_id = clean_text(str(entry.get("id", "")), KEY_LIMIT)
+            as_of = source.get("as_of")
+            rows.append(
+                {
+                    "item_id": item_id,
+                    "veto_rank": _rank(item_id),
+                    "status": _clean(entry.get("status"), KEY_LIMIT),
+                    "value": _clean(entry.get("value")),
+                    "tool": _clean(source.get("tool"), KEY_LIMIT),
+                    "field": _clean(source.get("field"), TEXT_LIMIT),
+                    "snapshot_id": source.get("snapshot_id"),
+                    "as_of": _clean(as_of, KEY_LIMIT),
+                    "as_of_jst": _jst(as_of),
+                    "reason": _clean(entry.get("reason"), WARNING_LIMIT),
+                    "narration": narration.get(item_id),
+                }
+            )
+    else:
+        availability = skill.get("availability")
+        pairs = list(availability.items()) if isinstance(availability, dict) else []
+        n_total = len(pairs)
+        for item_id, marker in pairs[:MAX_ITEM_ROWS]:
+            clean_id = clean_text(str(item_id), KEY_LIMIT)
+            rows.append(
+                {
+                    "item_id": clean_id,
+                    "veto_rank": _rank(clean_id),
+                    "status": _clean(marker, KEY_LIMIT),
+                    "value": None,
+                    "tool": None,
+                    "field": None,
+                    "snapshot_id": None,
+                    "as_of": None,
+                    "as_of_jst": None,
+                    "reason": "",
+                    "narration": narration.get(clean_id),
+                }
+            )
+    rows.sort(key=lambda row: (_sort_key(row["veto_rank"]), str(row["item_id"])))
+    return rows, n_total
+
+
+def _warnings_of(skill: dict[str, Any]) -> tuple[list[str], int]:
+    """(`warnings` envelope skill apa adanya, cacah SEBENARNYA) — dibatasi, tidak diringkas.
+
+    Di sinilah bukti yang DIBUANG disebut. `core.store.latest_fresh` melewati snapshot yang
+    `ts_utc`-nya bertengkar dengan `as_of`-nya melebihi toleransi (`ts_utc` tidak dijaga hash
+    apa pun, `as_of` dijaga `payload_hash`), dan `preflight.skill` meneruskan notanya ke
+    `warnings`. Kalau layar menelannya, sebuah baris hilang dari kartu tanpa satu kalimat pun
+    yang mengatakannya — dan item kesegaran tampak memveto tanpa sebab. UI tidak menafsirkan
+    isinya (mencocokkan teks modul lain akan rapuh); ia hanya menolak membuangnya.
+    """
+    raw = skill.get("warnings")
+    if not isinstance(raw, list):
+        return [], 0
+    lines = [clean_text(str(entry), WARNING_LIMIT) for entry in raw[:MAX_WARNING_ROWS]]
+    return lines, len(raw)
+
+
+def _blocking_of(row: DecisionRow, skill: dict[str, Any]) -> list[str]:
+    """Id item penahan, urut daya veto. HANYA untuk baris generasi berjalan.
+
+    Sumbernya `decisions.blocking_json`; kartu dipakai sebagai cadangan saat kolomnya tidak
+    terbaca. Baris warisan tidak pernah sampai ke sini (isinya integer, bukan id item).
+    """
+    try:
+        raw: list[Any] = row.blocking()
+    except LedgerError:
+        data = skill.get("data")
+        candidate = data.get("blocking") if isinstance(data, dict) else None
+        raw = candidate if isinstance(candidate, list) else []
+    ids = [clean_text(str(entry), KEY_LIMIT) for entry in raw]
+    return sorted(ids, key=lambda item_id: (_sort_key(_rank(item_id)), item_id))
+
+
+def _counts_of(skill: dict[str, Any], items: list[dict[str, Any]], n_total: int) -> dict[str, int]:
+    """`n_items`/`n_unspoken`/… dari kartu; bila tidak ada, DIHITUNG dari baris yang ada."""
+    data = skill.get("data")
+    counts: dict[str, int] = {}
+    if isinstance(data, dict):
+        for key in ("n_items", "n_spoken", "n_green", "n_red", "n_unspoken"):
+            value = data.get(key)
+            if isinstance(value, int) and not isinstance(value, bool):
+                counts[key] = value
+    if counts.get("n_items") is None:
+        counts["n_items"] = n_total
+    if counts.get("n_unspoken") is None:
+        counts["n_unspoken"] = sum(1 for row in items if row["status"] == UNSPOKEN)
+    return counts
+
+
+def _verdict_of(report: ReplayReport, row: DecisionRow) -> dict[str, Any]:
+    """Vonis replay dalam bentuk yang tidak bisa dibaca sebagai lencana hijau kecuali memang.
+
+    `verified` DIAMBIL dari :attr:`ReplayReport.verified` (`VERIFIED_VERDICTS = {IDENTICAL}`),
+    bukan dari nama vonis yang dicocokkan sendiri di sini.
+    """
+    usable, total = report.verifiable if report.verifiable is not None else (None, None)
+    # `ReplayReport.algo` hanya diisi untuk vonis yang MEMPERSOALKAN algoritma; untuk vonis lain
+    # nilainya diambil dari kartu baris ini sendiri, supaya `algo: null` di respons berarti
+    # "baris ini tidak menyebut algoritma" (generasi lama) dan bukan "field ini tidak diisi".
+    algo = report.algo if report.algo is not None else row.algo()
+    return {
+        "replay_status": report.verdict,
+        "replay_tone": VERDICT_TONE.get(report.verdict, TONE_UNKNOWN),
+        "replay_label": VERDICT_LABEL.get(report.verdict, UNKNOWN_LABEL),
+        "verified": report.verified,
+        "detail": clean_text(report.detail, WARNING_LIMIT),
+        "stored_hash": clean_text(report.stored_hash, KEY_LIMIT),
+        "computed_hash": (
+            None if report.computed_hash is None else clean_text(report.computed_hash, KEY_LIMIT)
+        ),
+        "algo": None if algo is None else clean_text(algo, KEY_LIMIT),
+        "n_snapshots_verifiable": usable,
+        "n_snapshots_recorded": total,
+        "replay_command": f"make replay ID={report.decision_id}",
+    }
+
+
+def _unreadable(what: str, exc: Exception) -> HTTPException:
+    """503 yang menyebut JENIS kegagalan, bukan pesannya: pesan store memuat path berkas."""
+    log.warning("%s: store tidak terbaca: %s", what, type(exc).__name__)
+    return HTTPException(status_code=503, detail=f"{what} tidak bisa dilayani ({type(exc).__name__})")
+
+
+def _report_for(row: DecisionRow, store: Store) -> ReplayReport | None:
+    """Vonis replay baris ini; None bila replay sendiri tidak bisa dijalankan (dicatat, bukan ditebak)."""
+    try:
+        return replay(row.id, store, DEFAULT_PARAMS)
+    except (LedgerError, StoreError) as exc:
+        log.warning("decision %s: replay tidak bisa dijalankan: %s", row.id, type(exc).__name__)
+        return None
+
+
+def _unknown_verdict() -> dict[str, Any]:
+    return {
+        "replay_status": None,
+        "replay_tone": TONE_UNKNOWN,
+        "replay_label": UNKNOWN_LABEL,
+        "verified": False,
+        "detail": "replay atas baris ini tidak bisa dijalankan; jangan baca ini sebagai terverifikasi",
+        "stored_hash": None,
+        "computed_hash": None,
+        "algo": None,
+        "n_snapshots_verifiable": None,
+        "n_snapshots_recorded": None,
+        "replay_command": None,
+    }
+
+
+def _summary_row(row: DecisionRow, store: Store) -> dict[str, Any]:
+    """Satu baris ringkas untuk Layar A & daftar keputusan (generasi berjalan saja)."""
+    card = _card_of(row)
+    skill = _skill_of(card)
+    items, n_item_rows = _items_of(skill, _narration_lines(skill))
+    blocking = _blocking_of(row, skill)
+    counts = _counts_of(skill, items, n_item_rows)
+    by_id = {entry["item_id"]: entry for entry in items}
+    top = by_id.get(blocking[0]) if blocking else None
+    report = _report_for(row, store)
+    try:
+        n_snapshots = len(row.snapshot_ids())
+    except LedgerError:
+        n_snapshots = 0
+    summary = skill.get("summary") if isinstance(skill.get("summary"), dict) else {}
+    return {
+        "decision_id": row.id,
+        "symbol": clean_text(row.symbol, KEY_LIMIT),
+        "decision": clean_text(row.decision, KEY_LIMIT),
+        "ts_utc": clean_text(row.ts_utc, KEY_LIMIT),
+        "ts_jst": _jst(row.ts_utc),
+        "as_of": _clean(skill.get("as_of"), KEY_LIMIT),
+        "as_of_jst": _jst(skill.get("as_of")),
+        "headline": _clean(summary.get("headline"), TEXT_LIMIT),
+        "blocking": blocking,
+        "n_blocking": len(blocking),
+        "top_blocker": None
+        if top is None
+        else {
+            "item_id": top["item_id"],
+            "veto_rank": top["veto_rank"],
+            "status": top["status"],
+            "tool": top["tool"],
+            "field": top["field"],
+            "as_of": top["as_of"],
+            "as_of_jst": top["as_of_jst"],
+            "reason": top["reason"],
+        },
+        "veto_rank": None if top is None else top["veto_rank"],
+        "n_items": counts.get("n_items", n_item_rows),
+        "n_unspoken": counts.get("n_unspoken", 0),
+        "n_snapshots": n_snapshots,
+        "n_warnings": _warnings_of(skill)[1],
+        **(_unknown_verdict() if report is None else _verdict_of(report, row)),
+    }
+
+
+def _current_rows(store: Store, limit: int) -> tuple[list[DecisionRow], int]:
+    """(baris generasi BERJALAN, cacah baris warisan yang dilewati) dari `limit` baris terbaru."""
+    rows = recent_decisions(store.path, limit=limit)
+    current = [row for row in rows if row.is_current_generation()]
+    return current, len(rows) - len(current)
+
+
+def _tone_note(entries: list[dict[str, Any]]) -> str | None:
+    """Satu kalimat pembeda saat `MISMATCH` dan `STALE_PARAMS` muncul di layar yang sama.
+
+    Keduanya sama-sama BUKAN lencana hijau, dan justru karena itu mudah terbaca sama. Kalimat
+    ini menyebut cacahnya (n) supaya perbedaannya bisa dihitung, bukan hanya dirasakan.
+    """
+    n_finding = sum(1 for entry in entries if entry["replay_tone"] == TONE_FINDING)
+    n_unassessed = sum(1 for entry in entries if entry["replay_tone"] == TONE_NOT_ASSESSED)
+    if not n_unassessed:
+        return None
+    return (
+        f"{n_unassessed} baris bernada `{TONE_NOT_ASSESSED}` (STALE_ALGO/STALE_PARAMS): aturan "
+        "yang dipakai menulisnya sudah berubah, jadi buktinya TIDAK kami periksa sama sekali. "
+        f"Itu bukan temuan; baris bernada `{TONE_FINDING}` (MISMATCH, n={n_finding}) adalah "
+        "temuan — bukti sudah diperiksa dan tidak mereproduksi keputusannya. Dua nada ini wajib "
+        "tampil dengan warna berbeda di layar."
+    )
+
+
+def _truncation_notes(n_items: int, n_items_total: int, n_warnings: int, n_warnings_total: int) -> list[str]:
+    """Kalimat untuk setiap daftar yang DIPOTONG saat dirender. Kosong bila tidak ada.
+
+    Kartu ditulis agen, bukan pemanggil, jadi pemotongan ini tidak pernah terjadi pada baris
+    yang sehat (sepuluh item, segelintir peringatan). Kalau sekali waktu terjadi, ia harus
+    terbaca sebagai pemotongan — daftar yang lebih pendek tanpa kalimat adalah bentuk lain dari
+    "angka tanpa n".
+    """
+    notes: list[str] = []
+    if n_items_total > n_items:
+        notes.append(
+            f"kartu ini memuat {n_items_total} baris panggilan; hanya {n_items} yang dirender "
+            f"(batas render {MAX_ITEM_ROWS}). `n_items_total` adalah cacah sebenarnya."
+        )
+    if n_warnings_total > n_warnings:
+        notes.append(
+            f"{n_warnings_total} peringatan envelope ada di baris ini; hanya {n_warnings} yang "
+            f"dirender (batas render {MAX_WARNING_ROWS}). `n_warnings_total` adalah cacah "
+            "sebenarnya, dan tidak satu pun dihapus dari store."
+        )
+    return notes
+
+
+# --- route --------------------------------------------------------------------------------
+@app.get("/")
+def index() -> dict[str, Any]:
+    """Indeks route — bukan halaman; Layar A/B HTML adalah TASKS 3.2."""
+    return _body(
+        {
+            "product": "Tenko (点呼)",
+            "routes": [
+                "/api/health",
+                "/api/watchlist",
+                "/api/decisions",
+                "/api/decision/{id}",
+                "/api/preflight/{symbol}",
+            ],
+            "calls_ryo_tools": False,
+            "calls_llm": False,
+        }
+    )
+
+
+@app.get("/api/health")
+def health() -> dict[str, Any]:
+    """Apakah DB terbaca, dan berapa banyak keputusan tiap generasi — tanpa memanggil apa pun."""
+    try:
+        with _open_store() as store:
+            rows = recent_decisions(store.path, limit=WATCHLIST_SCAN_LIMIT)
+    except (StoreError, LedgerError) as exc:
+        raise _unreadable("health", exc) from None
+    current = [row for row in rows if row.is_current_generation()]
+    return _body(
+        {
+            "db_readable": True,
+            "calls_ryo_tools": False,
+            "calls_llm": False,
+            "algo": ALGO,
+            "params_hash": DEFAULT_PARAMS.params_hash(),
+            "scan_limit": WATCHLIST_SCAN_LIMIT,
+            "n_decisions_scanned": len(rows),
+            "n_decisions_current_generation": len(current),
+            "n_decisions_legacy": len(rows) - len(current),
+            "note": f"cacah di atas adalah {WATCHLIST_SCAN_LIMIT} baris TERBARU, bukan total tabel",
+        }
+    )
+
+
+@app.get("/api/watchlist")
+def watchlist() -> dict[str, Any]:
+    """Layar A: satu baris per simbol, diurutkan daya veto item penahannya.
+
+    Urutannya menjawab "apa yang menahan yang lain": NO_GO dulu, yang penahannya paling BERAT
+    (peringkat spec §4 terkecil) di atas; simbol tanpa penahan (GO) menyusul. Yang ditampilkan
+    hanya keputusan TERAKHIR tiap simbol, dan hanya generasi berjalan (TASKS 3.1a).
+    """
+    try:
+        with _open_store() as store:
+            rows, n_legacy = _current_rows(store, WATCHLIST_SCAN_LIMIT)
+            latest: dict[str, DecisionRow] = {}
+            for row in rows:  # recent_decisions: terbaru dulu
+                latest.setdefault(clean_text(row.symbol, KEY_LIMIT), row)
+            entries = [_summary_row(row, store) for row in latest.values()]
+    except (StoreError, LedgerError) as exc:
+        raise _unreadable("watchlist", exc) from None
+
+    entries.sort(
+        key=lambda entry: (
+            0 if entry["n_blocking"] else 1,
+            _sort_key(entry["veto_rank"]),
+            -entry["n_blocking"],
+            entry["symbol"],
+        )
+    )
+    notes = ["urut daya veto: penahan terberat (spec §4 peringkat 1) di atas; simbol tanpa penahan menyusul"]
+    tone_note = _tone_note(entries)
+    if tone_note:
+        notes.append(tone_note)
+    if n_legacy:
+        notes.append(
+            f"{n_legacy} baris keputusan generasi sebelumnya tidak ditampilkan di sini: kartunya "
+            f"tidak menyebut algoritma hash {ALGO}, jadi item dan penahannya tidak bisa dinilai "
+            "ulang dengan aturan sekarang (lihat /api/decision/{id})"
+        )
+    if not entries:
+        notes.append(EMPTY_SENTENCE)
+    return _body(
+        {
+            "n": len(entries),
+            "scan_limit": WATCHLIST_SCAN_LIMIT,
+            "n_legacy_hidden": n_legacy,
+            "symbols": entries,
+            "notes": notes,
+        }
+    )
+
+
+@app.get("/api/decisions")
+def decisions() -> dict[str, Any]:
+    """Keputusan terbaru (generasi berjalan saja), tanpa paginasi — scope PM 4 Sep 2026."""
+    try:
+        with _open_store() as store:
+            rows, n_legacy = _current_rows(store, DECISIONS_LIMIT)
+            entries = [_summary_row(row, store) for row in rows]
+    except (StoreError, LedgerError) as exc:
+        raise _unreadable("decisions", exc) from None
+    notes = [f"maksimum {DECISIONS_LIMIT} baris TERBARU; tanpa paginasi, tanpa filter"]
+    tone_note = _tone_note(entries)
+    if tone_note:
+        notes.append(tone_note)
+    if n_legacy:
+        notes.append(
+            f"{n_legacy} baris generasi sebelumnya dilewati (kartunya tidak menyebut algoritma "
+            f"hash {ALGO}); barisnya tetap bisa dibuka satu per satu lewat /api/decision/{{id}}"
+        )
+    if not entries:
+        notes.append(EMPTY_SENTENCE)
+    return _body(
+        {
+            "n": len(entries),
+            "limit": DECISIONS_LIMIT,
+            "n_legacy_skipped": n_legacy,
+            "min_id": min((entry["decision_id"] for entry in entries), default=None),
+            "decisions": entries,
+            "notes": notes,
+        }
+    )
+
+
+@app.get("/api/decision/{decision_id}")
+def decision(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> dict[str, Any]:
+    """Layar B: kartu panggilan satu keputusan + bundle replay + vonisnya.
+
+    Tiga bentuk jawaban, semuanya 200 selama barisnya ADA (TASKS 3.1a):
+
+    * **generasi berjalan** — 10 baris tunjuk→sebut, `decision`, `blocking`, `decision_hash`,
+      bundle snapshot beku, dan vonis replay (`IDENTICAL`/`MISMATCH`/`NO_EVIDENCE`/`STALE_PARAMS`);
+    * **ambang bergeser** — `replay_status: "STALE_PARAMS"` (TASKS 0.14), `verified: false`,
+      nada `not_assessed`, dan satu kalimat yang menyatakan ketidaktahuan. Sejak `params_hash`
+      bergeser (TASKS 0.12), keempat baris nol-bukti `data/ryo.db` 20-23 ada di sini: cabang
+      `NO_EVIDENCE` bersyarat `computed == stored`, jadi kami tidak lagi bisa membuktikan bahwa
+      barisnya memang ditulis tanpa bukti;
+    * **nol bukti** — `replay_status: "NO_EVIDENCE"`, `verified: false`, dan satu kalimat sebab,
+      untuk baris nol-bukti yang params-nya MASIH berlaku. Bukan lencana hijau;
+    * **warisan** — `replay_status: "STALE_ALGO"`, `items: []`, `blocking` TIDAK dirender.
+
+    Id di luar `1..MAX_DECISION_ID` ditolak **di batas route** (422), sebelum satu pernyataan
+    SQL pun dirakit: id ≥ 2**63 membuat `sqlite3` melempar `OverflowError`, yang bukan
+    `sqlite3.Error` dan karena itu lolos dari seluruh penangkap `agent/ledger.py` maupun route
+    ini — satu GET tanpa autentikasi cukup untuk memaksa 500 teks polos TANPA `simulated`.
+    """
+    try:
+        with _open_store() as store:
+            row = read_decision(store.path, decision_id)
+            if row is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"tidak ada keputusan ber-id {decision_id} di buku besar ini",
+                )
+            report = _report_for(row, store)
+            verdict = _unknown_verdict() if report is None else _verdict_of(report, row)
+            legacy = not row.is_current_generation()
+            card = _card_of(row)
+            skill = _skill_of(card)
+            try:
+                snapshot_ids = row.snapshot_ids()
+            except LedgerError:
+                snapshot_ids = []
+            bundle = [
+                {
+                    "snapshot_id": snapshot.id,
+                    "tool": clean_text(snapshot.tool, KEY_LIMIT),
+                    "as_of": _clean(snapshot.as_of, KEY_LIMIT),
+                    "as_of_jst": _jst(snapshot.as_of),
+                    "status": _clean(snapshot.status, KEY_LIMIT),
+                }
+                for snapshot in store.get_snapshots(snapshot_ids[:MAX_BUNDLE_ROWS])
+            ]
+    except HTTPException:
+        raise
+    except (StoreError, LedgerError) as exc:
+        raise _unreadable(f"decision {decision_id}", exc) from None
+
+    items, n_item_rows = ([], 0) if legacy else _items_of(skill, _narration_lines(skill))
+    counts = {} if legacy else _counts_of(skill, items, n_item_rows)
+    warnings, n_warnings_total = ([], 0) if legacy else _warnings_of(skill)
+    summary = skill.get("summary") if isinstance(skill.get("summary"), dict) else {}
+    notes: list[str] = []
+    if legacy:
+        notes.append(LEGACY_SENTENCE)
+        notes.append(
+            "Kolom `blocking_json` baris ini memuat bilangan bulat (indeks implementasi yang "
+            "sudah dihapus), bukan id item panggilan, jadi ia TIDAK dirender di sini."
+        )
+    elif verdict["replay_status"] == VERDICT_NO_EVIDENCE:
+        notes.append(NO_EVIDENCE_SENTENCE)
+    elif verdict["replay_status"] == VERDICT_STALE_PARAMS:
+        notes.append(STALE_PARAMS_SENTENCE)
+    if not items and not legacy:
+        notes.append(f"kartu keputusan ini tidak memuat satu baris panggilan pun ({EMPTY_SENTENCE})")
+    if not bundle:
+        notes.append(f"nol snapshot beku pada baris ini ({EMPTY_SENTENCE})")
+    if warnings:
+        notes.append(WARNINGS_SENTENCE.format(n=n_warnings_total))
+    notes.extend(_truncation_notes(len(items), n_item_rows, len(warnings), n_warnings_total))
+    if len(snapshot_ids) > len(bundle):
+        notes.append(
+            f"baris ini menyebut {len(snapshot_ids)} snapshot beku; hanya {len(bundle)} pertama "
+            f"yang dirender di `replay_bundle` (batas render {MAX_BUNDLE_ROWS}). `n_snapshots` "
+            "tetap cacah sebenarnya, dan `make replay` memutar SEMUANYA."
+        )
+
+    return _body(
+        {
+            "decision_id": row.id,
+            "symbol": clean_text(row.symbol, KEY_LIMIT),
+            "decision": clean_text(row.decision, KEY_LIMIT),
+            "ts_utc": clean_text(row.ts_utc, KEY_LIMIT),
+            "ts_jst": _jst(row.ts_utc),
+            "generation": "legacy" if legacy else "current",
+            "headline": None if legacy else _clean(summary.get("headline"), TEXT_LIMIT),
+            "blocking": [] if legacy else _blocking_of(row, skill),
+            "blocking_rendered": not legacy,
+            "items": items,
+            "n_items": counts.get("n_items", n_item_rows),
+            "n_items_total": n_item_rows,
+            "n_unspoken": counts.get("n_unspoken", 0),
+            "warnings": warnings,
+            "n_warnings": len(warnings),
+            "n_warnings_total": n_warnings_total,
+            "narration": None if legacy else _narration_block(skill, n_item_rows),
+            "decision_hash": clean_text(row.decision_hash, KEY_LIMIT),
+            "params_hash": clean_text(row.params_hash, KEY_LIMIT),
+            "snapshot_ids": snapshot_ids,
+            "n_snapshots": len(snapshot_ids),
+            "replay_bundle": bundle,
+            **verdict,
+            "notes": notes,
+        }
+    )
+
+
+@app.get("/api/preflight/{symbol}")
+def preflight_symbol(symbol: str) -> dict[str, Any]:
+    """Panggilan pra-berangkat untuk satu simbol — store-first, tanpa satu panggilan RYO pun.
+
+    Dua saringan bentuk, keduanya **400**, keduanya definisi BERSAMA (bukan salinan):
+    :func:`preflight.skill.normalize_symbol` ("bisakah teks ini jadi kunci pencarian store",
+    kembar dengan perekam) dan :func:`agent.watchlist.plausible_symbol` ("apakah ia berbentuk
+    ticker sama sekali", TASKS 0.11). Tanpa yang kedua, `--`, `ＳＯＬ` (lebar), dan `ВТС`
+    (Kiril) dijawab 404 "tidak ada bukti TENTANG …" — kalimat yang MENYIRATKAN simbolnya sah
+    dan hanya belum direkam, padahal agen tidak akan pernah memutuskan simbol berbentuk itu.
+
+    Simbol yang tidak bisa dibaca → **400**. Simbol yang tidak punya SATU pun bukti di store →
+    **404 jujur** (`simulated: true` tetap ada): tidak ada yang bisa dipanggil untuk simbol yang
+    tidak pernah direkam, dan mengembalikan kartu berisi sepuluh baris kosong akan terlihat
+    seperti penilaian padahal tidak ada yang dinilai.
+
+    "Punya bukti" dijawab :func:`preflight.skill.symbol_evidence` — SATU definisi yang dipakai
+    bersama `agent.main` (TASKS 0.13), bukan salinan di sini. Salinan lama menanyakan
+    `symbol in json.dumps(args)`; karena `json.dumps({}) == "{}"`, simbol `{}`/`{`/`}` membuat
+    dua tool market-wide (`market_overview`, `monitor_market_sentiment_shift`) terhitung
+    ber-simbol dan route ini menjawab 200 dengan kalimat yang salah. Definisi sekarang bertanya
+    "apakah argumen tool ini berubah bila simbolnya berubah", jadi tool market-wide tidak pernah
+    bisa disebut di catatan, dan `M` di kalimat "N dari M tool ber-simbol" adalah 3.
+    """
+    normalized = normalize_symbol(symbol)
+    if normalized is None:
+        raise HTTPException(status_code=400, detail="simbol tidak bisa dibaca; tidak ada yang dipanggil")
+    if not plausible_symbol(normalized):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{clean_text(normalized, KEY_LIMIT)} tidak berbentuk seperti simbol (bukan huruf/"
+                "angka satu aksara), jadi tidak ada yang dicari; agen menolak bentuk yang sama "
+                "dan layar ini tidak boleh menjanjikan bahwa ia hanya belum direkam"
+            ),
+        )
+    try:
+        with _open_store() as store:
+            result = preflight(normalized, store=store)
+    except (StoreError, PreflightError) as exc:
+        raise _unreadable(f"preflight {normalized}", exc) from None
+
+    envelope = _clean(result.model_dump(mode="json"), WARNING_LIMIT)
+    spoken_about = symbol_evidence(result.data, normalized)
+    if result.data is None or not spoken_about:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"tidak ada satu pun bukti TENTANG {normalized} di store dalam "
+                f"{DEFAULT_PARAMS.max_age_min} menit terakhir "
+                f"({', '.join(sorted(symbol_tools(normalized))) or '-'} tidak menjawab); yang "
+                "terbaca hanya bukti market-wide, dan itu tidak berbicara tentang simbol ini"
+            ),
+        )
+    skill = envelope if isinstance(envelope, dict) else {}
+    warnings, n_warnings_total = _warnings_of(skill)
+    items, n_item_rows = _items_of(skill, {})
+    counts = _counts_of(skill, items, n_item_rows)
+    data = skill.get("data") if isinstance(skill.get("data"), dict) else {}
+    return _body(
+        {
+            "symbol": normalized,
+            "decision": _clean(data.get("decision"), KEY_LIMIT),
+            "blocking": sorted(
+                (clean_text(str(entry), KEY_LIMIT) for entry in data.get("blocking", []) or []),
+                key=lambda item_id: (_sort_key(_rank(item_id)), item_id),
+            ),
+            "as_of": _clean(skill.get("as_of"), KEY_LIMIT),
+            "as_of_jst": _jst(skill.get("as_of")),
+            "items": items,
+            "n_items": counts.get("n_items", n_item_rows),
+            "n_items_total": n_item_rows,
+            "n_unspoken": counts.get("n_unspoken", 0),
+            "warnings": warnings,
+            "n_warnings": len(warnings),
+            "n_warnings_total": n_warnings_total,
+            "snapshot_ids": data.get("snapshot_ids", []),
+            "decision_hash": _clean(data.get("decision_hash"), KEY_LIMIT),
+            "params_hash": _clean(data.get("params_hash"), KEY_LIMIT),
+            "narration": Narration.unavailable(
+                "the UI never calls an LLM; run the skill with credentials to attach narration",
+                n_item_rows,
+            ).as_summary(),
+            "envelope": skill,
+            "notes": [
+                "dihitung ulang dari snapshot yang SUDAH tersimpan; tidak ada tool RYO yang dipanggil",
+                f"{len(spoken_about)} dari {len(symbol_tools(normalized))} tool ber-simbol "
+                f"punya bukti tentang {normalized}: {', '.join(spoken_about)}",
+                "keputusan ini tidak dibukukan: /api/preflight tidak menulis baris `decisions`",
+                *([WARNINGS_SENTENCE.format(n=n_warnings_total)] if warnings else []),
+                *_truncation_notes(len(items), n_item_rows, len(warnings), n_warnings_total),
+            ],
+        }
+    )
+
+
+# --- kegagalan tetap membawa `simulated` --------------------------------------------------
+@app.exception_handler(StarletteHTTPException)
+def _http_error(request: Request, exc: StarletteHTTPException) -> SafeJSONResponse:
+    """404/400/405/503 pun wajib membawa `simulated: true` (docs/rules-compliance.md).
+
+    Didaftarkan pada HTTPException **Starlette**, bukan turunannya di FastAPI: 404 untuk rute
+    yang tidak dikenal (`/favicon.ico`) dan 405 untuk metode yang salah (`POST /api/health`)
+    dilempar router Starlette sebagai kelas induk itu, dan pencarian handler menyusuri MRO —
+    jadi satu pendaftaran ini menutup keduanya SEKALIGUS `fastapi.HTTPException` yang dilempar
+    route di berkas ini. Sebelumnya keduanya keluar sebagai `{"detail": "..."}` telanjang.
+    """
+    detail = exc.detail if isinstance(exc.detail, str) else "permintaan tidak bisa dilayani"
+    return SafeJSONResponse(
+        status_code=exc.status_code,
+        content=_body({"error": clean_text(detail, WARNING_LIMIT), "status_code": exc.status_code}),
+        # `Allow` pada 405 datang dari sini: header exception dibawa apa adanya, karena
+        # menjawab "metode salah" tanpa menyebut metode yang benar adalah jawaban setengah.
+        headers=dict(exc.headers) if exc.headers else None,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+def _validation_error(request: Request, exc: RequestValidationError) -> SafeJSONResponse:
+    """Path/query yang tidak bisa dibaca (mis. `/api/decision/abc`) — jujur, tanpa traceback."""
+    return SafeJSONResponse(
+        status_code=422,
+        content=_body(
+            {
+                "error": "parameter permintaan tidak bisa dibaca; tidak ada yang dibaca dari store",
+                "status_code": 422,
+                "n_errors": len(exc.errors()),
+            }
+        ),
+    )
+
+
+@app.exception_handler(Exception)
+def _unexpected_error(request: Request, exc: Exception) -> SafeJSONResponse:
+    """Jaring terakhir: bug pun tidak boleh menjawab tanpa `simulated: true`.
+
+    Tanpa handler ini `ServerErrorMiddleware` menjawab `text/plain` "Internal Server Error" —
+    respons yang tidak mengaku simulasi, yaitu persis bentuk yang dilarang aturan lomba. Jenis
+    kegagalannya dicatat ke log (nama kelas saja: pesan exception bisa memuat path berkas),
+    dan yang keluar ke pemanggil hanya satu kalimat tanpa traceback. Starlette tetap
+    melempar ulang `exc` sesudah respons ini terkirim, jadi kegagalannya tidak hilang dari log
+    server — yang berubah hanya isi jawabannya.
+    """
+    log.error("%s %s: kegagalan tak terduga: %s", request.method, request.url.path, type(exc).__name__)
+    return SafeJSONResponse(
+        status_code=500,
+        content=_body(
+            {
+                "error": "permintaan ini gagal karena kesalahan tak terduga di server; tidak ada "
+                "angka yang dikarang untuk menutupinya",
+                "status_code": 500,
+            }
+        ),
+    )
