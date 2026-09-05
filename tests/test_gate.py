@@ -40,6 +40,24 @@ Yang tetap harus dibuktikan supaya percepatan ini bukan sekadar memindahkan luba
 - yang dilewati HANYA leg pytest: ruff + grep tetap jalan, dibuktikan oleh tes format di bawah
   yang seluruhnya berjalan dengan `TENKO_GATE_SELFTEST=1`;
 - gate pada repo tidak lagi memakan menit: ada anggaran waktu yang gagal bila nesting kembali.
+
+`scripts/gate.sh` TIDAK DILACAK GIT, dan apa artinya bagi tes ini (6 Sep 2026). Gate adalah
+mesin kerja internal, bukan bagian aplikasi; pemilik repo mengecualikannya lewat
+`.git/info/exclude` (TASKS 0.7: "lokal, tidak dilacak, jadi perubahannya tidak ikut commit").
+Konsekuensinya: pada clone bersih berkasnya memang tidak ada. Sebelum perbaikan ini sepuluh tes
+di berkas ini MERAH di sana — `GATE.read_text()` dan `shutil.copy(gate.sh)` melempar
+`FileNotFoundError` — dan dua lagi (`..._does_not_rerun_the_suite`,
+`test_make_lint_and_gate_agree_on_this_tree`) justru HIJAU secara hampa, karena gate yang tidak
+ada keluar cepat dan stderr-nya tidak menyebut "ruff". Merah palsu di submission yang seluruh
+tesisnya kejujuran itu mahal; hijau palsu lebih mahal lagi.
+
+Karena itu semua tes yang menyentuh gate memakai `@skip_if_gate_absent`: bila berkasnya tidak
+ada mereka SKIP dengan alasan yang menyebut apa yang tidak terjaga (paritas gate↔`make lint`
+dan perilaku stop hook) dan mengapa. Alternatifnya adalah melacak `scripts/gate.sh` supaya tes
+ini selalu berjalan di mana pun; itu **keputusan pemilik repo**, bukan sesuatu yang dibalik
+diam-diam dari sini. Selama keputusannya tetap, pilihan ini adalah yang jujur — dan tidak ada
+kode produk yang jadi tak teruji: gate hanya menjalankan `ruff`/`pytest`/`grep` yang sama, yang
+tetap dijalankan `make lint` dan `make test`.
 """
 
 from __future__ import annotations
@@ -59,6 +77,19 @@ GATE = ROOT / "scripts" / "gate.sh"
 STDIN = '{"stop_hook_active": false}'
 NESTED = os.environ.get("TENKO_GATE_SELFTEST") == "1"
 skip_if_nested = pytest.mark.skipif(NESTED, reason="dijalankan oleh gate itu sendiri; hindari rekursi")
+
+#: Berkas yang harus ada supaya gate bisa dibaca DAN dijalankan. `gate.sh` mem-`source`
+#: `_json.sh`, jadi keduanya dihitung: satu saja hilang = gate tidak bisa diuji.
+GATE_DEPS = (GATE, ROOT / "scripts" / "_json.sh")
+GATE_PRESENT = all(path.is_file() for path in GATE_DEPS)
+GATE_ABSENT_REASON = (
+    "scripts/gate.sh tidak ada di pohon ini, dan itu memang disengaja: berkasnya dikecualikan "
+    "lewat .git/info/exclude (TASKS 0.7 'lokal, tidak dilacak'), jadi clone bersih tidak "
+    "memilikinya. YANG DILEWATI: paritas gate<->`make lint` dan perilaku stop hook (leg pytest, "
+    "TENKO_GATE_FULL/SELFTEST). Tesnya tidak rusak dan tidak ada kode produk yang tak teruji - "
+    "`make lint` dan `make test` tetap menjalankan pemeriksaan yang sama."
+)
+skip_if_gate_absent = pytest.mark.skipif(not GATE_PRESENT, reason=GATE_ABSENT_REASON)
 
 
 def _makefile_lint_recipe() -> str:
@@ -120,12 +151,15 @@ def gate_on_repo() -> GateRun:
     """Satu kali jalan gate pada repo nyata; dipakai bersama oleh beberapa tes."""
     if NESTED:
         pytest.skip("dijalankan oleh gate itu sendiri; hindari rekursi")
+    if not GATE_PRESENT:
+        pytest.skip(GATE_ABSENT_REASON)
     return _run_gate(GATE)
 
 
 # --- (1) paritas perintah -------------------------------------------------------------
 
 
+@skip_if_gate_absent
 def test_gate_runs_every_ruff_command_that_make_lint_runs() -> None:
     """Kalau `make lint` memeriksanya, gate juga — tidak ada celah yang lolos diam-diam."""
     lint = _ruff_commands(_makefile_lint_recipe())
@@ -134,6 +168,7 @@ def test_gate_runs_every_ruff_command_that_make_lint_runs() -> None:
     assert lint <= gate, f"hanya diperiksa `make lint`, tidak oleh gate: {sorted(lint - gate)}"
 
 
+@skip_if_gate_absent
 def test_gate_labels_format_failure_separately() -> None:
     """Label `ruff-format` terpisah dari `ruff` supaya pesan MERAH menyebut penyebabnya."""
     text = GATE.read_text()
@@ -150,6 +185,7 @@ def test_gate_labels_format_failure_separately() -> None:
 GATE_BUDGET_SECONDS = 60.0
 
 
+@skip_if_gate_absent
 @skip_if_nested
 def test_gate_is_green_on_this_tree(gate_on_repo: GateRun) -> None:
     """Pohon kerja bersih → exit 0, stderr tanpa 'GATE MERAH'.
@@ -164,6 +200,7 @@ def test_gate_is_green_on_this_tree(gate_on_repo: GateRun) -> None:
     assert "GATE MERAH" not in gate_on_repo.proc.stderr
 
 
+@skip_if_gate_absent
 @skip_if_nested
 def test_gate_on_this_tree_does_not_rerun_the_suite(gate_on_repo: GateRun) -> None:
     """Alarm regresi 0.22: kalau nesting kembali, angka ini melonjak dari detik ke menit."""
@@ -188,6 +225,8 @@ def _sandbox(tmp_path: Path, body: str, test_body: str = PASSING_TEST) -> Path:
     Suite sandbox = satu berkas satu tes (`testpaths = ["tests"]` di pyproject yang disalin),
     jadi leg pytest gate bisa diuji sungguhan tanpa membayar suite repo.
     """
+    if not GATE_PRESENT:  # pragma: no cover - tiap pemanggil sudah ber-@skip_if_gate_absent
+        pytest.skip(GATE_ABSENT_REASON)
     if shutil.which("uv") is None or not (ROOT / ".venv").is_dir():  # pragma: no cover
         pytest.skip("butuh uv + .venv proyek untuk menjalankan ruff di sandbox")
     (tmp_path / "scripts").mkdir()
@@ -212,6 +251,7 @@ FORMATTED = "x = 1\n"
 UNFORMATTED = "x   =  1\n"  # lolos `ruff check`, ditolak `ruff format --check`
 
 
+@skip_if_gate_absent
 @skip_if_nested
 def test_sandbox_control_is_green(tmp_path: Path) -> None:
     """Kontrol: sandbox yang sama tanpa drift format → HIJAU (jadi (b) memang soal format)."""
@@ -219,6 +259,7 @@ def test_sandbox_control_is_green(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
 
 
+@skip_if_gate_absent
 @skip_if_nested
 def test_unformatted_file_turns_the_gate_red(tmp_path: Path) -> None:
     """Satu berkas unformat → exit 2 dan stderr menyebut `ruff-format`."""
@@ -258,6 +299,7 @@ def test_unformatted_file_is_invisible_to_ruff_check_alone(tmp_path: Path) -> No
 # murah, dan verdictnya tentang suite sandbox, bukan suite repo.
 
 
+@skip_if_gate_absent
 @skip_if_nested
 def test_gate_pytest_leg_turns_red_on_a_failing_suite(tmp_path: Path) -> None:
     """Arah (a): tanpa `TENKO_GATE_SELFTEST`, suite gagal → exit 2 dengan label `pytest`.
@@ -272,6 +314,7 @@ def test_gate_pytest_leg_turns_red_on_a_failing_suite(tmp_path: Path) -> None:
     assert "GATE MERAH" in result.stderr
 
 
+@skip_if_gate_absent
 @skip_if_nested
 def test_gate_pytest_leg_is_green_on_a_passing_suite(tmp_path: Path) -> None:
     """Kontrol untuk (a): sandbox yang sama dengan suite LULUS → HIJAU.
@@ -284,6 +327,7 @@ def test_gate_pytest_leg_is_green_on_a_passing_suite(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@skip_if_gate_absent
 @skip_if_nested
 def test_gate_pytest_leg_is_skipped_inside_a_running_suite(tmp_path: Path) -> None:
     """Arah (b): sandbox yang PERSIS sama + `TENKO_GATE_SELFTEST=1` → HIJAU.
@@ -306,6 +350,7 @@ def test_gate_pytest_leg_is_skipped_inside_a_running_suite(tmp_path: Path) -> No
     assert "leg pytest DILEWATI" in result.stderr
 
 
+@skip_if_gate_absent
 @skip_if_nested
 def test_gate_full_beats_selftest_so_one_knob_always_wins(tmp_path: Path) -> None:
     """`TENKO_GATE_FULL=1` menjalankan leg pytest MESKI `TENKO_GATE_SELFTEST=1` ada.
@@ -321,6 +366,7 @@ def test_gate_full_beats_selftest_so_one_knob_always_wins(tmp_path: Path) -> Non
     assert "pytest" in result.stderr
 
 
+@skip_if_gate_absent
 @skip_if_nested
 def test_selftest_skips_only_pytest_not_the_cheap_checks(tmp_path: Path) -> None:
     """Sandbox yang lolos pytest tapi drift format, dengan selftest=1 → tetap MERAH `ruff-format`.
@@ -334,9 +380,56 @@ def test_selftest_skips_only_pytest_not_the_cheap_checks(tmp_path: Path) -> None
     assert "pytest" not in result.stderr
 
 
+# --- (6) target Makefile yang menunjuk skrip tak-terlacak (6 Sep 2026) ----------------
+#
+# `scripts/autopilot.sh` juga dikecualikan dari git, sama seperti `gate.sh`. `make autopilot`
+# karena itu tidak bisa jalan pada clone bersih — dan sebelum perbaikan ini ia gagal dengan
+# `bash: scripts/autopilot.sh: No such file or directory` lalu `make: *** [...] Error 127`, yang
+# membaca seperti submission rusak. Yang dijaga di bawah: ia gagal dengan KALIMAT, bukan teka-teki.
+
+
+def _makefile_script_paths() -> set[str]:
+    """Semua path `scripts/...` yang disebut resep Makefile."""
+    return set(re.findall(r"scripts/[\w./-]+", (ROOT / "Makefile").read_text()))
+
+
+def test_makefile_targets_guard_scripts_that_are_not_shipped() -> None:
+    """Skrip yang tidak ada di pohon ini harus punya penjaga `[ -f ... ]` di Makefile.
+
+    Non-vakum persis di tempat yang penting: pada clone bersih `scripts/autopilot.sh` absen,
+    dan tes ini yang menuntut penjaganya ada. Di pohon pengembang semua skrip ada, jadi tidak
+    ada yang dituntut — pembuktian perilakunya dikerjakan tes berikutnya.
+    """
+    makefile = (ROOT / "Makefile").read_text()
+    for path in sorted(_makefile_script_paths()):
+        if (ROOT / path).exists():
+            continue
+        assert f"[ -f {path} ]" in makefile, (
+            f"Makefile memanggil {path} yang tidak ada di pohon ini tanpa penjaga keberadaan; "
+            "pengguna akan melihat error `make` mentah alih-alih penjelasan"
+        )
+
+
+def test_make_autopilot_explains_itself_when_the_script_is_absent(tmp_path: Path) -> None:
+    """Tanpa `scripts/autopilot.sh`: gagal (rc != 0) dengan kalimat yang menyebut sebabnya.
+
+    Dijalankan di salinan Makefile pada `tmp_path` yang sengaja TIDAK punya `scripts/`, jadi
+    verdictnya sama di pohon pengembang maupun clone bersih.
+    """
+    shutil.copy(ROOT / "Makefile", tmp_path / "Makefile")
+    result = subprocess.run(
+        [_exe("make"), "autopilot"], cwd=tmp_path, capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "scripts/autopilot.sh tidak ada" in result.stderr
+    assert "tidak dilacak git" in result.stderr
+    assert "No such file or directory" not in result.stderr, "pesan bash mentah bocor ke pengguna"
+
+
 # --- (4) verdict yang sama pada tree yang sama ----------------------------------------
 
 
+@skip_if_gate_absent
 @skip_if_nested
 def test_make_lint_and_gate_agree_on_this_tree(gate_on_repo: GateRun) -> None:
     """`make lint` hijau ⇔ gate tidak menyebut label ruff mana pun."""

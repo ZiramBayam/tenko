@@ -33,5 +33,8 @@ ui:
 	uv run uvicorn ui.app:app --port $${UI_PORT:-8000}
 demo:              ## naskah docs/spec.md §7 langkah 1-6 (fixture offline) — TASKS 3.4
 	@bash scripts/demo.sh $${ARGS:-}   # @ : stdout harus naskahnya saja (dua run wajib byte-identik)
-autopilot:
+autopilot:         ## make autopilot N=3 — skrip lokal, sengaja tidak dilacak git
+	@[ -f scripts/autopilot.sh ] || { \
+	  echo "make autopilot: scripts/autopilot.sh tidak ada. Skrip itu mesin kerja internal dan sengaja tidak dilacak git (.git/info/exclude), jadi clone bersih tidak memilikinya. Bukan bagian aplikasi: tidak ada yang perlu diperbaiki untuk menjalankan Tenko — pakai make test / make demo / make ui." >&2; \
+	  exit 1; }
 	bash scripts/autopilot.sh $${N:-3}
