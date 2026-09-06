@@ -15,7 +15,7 @@ kartu panggilan itu adalah keputusan kelas satu yang bisa dibaca di dua layar ke
 ber-envelope RYO, dan bisa diputar ulang byte-per-byte.
 
 **Apa yang berjalan hari ini (6 Sep 2026).** Naskah demo `docs/spec.md` §7 langkah 1–6 berjalan dari satu perintah dan
-dua run byte-identik; kedua layar berjalan; demo dua tanggal membalik keputusan SOL dari GO ke NO_GO; suite **1840
+dua run byte-identik; kedua layar berjalan; demo dua tanggal membalik keputusan SOL dari GO ke NO_GO; suite **1848
 passed, 1 skipped**; `make lint` bersih. Yang **belum** ada disebut sebagai belum ada di §7, §8, dan §11 — termasuk
 angka paling tidak menyenangkan di repo ini, yang mendapat bagiannya sendiri di §7.
 
@@ -54,7 +54,7 @@ Prasyarat: Python 3.12 + [uv](https://docs.astral.sh/uv/) (`docs/versions.md`). 
 ```bash
 make doctor    # python 3.12.3 · uv 0.12.7 · sqlite 3.45.1 · 2 sumber aktif
 make demo      # naskah spec §7 langkah 1-6, seluruhnya dari fixture offline
-make test      # 1840 passed, 1 skipped
+make test      # 1848 passed, 1 skipped
 ```
 
 **`make demo` tidak butuh jaringan, kredensial, maupun `data/ryo.db`.** Ia membangun DB SQLite baru di direktori
@@ -175,7 +175,8 @@ janjinya dilanggar** ada di `ui/README.md`; angka kontrasnya dihitung dari CSS y
 ditaksir.
 
 Batas yang diakui, disalin dari `ui/README.md` §"Batas yang belum tertutup": **rekaman 30 detik Layar B belum dibuat**
-(artefak manusia; skripnya sudah ditulis di berkas yang sama dan di `demo/video-script.md`) · nol pengujian dengan
+(artefak manusia; naskah adegannya ada di berkas yang sama, dan naskah video terpisah sengaja **tidak** dibuat atas
+permintaan pemilik repo — `TASKS.md` 5.3) · nol pengujian dengan
 pembaca layar sungguhan · nol audit kontras pihak ketiga (ADR-001 melarang toolchain npm) · belum diuji zoom 200 %.
 
 ---
@@ -199,9 +200,17 @@ juri (`docs/judge-reports/fase-5.md`, tabel §7); jalankan sendiri untuk mendapa
 `id <= 3645`). Karena itu satu envelope di fixture langkah 2 **dibentuk** menjadi `unavailable`; envelope yang lain
 adalah salinan apa adanya dari bukti nyata. Naskah menghitung sendiri envelope mana yang berbentuk dibentuk dan
 membandingkannya dengan pengakuan berkasnya: bila keduanya berselisih ia mencetak `KETIDAKCOCOKAN` (`agent/demo.py`
-`_disclosure_mismatch`). Lubang yang masih terbuka: fixture yang blok `synthetic`-nya **dihapus seluruhnya** lolos
-tanpa `KETIDAKCOCOKAN` — dilaporkan di `docs/judge-reports/fase-5.md` §"Kegagalan yang bisa direproduksi" butir 1, dan
-belum ditutup saat baris ini ditulis.
+`_disclosure_mismatch`). Lubang yang dilaporkan `docs/judge-reports/fase-5.md` — fixture yang blok `synthetic`-nya
+**dihapus seluruhnya** lolos diam-diam — **sudah ditutup**: ketiadaan blok itu adalah selisih ketiga, jadi berkas yang
+membawa envelope berbentuk padam tanpa menyatakan apa pun disebut "pemadaman yang TIDAK DIAKUI" (`agent/demo.py`
+`_disclosure_mismatch`, argumen `declared`). Pihak ketiga menyerangnya ulang dengan empat varian dan mendapat
+`KETIDAKCOCOKAN` **2×** pada varian penghapusan blok (`docs/judge-reports/fase-5-ulang.md`, tabel varian V3/V3b).
+
+Residu yang tersisa, dan kami menyebutnya karena ia nyata: bila baris fixture **tidak membawa `source_payload_hash`**,
+naskah tidak punya kunci untuk membandingkan dan turun dari tuduhan menjadi catatan lunak — ia mencetak "TIDAK
+DIVERIFIKASI di sini: barisnya tidak membawa `source_payload_hash`" alih-alih `KETIDAKCOCOKAN` (varian V5 di laporan
+yang sama). Itu jujur secara teknis; yang **belum** ada adalah aturan bahwa baris tak-terverifikasi tidak layak
+memerankan pemadaman.
 
 Selain demo dua tanggal, `make two-dates` membawa satu kasus yang lebih tajam: **DGAI NO_GO yang penyebabnya bukti
 HILANG, bukan angka jelek**. Pada 2026-09-03, dari enam penahan DGAI **lima `unspoken`** dan satu-satunya yang merah
@@ -239,25 +248,38 @@ Sisanya, dengan `n` dan periodenya:
 | Chaos (host mati · kill -9 · 429 · DB dihapus · kredensial dicabut · celah bukti) | **LULUS 8 / GAGAL 0**, nol traceback | 8 skenario, 5 Sep 2026 23:27–23:30 JST | `bash scripts/chaos.sh` → `docs/reports/chaos-2026-09-05.md` |
 | Celah bukti: `preflight()` atas bukti bolong | **0 melempar**; sebaran `{partial: 156, unavailable: 268}` | n = 424 panggilan | laporan yang sama, skenario `evidence_gap` |
 | Reputasi item dari outcome | **k = 0**, `target_first = 3`, nol selang | 13 keputusan dinilai, horizon 24 j, 6 Sep 2026 | `make grade` |
-| Daya veto empiris per item | `01_freshness` **0× merah**; `06_confluence` **92× merah** | n = 237 amatan (4 simbol inti × jangkar perekam) | `uv run python -m preflight.veto_table --db <salinan beku>` |
-| Suite | **1840 passed, 1 skipped** | 6 Sep 2026, pohon kerja kami | `make test` (pada klon bersih, 12 tes paritas gate **SKIP** dengan alasan terbaca: skrip lokalnya tidak ikut terkirim, `TASKS.md` 0.25 — angkanya bergeser sebanyak itu) |
+| Daya veto empiris per item | `01_freshness` **0× merah**; `06_confluence` **82× merah** | n = 201 amatan (4 simbol inti × jangkar perekam, jendela 2026-09-01T06:29Z–09-05T12:15Z), atas salinan beku ber-**`max(snapshots.id) = 3608`**, 25 jangkar dibuang batas pindai | `cp data/ryo.db /tmp/frozen.db` lalu `uv run python -m preflight.veto_table --db /tmp/frozen.db --until 2026-09-05T12:32:00Z`; tabel utuh per item di `preflight/items.py:94-105` |
+| ↑ ulangan pihak ketiga, salinan beku **lain** | `01_freshness` **0× merah**; `06_confluence` **75× merah** | n = 186, **`max(snapshots.id) = 3981`**, `--until` yang sama persis | `docs/judge-reports/fase-5-ulang.md` — `n` bergerak, arahnya tidak; inilah sebab `max(id)` harus ikut disebut |
+| Suite | **1848 passed, 1 skipped** | 6 Sep 2026, pohon kerja kami; angka yang sama diukur pihak ketiga (`docs/judge-reports/fase-5-ulang.md`) | `make test` (pada klon bersih angkanya lebih kecil: tes paritas `scripts/gate.sh` **SKIP** dengan alasan terbaca — skrip lokalnya sengaja tidak ikut terkirim, `TASKS.md` 0.25) |
 | Envelope RYO yang pernah `unavailable` | **0 dari 3645** | sapuan 6 Sep 2026, `id <= 3645` | `docs/api-facts.md` §A |
 
 **Tiga peringatan yang menempel pada tabel itu, dan tidak boleh dilepas:**
 
-1. **`01_freshness` belum pernah menahan apa pun dalam n=237, dan sebabnya struktural.** Pemilih bukti sudah membatasi
-   umur ke `params.max_age_min` **sebelum** item mana pun dinilai (`preflight/skill.py:536`). Jadi baris itu adalah
+1. **`01_freshness` belum pernah menahan apa pun — 0× merah dalam n=201, dan 0× lagi dalam ulangan pihak ketiga
+   (n=186); sebabnya struktural.** Pemilih bukti sudah membatasi umur ke `params.max_age_min` **sebelum** item mana
+   pun dinilai (`preflight/skill.py:536`). Jadi baris itu adalah
    **tanda terima**, bukan veto: ia menyatakan "bukti yang dipakai memang di dalam jendela", dan bukti yang di luar
-   jendela tidak pernah sampai kepadanya. Namanya menjanjikan lebih daripada yang dikerjakannya; menggantinya ada di
-   daftar perbaikan juri (`docs/judge-reports/fase-5.md`, butir 11) dan **belum dikerjakan**.
+   jendela tidak pernah sampai kepadanya. Yang sudah dikerjakan atas temuan itu (`docs/judge-reports/fase-5.md`,
+   butir 11): **kalimatnya** yang mengaku, bukan namanya — `reason` hijau item 1 berbunyi sendiri "…so this says
+   nothing about how old the bundle itself is. Absolute age was already enforced when the evidence was picked …
+   which is why this line is a receipt and has never blocked a departure" (`preflight/items.py:677-684`), dan
+   `ItemDef.title`-nya kini "Envelope ages agree (absolute age enforced at selection)" (`preflight/items.py:1966`).
+   Yang **tidak** dikerjakan, sengaja: id `01_freshness` tidak diganti — id ikut ke `params_hash`/`decision_hash`,
+   jadi menggantinya akan menggeser hash setiap baris `decisions` yang sudah tersimpan. Yang **masih** utang: judul
+   itu tidak pernah sampai ke layar mana pun (§11 butir 5).
 2. **Urutan "daya veto" yang dipajang kedua layar adalah konstanta desain spec §4, belum divalidasi**
    (`preflight/params.py:163` `ITEM_ORDER`). Alat ukur repo ini sendiri membantahnya: item peringkat 1 tidak pernah
-   merah, item peringkat 6 merah 92×. Urutan itu berguna sebagai "mana yang lebih dulu dibaca manusia", bukan sebagai
-   klaim empiris.
+   merah, item peringkat 6 merah 82× (75× pada salinan pihak ketiga). Urutan itu berguna sebagai "mana yang lebih dulu
+   dibaca manusia", bukan sebagai klaim empiris — dan **kedua layar mengatakannya sendiri**: judul kolomnya berbunyi
+   `daya veto (spec §4, belum divalidasi)` di Layar A dan Layar B (`ui/screens.py:213`, `ui/app.py:196-212`).
 3. **Angka tabel veto tidak terulang dengan `--until` saja.** Perekam menambah baris tiap siklus, jadi jangkar yang
-   sama menghasilkan `n` yang berbeda beberapa hari kemudian (terukur 201 → 237). Yang mengulang angkanya adalah
-   `--db <salinan beku>`. Alatnya memang memberi tahu saat itu terjadi (`scan_limited` naik, `n` turun, keduanya di
-   header) — tetapi resep di `preflight/veto_table.py:68` masih menulis `--until` saja, dan itu resep yang salah.
+   sama menghasilkan `n` yang berbeda beberapa hari kemudian (terukur 201 → 237 atas DB hidup). Yang mengulang
+   angkanya adalah `--db <salinan beku>`, dan **resepnya sudah berbunyi begitu**: `cp data/ryo.db /tmp/frozen.db` lalu
+   `--db /tmp/frozen.db --until …` (`preflight/veto_table.py:66-69`, `preflight/items.py:63-66`). Alatnya juga memberi
+   tahu saat populasi jangkarnya bergeser (`scan_limited` naik, `n` turun, `max(snapshots.id)`, ketiganya di header).
+   Pihak ketiga membuktikan kenapa itu wajib: `--until` yang sama persis atas salinan lain
+   (`max(snapshots.id) = 3981`) memberi **n=186**, bukan 237 (`docs/judge-reports/fase-5-ulang.md`). Karena itu setiap
+   angka veto di README ini dikutip berikut keadaan DB salinannya.
 
 ---
 
@@ -272,8 +294,15 @@ Sisanya, dengan `n` dan periodenya:
   "mendukung" (`preflight/params.py:506` `neutral_stance_status`; ADR-017, tercatat **USULAN** meski sudah
   diimplementasikan). Kartunya mengatakan itu dengan kalimat, bukan hanya dengan warna.
 - **Item 9 tidak menguji apa pun hari ini.** `risk_reward[0] ≥ min_rr` dengan `min_rr = 1.0` sementara
-  `risk_reward = [1.0, 2.0]` di **1426/1426** baris `deep_analysis` yang diperiksa: ambangnya tautologi pada bukti yang
-  ada (`preflight/params.py:69-71`, `docs/judge-reports/fase-5.md`).
+  `risk_reward = [1.0, 2.0]` di **1476/1476** baris `deep_analysis` yang membawa `trade_plan` — dari 1496 baris; 20
+  sisanya `trade_plan=null` sehingga item 9 `unspoken`, bukan hijau. Sapuan atas **salinan beku** `data/ryo.db`
+  6 Sep 2026, `id <= 3919`, baris terakhir `2026-09-06T00:13:23Z` (`preflight/items.py:1527-1541`
+  `RR_ROWS_WITH_PLAN`; `preflight/params.py:69-71`). Ambangnya tautologi pada bukti yang ada, jadi `reason` item 9
+  kini **membawa angka itu di dalam kalimatnya** (`RR_CONSTANT_NOTE`) alih-alih berhenti di "worth its risk". Catatan
+  yang menempel dan tidak boleh dilepas: store append-only, jadi kartu yang **sudah tersimpan tidak ikut berubah**
+  saat teks item diperbaiki — pemeriksaan pihak ketiga 6 Sep 2026 menemukan **0 dari 52** kartu di ledger kami memuat
+  kalimat baru dan **29** masih memuat kalimat lama, termasuk kartu terbaru (`docs/judge-reports/fase-5-ulang.md`,
+  temuan 2). Hanya tick baru yang menghasilkan kartu ber-kalimat baru; kartu lama sengaja tidak ditulis ulang.
 - **`as_of` yang segar tidak menjamin isi envelope segar, dan item 1 tidak menangkapnya.** Pada 47 baris
   `monitor_market_sentiment_shift` nyata, 47/47 membawa `fear_greed`/`altseason` ber-`data_date` D-0 tetapi
   `funding`/`liquidation` ber-`data_date` **D-1** (umur bukti 25,2–47,5 jam, median 35,8 jam; `docs/api-facts.md` §A,
@@ -284,9 +313,18 @@ Sisanya, dengan `n` dan periodenya:
   Jadi jangan membaca item 1 sebagai janji kesegaran isi envelope.
 - **Tidak ada angka keandalan tool RYO di dokumen publik mana pun.** Output tool RYO adalah data RYO: hanya di dalam
   submission, tidak pernah di post sosial (ADR-008, `docs/rules-compliance.md`).
-- **Tidak ada "production-ready", "teraudit", atau "100 %".** Yang ada: 1840 tes hijau — ukuran cakupan pemeriksaan
+- **Veto oleh item wajib yang `unspoken` baru pernah menyala di fixture.** Itu fitur andalan produk ini (§3, §9), dan
+  di ledger keputusan hidup kami ia belum pernah terjadi: pemeriksaan pihak ketiga menemukan **nol** penahan
+  berstatus `unspoken` pada 29 keputusan generasi berjalan (`docs/judge-reports/fase-5-ulang.md`, pertanyaan 1). Yang
+  memperagakannya — `make demo` langkah 2 dan kasus DGAI `make two-dates` — berjalan dari fixture beku, dan §3 & §6
+  menyebutkannya sebagai fixture.
+- **Tidak ada "production-ready", "teraudit", atau "100 %".** Yang ada: 1848 tes hijau — ukuran cakupan pemeriksaan
   kami sendiri, bukan bukti bahwa keputusannya benar — dan daftar kegagalan yang bisa direproduksi yang ditulis pihak
-  ketiga di `docs/judge-reports/fase-5.md`, termasuk satu lubang yang masih terbuka (§6).
+  ketiga di `docs/judge-reports/fase-5.md` + `fase-5-ulang.md`, termasuk residu pengakuan fixture yang masih terbuka
+  (§6) dan `ItemDef.title` yang tidak pernah sampai ke layar. Satu temuan juri sudah ditutup sesudah laporannya
+  ditulis: kartu **sejak keputusan 53** (tick 6 Sep 2026) mengucapkan kalimat item 9 dan item 1 yang baru — diperiksa
+  langsung di `decisions.card_json`. Kartu 1–52 tetap mengucapkan kalimat lama dan **akan selamanya begitu**: store
+  append-only (ADR-006), jadi artefak beku tidak ditulis ulang. Itu konsekuensi desain yang disengaja, bukan utang.
 - **Rekaman 30 detik Layar B belum ada** (§5).
 
 ---
@@ -329,7 +367,8 @@ Kepatuhan (`docs/rules-compliance.md`):
   lain — `scripts/guard.sh` (memblokir perintah yang mencetak kunci) dan `scripts/gate.sh` (stop hook: ruff + sapuan
   kredensial + penjaga append-only) — adalah **mesin kerja internal yang sengaja tidak dilacak git** (`TASKS.md`
   0.25), jadi klon bersih tidak memilikinya; jangan menilai repo ini atas keduanya. Pemindaian juri nilai-per-nilai
-  atas 125 berkas terlacak + seluruh `logs/` → **0 kecocokan** (`docs/judge-reports/fase-5.md`).
+  atas berkas terlacak + seluruh `logs/` → **0 kecocokan pada dua penilaian berturut-turut** (125 berkas,
+  `docs/judge-reports/fase-5.md`; 120 berkas, `docs/judge-reports/fase-5-ulang.md`).
 - **SIMULATED** di README (paragraf pertama), di banner kedua layar, di setiap envelope CLI, di setiap respons API
   termasuk 400/404/405/422/503, dan di baris penutup `make demo`.
 - **Sumber eksternal hanya yang `enabled: true` DAN `approved: true`** di `sources.yaml` (ADR-005) — hari ini dua:
@@ -345,7 +384,7 @@ Kepatuhan (`docs/rules-compliance.md`):
 ## 11. Roadmap jujur
 
 Semua yang di bawah ini **belum ada** hari ini, dan ditulis sebagai belum ada. Dua yang pertama adalah fitur yang
-mungkin tidak akan pernah dibangun; lima sisanya adalah utang yang sudah kami sebut sendiri di atas.
+mungkin tidak akan pernah dibangun; sisanya adalah utang yang sudah kami sebut sendiri di atas.
 
 1. **Reputasi item yang benar-benar memberi masukan ke keputusan.** Hari ini `grading/` adalah alat **ukur**, bukan
    alat **putus**: tidak satu angka pun darinya masuk ke `preflight`. Syaratnya n ≥ 30 per kelas (spec §6); dengan
@@ -353,12 +392,22 @@ mungkin tidak akan pernah dibangun; lima sisanya adalah utang yang sudah kami se
 2. **Item ke-11 Bunryō** (ukuran posisi dari reliabilitas bersyarat rezim, spec §4). `make grade` sudah mencetak
    selnya dan sudah menolak mengeluarkan takaran. Selama gerbang 30 belum terlewati, item ini **tidak akan** muncul —
    bukan diperkirakan, bukan dilonggarkan.
-3. **Menutup lubang pengakuan §7 langkah 2** (fixture tanpa blok `synthetic` sama sekali) — §6.
-4. **Memberi status pada kolom "daya veto" di kedua layar** ("urutan spec §4, belum divalidasi") — §7 butir 2.
-5. **Memperbaiki resep reproduksi tabel veto** menjadi `--db <salinan beku>` — §7 butir 3.
-6. **Mengganti nama `01_freshness`** menjadi apa yang benar-benar diukurnya — §7 butir 1.
-7. **Rekaman 30 detik Layar B** (artefak manusia; naskah siap di `demo/video-script.md` dan `ui/README.md`).
+3. **Menolak fixture pemadaman yang barisnya tidak membawa `source_payload_hash`** — residu V5 di §6: tanpa kunci itu
+   naskah hanya bisa mencatat "TIDAK DIVERIFIKASI", dan belum ada aturan yang menyatakan baris seperti itu tidak
+   layak memerankan pemadaman.
+4. **Membawa judul item ke layar, atau menghapus `ItemDef.title`.** Hari ini judul item punya tepat satu pemakai —
+   sebuah assertion di tes — dan nol kali muncul di `make demo` maupun HTML kedua layar
+   (`docs/judge-reports/fase-5-ulang.md`, temuan 1). Yang benar-benar dibaca manusia adalah ekor `reason`, jadi judul
+   baru item 1 (§7 butir 1) belum pernah dilihat siapa pun. Id `01_freshness` sendiri **tidak akan** diganti: id ikut
+   ke `decision_hash` (§7 butir 1).
+5. **Rekaman 30 detik Layar B** (artefak manusia; naskah adegannya ada di `ui/README.md`. Naskah video terpisah
+   **tidak dibuat dan tidak akan dibuat**: TASKS 5.3 melewatkannya atas permintaan pemilik repo).
+
+Tiga baris yang berdiri di daftar ini pada penilaian sebelumnya sudah **ditutup**, jadi mereka tidak lagi di sini —
+dan itu diverifikasi ulang pihak ketiga, bukan oleh kami sendiri (`docs/judge-reports/fase-5-ulang.md`): lubang
+pengakuan §7 langkah 2 (§6), status "belum divalidasi" pada kolom daya veto di **kedua** layar (`ui/screens.py:213`,
+`ui/app.py:196-212`), dan resep reproduksi tabel veto ber-`--db <salinan beku>` (`preflight/veto_table.py:66-69`).
 
 Urutan dan status per task: `TASKS.md`. Penilaian pihak ketiga terakhir atas repo ini — termasuk skor per kategori,
 daftar kegagalan yang bisa direproduksi, dan lima pertanyaan yang belum semuanya terjawab — ada di
-`docs/judge-reports/fase-5.md`.
+`docs/judge-reports/fase-5.md` dan `docs/judge-reports/fase-5-ulang.md`.
