@@ -1,4 +1,4 @@
-.PHONY: doctor test lint hooks record daemons backup skill agent-tick replay two-dates grade ui demo autopilot
+.PHONY: doctor test lint hooks record daemons backup skill agent-tick replay two-dates grade ui demo autopilot frontend
 doctor:
 	@echo "python : $$(python3 --version 2>/dev/null || echo MISSING)  (harus 3.12.x, lihat docs/versions.md)"
 	@echo "uv     : $$(uv --version 2>/dev/null || echo MISSING)"
@@ -29,7 +29,16 @@ two-dates:         ## spec §7 langkah 6 — dua tanggal, simbol sama, kartu ber
 	uv run python -m agent.two_dates   # fixture offline; DB tmp baru tiap run, data/ryo.db tidak disentuh
 grade:             ## (opsional) grading outcome keputusan → reputasi item
 	uv run python -m grading.grader
-ui:
+frontend:          ## bangun ulang ui/static/app.js + app.css dari frontend/ (BUTUH Node; ADR-020)
+	@command -v npm >/dev/null 2>&1 || { \
+	  echo "make frontend: npm tidak ada. Node/npm adalah alat BUILD saja: make ui, make test, dan make demo TIDAK memerlukannya karena ui/static/app.js dan ui/static/app.css dilacak git (ADR-020 butir 2). Target ini hanya perlu dijalankan kalau kamu MENGUBAH frontend/." >&2; \
+	  exit 1; }
+	npm ci                       # ci, bukan install: lockfile yang menentukan, bukan rentang versi
+	npx tsc --noEmit             # type-check; esbuild sendiri tidak memeriksa tipe
+	npx esbuild frontend/src/main.ts --bundle --format=iife --target=es2020 --charset=utf8 --legal-comments=none --outfile=ui/static/app.js
+	npx esbuild frontend/styles/app.css --bundle --charset=utf8 --legal-comments=none --outfile=ui/static/app.css
+	@echo "ui/static/ dibangun ulang. JANGAN lupa: git add ui/static/ — artefaknya dilacak."
+ui:                ## nol Node: melayani ui/static/ yang sudah dilacak git
 	uv run uvicorn ui.app:app --port $${UI_PORT:-8000}
 demo:              ## naskah docs/spec.md §7 langkah 1-6 (fixture offline) — TASKS 3.4
 	@bash scripts/demo.sh $${ARGS:-}   # @ : stdout harus naskahnya saja (dua run wajib byte-identik)

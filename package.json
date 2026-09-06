@@ -1,0 +1,19 @@
+{
+  "name": "tenko-frontend",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tenko (点呼) screen client. BUILD-time only: Node is never needed to run Tenko (ADR-020 point 2). The build output ui/static/app.js + ui/static/app.css is tracked in git and shipped.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build:js": "esbuild frontend/src/main.ts --bundle --format=iife --target=es2020 --charset=utf8 --legal-comments=none --outfile=ui/static/app.js",
+    "build:css": "esbuild frontend/styles/app.css --bundle --charset=utf8 --legal-comments=none --outfile=ui/static/app.css",
+    "build": "npm run typecheck && npm run build:js && npm run build:css"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}

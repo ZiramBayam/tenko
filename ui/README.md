@@ -10,14 +10,56 @@ Dua layar, dua pertanyaan:
 | A. Watchlist | `/ui` | "simbol mana yang paling dekat GO, dan apa yang menahan yang lain?" | `/api/watchlist` |
 | B. Kartu panggilan | `/ui/decision/{id}` | "kenapa keputusan ini, bukti per baris dari mana & kapan?" | `/api/decision/{id}` |
 
-Keduanya dirender **di server**, tanpa satu pun `<script>`, tanpa CDN, tanpa npm (ADR-001).
-Satu-satunya aset adalah `/ui/tenko.css`, yang lahir dari `ui/screens.py:STYLESHEET`;
-`Content-Security-Policy: default-src 'none'; style-src 'self'` melarang sisanya.
+`/` **menyajikan Layar A** (200 HTML, bukan pengalihan — TASKS 3.5); `/ui` tetap dilayani supaya
+tautan lama tidak mati. Daftar route pindah ke `/api/routes`, dan tautannya tercetak di kaki
+setiap layar.
+
+Keduanya dirender **di server** — banner, tabel, dan tiap `aria-label` ada sebelum satu baris JS
+pun jalan (ADR-020 butir 6) — lalu **klien TypeScript menambah perilaku di atasnya**: pindah
+layar tanpa muat ulang, saring, urutkan, dan segarkan tiap 30 detik. Nol framework, nol CDN, nol
+dependency runtime npm. Dua aset, keduanya dari origin sendiri dan keduanya hasil build yang
+**dilacak git**: `/ui/tenko.css` (`ui/static/app.css`) dan `/ui/app.js` (`ui/static/app.js`).
+`Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'`
+menutup sisanya — tanpa `unsafe-inline`, tanpa `unsafe-eval`, tanpa satu pun host pihak ketiga.
 Satu-satunya ikon adalah SVG **tertanam di HTML** (`ui/screens.py:BANNER_ICON`) — nol berkas,
 nol permintaan jaringan, jadi demo spec §7 tetap jalan tanpa jaringan dan tidak ada domain baru
 yang butuh baris `DISCLOSURE.md`.
 → `test_the_only_icon_on_the_screens_is_embedded_and_says_nothing_by_itself`,
-`test_the_stylesheet_loads_nothing_from_anywhere_including_itself`
+`test_the_stylesheet_loads_nothing_from_anywhere_including_itself`,
+`test_the_only_script_is_this_apps_own_bundle_and_the_csp_allows_nothing_else`
+
+---
+
+## Build (ADR-020): Node adalah alat BUILD, dan Tenko tidak pernah membutuhkannya untuk jalan
+
+`make ui`, `make test`, dan `make demo` **tidak menyentuh Node sama sekali**. Hasil build
+(`ui/static/app.js`, `ui/static/app.css`) dilacak git dan ikut terkirim, jadi clone bersih di
+mesin tanpa Node tetap menjalankan Tenko utuh.
+→ `test_a_clone_without_node_can_run_tenko_because_the_build_output_is_tracked`,
+`test_nothing_on_the_runtime_path_reaches_for_node_or_npm`
+
+Yang **butuh** Node hanyalah `make frontend`, dan hanya kalau kamu mengubah `frontend/`:
+
+```
+make frontend      # npm ci && tsc --noEmit && esbuild ... && git add ui/static/
+```
+
+Versi yang dipin (`docs/versions.md` adalah sumbernya, bukan berkas ini): node **v24.15.0**,
+npm **11.12.1**, `typescript` **7.0.2** (Apache-2.0), `esbuild` **0.28.2** (MIT). Dependency
+runtime npm: **nol** (`package.json` `dependencies` kosong, dipatok
+`test_npm_has_zero_runtime_dependencies`).
+
+Dua hal yang perlu dikatakan apa adanya tentang build itu:
+
+- **`typescript` 7.0.2 bukan kompiler JS murni.** Ia menarik binary native per-platform
+  (`@typescript/typescript-linux-x64` di mesin ini) dan mem-vendor `vscode-jsonrpc` 9.0.0.
+  Build di arsitektur lain menarik paket yang berbeda; `package-lock.json` mendaftarkan
+  ke-20 varian platformnya (semua Apache-2.0), dan `esbuild` menambah 26 varian (semua MIT).
+  Yang benar-benar terpasang di satu mesin hanyalah empat paket.
+- **Build-nya TIDAK offline, dan kami tidak mengklaim sebaliknya.** `esbuild` punya `postinstall`
+  yang bisa mengunduh tarball platform bila paket `@esbuild/<platform>`-nya tidak ada — itulah
+  sebabnya targetnya memakai `npm ci` (lockfile yang menentukan), bukan `npm install`. Yang
+  dijamin offline adalah **menjalankan** Tenko, bukan membangunnya.
 
 ---
 
@@ -67,11 +109,21 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
 - [x] **Enter membuka apa yang sedang berfokus.** Semua interaksi adalah navigasi `GET`; tidak
       ada tombol yang butuh JS untuk bekerja, dan tiap `href` benar-benar dijawab 200.
       → `test_the_card_screen_is_reachable_from_the_watchlist_by_keyboard`
-- [x] **Esc tidak punya apa pun untuk ditutup, dan itu disengaja.** Nol `<dialog>`, `<details>`,
-      `role="dialog"`, `autofocus`, dan nol overlay `position: fixed` di CSS — jadi tidak ada
-      perangkap fokus dan tidak ada keadaan yang hanya bisa dibatalkan dengan JS (yang dilarang
-      CSP di sini). Kalimat itu tercetak di kaki setiap layar, bukan hanya di dokumen ini.
+- [x] **Esc tidak punya apa pun untuk ditutup, dan itu tetap disengaja.** Nol `<dialog>`,
+      `<details>`, `role="dialog"`, `autofocus`, dan nol overlay `position: fixed` — jadi tidak
+      ada perangkap fokus. Sesudah ADR-020, Esc melakukan **satu** hal: mengosongkan kotak
+      saringan Layar A dan mengembalikan daftar penuh. Itu bukan "menutup" apa pun; tidak ada
+      keadaan yang hanya bisa dibatalkan dengan JS, dan tanpa JS kotak saringan itu memang tidak
+      pernah muncul. Kalimatnya tercetak di kaki setiap layar, bukan hanya di dokumen ini.
       → `test_escape_has_nothing_to_close_because_no_screen_traps_focus`
+
+- [x] **Isi yang berubah diumumkan** (`aria-live`). Tabel yang disegarkan klien tanpa muat ulang
+      adalah perubahan yang TIDAK terdengar pembaca layar kecuali dikatakan. Klien memasang satu
+      wilayah `role="status" aria-live="polite"` (`#tenko-live`) sebelum permintaan pertamanya,
+      dan menuliskan ke situ setiap kali ia memuat, gagal, menyaring, atau mengurutkan —
+      lengkap dengan `n` yang tampil dan `n` seluruhnya. Sakelar penyegaran membawa
+      `aria-pressed`, jadi keadaannya terdengar, bukan hanya terlihat.
+      → `test_the_screens_declare_the_polling_interval_they_actually_use`
 - [x] **Fokus terlihat.** `a:focus, a:focus-visible { outline: 3px solid var(--warn) }` —
       `:focus` ikut disebut supaya cincin tidak bergantung dukungan `:focus-visible`.
       Kuning `#ffd479` di atas latar tergelap = **13.55:1** (batas non-teks 3:1).
@@ -100,9 +152,18 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
       melayang, jadi pemakai keyboard, layar sentuh, dan pembaca layar melihat kalimat yang sama.
       → `test_the_stylesheet_has_no_animation_and_no_hover_only_information`
 - [x] **Tanpa animasi**, nol `transition`/`@keyframes` — aman untuk `prefers-reduced-motion`
-      dan untuk video demo.
+      dan untuk video demo. ADR-020 butir 8 menyebut "gerak halus" sebagai arah visual; ia
+      **sengaja tidak diambil**, karena batas a11y di baris ini lebih tua dan lebih mengikat
+      daripada rujukan estetika.
       → `test_the_stylesheet_has_no_animation_and_no_hover_only_information`
-- [x] **Struktur yang bisa dinavigasi pembaca layar.** `<html lang="id">`, satu `<h1>` per
+
+- [x] **Nilai yang tidak ada adalah KATA, bukan tanda hubung.** Sel kosong dulu berisi em-dash
+      abu-abu (`<span class="dim">—</span>`), yang di layar terbaca seperti sebuah nilai.
+      Sekarang ia `not stated` dengan warna `--warn` yang sama dengan `unspoken`: ketidaktahuan
+      tidak boleh sewarna dengan angka. Klien memakai kata yang sama persis.
+      → `test_the_client_and_the_server_speak_one_sentence_not_two`,
+      `test_the_client_renders_unspoken_as_a_word_and_computes_no_decision`
+- [x] **Struktur yang bisa dinavigasi pembaca layar.** `<html lang="en">`, satu `<h1>` per
       layar, `<h2>` berurut, `<main id="isi">`, `<table>` ber-`<caption>` dengan
       `<th scope="col">` dan `<th scope="row">`, banner ber-`role="note"`.
 - [x] **Tautan lompat tanpa JS.** `/ui` → "lompat ke tabel watchlist" (`#watchlist`);
@@ -175,7 +236,7 @@ kategori karenanya. Yang membuatnya bukan sekadar "belum diukur" melainkan **dib
 alat ukur repo ini sendiri: `preflight/veto_table.py` mencatat `01_freshness` (peringkat 1) nol
 kali merah, sementara `06_confluence` (peringkat 6) merah puluhan kali.
 
-Yang dilakukan layar: judul kolomnya berbunyi `daya veto (spec §4, belum divalidasi)` di **kedua**
+Yang dilakukan layar: judul kolomnya berbunyi `veto power (spec §4, not validated)` di **kedua**
 layar, dan satu kalimat penuh (`ui.app.VETO_RANK_UNVALIDATED_SENTENCE`) berdiri di Catatan layar
 A **dan** B, menyebut asal urutannya, status validasinya, alat yang membantahnya, dan perintah
 yang mencetak angkanya.
@@ -202,8 +263,9 @@ sebagai literal hanya akan membekukan laporan yang esok sudah berubah.
   adalah ISI atribut dan struktur HTML-nya, bukan bagaimana satu pembaca layar tertentu
   membacakannya. Khususnya: `aria-label` pada `<tr>` didukung baik oleh pembaca layar arus
   utama, tetapi urutan pengumumannya berbeda antar produk — kami tidak mengklaim sebaliknya.
-- **Nol audit kontras otomatis pihak ketiga.** ADR-001 melarang toolchain npm, jadi rasio di
-  atas dihitung sendiri dari rumus WCAG 2.1 di dalam tes. Rumusnya standar; alatnya bukan alat
+- **Nol audit kontras otomatis pihak ketiga.** ADR-020 mengizinkan npm hanya sebagai alat
+  BUILD (esbuild + tsc), bukan sebagai alat audit, jadi rasio di atas tetap dihitung sendiri
+  dari rumus WCAG 2.1 di dalam tes. Rumusnya standar; alatnya bukan alat
   bersertifikat.
 - ~~**`aria-label` baris kartu dipotong pada 600 aksara**~~ — **ditutup 6 Sep 2026.**
   `ARIA_VALUE_LIMIT` kini **sama dengan** `VALUE_LIMIT` (batas sel yang dilihat mata) dan
@@ -211,12 +273,20 @@ sebagai literal hanya akan membekukan laporan yang esok sudah berubah.
   tidak lagi menerima lebih sedikit bukti daripada pemakai awas. Alasan lamanya ("batas
   kesabaran") menyelesaikan kesabaran dengan membuang fakta; di kartu ini tidak ada tempat yang
   bisa dipotong tanpa membuang fakta.
-- **Bahasa: bingkai Indonesia, bukti Inggris.** Halaman tetap `<html lang="id">` — judul, kalimat
-  jawaban, judul kolom, dan Catatan layar memang Indonesia — sementara `reason`, `value`,
-  `headline`, peringatan envelope, dan narasi model ditulis Inggris oleh `preflight/` dan RYO.
-  Yang dilakukan: menandai span-nya `lang="en"` (`EVIDENCE_LANG`). Yang **tidak** dilakukan:
-  memindahkan bingkainya ke Inggris. Itu keputusan produk (bahasa juri RYO), bukan keputusan
-  layar, dan masih terbuka.
+- ~~**Bahasa: bingkai Indonesia, bukti Inggris**~~ — **ditutup 6 Sep 2026 (ADR-020).** Seluruh
+  teks layar kini Inggris dan halamannya `<html lang="en">`; permintaan pemilik repo, dan
+  memang keputusan produk seperti yang dicatat butir ini dulu. `EVIDENCE_LANG` (`lang="en"`
+  per-span) DIPERTAHANKAN meski bingkainya tidak lagi berbeda: maknanya bukan "bahasa lain"
+  melainkan "kalimat ini datang dari `preflight/`/RYO, bukan ditulis layar ini".
+- **Klien TypeScript tidak dijalankan oleh satu tes pun.** `tests/test_ui.py` adalah tes Python,
+  dan jalur runtime repo ini tidak boleh memanggil Node — jadi yang bisa dipatok tentang
+  `frontend/` hanyalah SUMBER dan BUNDEL sebagai teks: nol `innerHTML`/`eval`, nol host, nol
+  `?? 0` di modul yang merender, dan kalimat yang identik dengan kalimat Python. Yang **tidak**
+  terbukti: bahwa DOM yang dirakit klien identik dengan HTML yang dirakit server. Itu risiko
+  penyimpangan yang nyata dan diterima sadar; penawarnya adalah render server yang tetap utuh
+  (jadi layar yang dinilai juri tanpa JS tetap layar yang sama) dan
+  `test_the_client_and_the_server_speak_one_sentence_not_two` untuk kalimat yang paling mahal
+  bila menyimpang.
 - **Belum diuji dengan zoom 200%** maupun `prefers-contrast`/`forced-colors`.
 
 ---
@@ -225,20 +295,20 @@ sebagai literal hanya akan membekukan laporan yang esok sudah berubah.
 
 Prasyarat: `make ui` berjalan, jendela browser **1280×720**, zoom 100%, kursor mouse
 **tidak disentuh sama sekali** sepanjang rekaman — itulah yang membuktikan "tanpa hover-only".
-Mulai dari `http://127.0.0.1:8000/ui`. Total 30 detik.
+Mulai dari `http://127.0.0.1:8000/` (yang KINI Layar A). Total 30 detik.
 
 | Detik | Tombol | Yang harus terlihat | Poin checklist yang dibuktikan |
 |---|---|---|---|
-| 0–3 | (diam di `/ui`) | Banner SIMULATED merah di baris paling atas; kalimat pertama menjawab simbol mana yang paling dekat GO | banner, uji 30 detik |
-| 3–6 | `Tab` ×2 | Cincin kuning tebal berpindah: "JSON layar ini" → "lompat ke tabel watchlist" | fokus terlihat, urutan dokumen |
+| 0–3 | (diam di `/`) | Banner SIMULATED merah di baris paling atas; kalimat pertama menjawab simbol mana yang paling dekat GO | banner, uji 30 detik |
+| 3–6 | `Tab` ×2 | Cincin kuning tebal berpindah: "the JSON behind this screen" → "skip to the watchlist table" | fokus terlihat, urutan dokumen |
 | 6–8 | `Enter` | Halaman melompat ke tabel; tabel bergaris kuning (`:target`) | tautan lompat, `:target` |
 | 8–12 | `Tab` ×3 | Fokus berjalan menuruni kolom simbol, satu baris satu perhentian, tanpa satu pun klik | Tab menelusuri seluruh layar |
 | 12–14 | `Esc` | **Tidak terjadi apa-apa, dan itulah buktinya** — tidak ada modal/overlay yang bisa menjebak fokus; baca kalimat keyboard di kaki halaman | Esc, tanpa perangkap fokus |
 | 14–16 | `Enter` | Layar B terbuka: judul sudah menyebut simbol + GO/NO_GO + penahan terberat | uji 30 detik Layar B |
-| 16–20 | `Shift+Tab` lalu `Tab` | Cincin fokus bolak-balik antara "kembali ke watchlist", "JSON kartu ini", dan "lompat ke sepuluh baris" — kedua arah bekerja | Shift+Tab |
-| 20–24 | `Enter` di "lompat ke sepuluh baris" | Tabel sepuluh baris tunjuk→sebut, tiap baris membawa nilai, `tool.field`, `snapshot`, `as_of` di kolom **yang berjudul benar** — sembilan judul untuk sembilan kolom | nilai + sumber |
-| 24–27 | (diam; sorot baris `unspoken` bila ada) | Baris `unspoken` bertuliskan "tidak disebut — bukti tidak cukup, dan itu bukan nol"; hijau-netral bertuliskan "tidak menentang, bukan konfirmasi" | unspoken ≠ 0, warna tidak sendirian |
-| 27–30 | `Tab` ke "putar ulang sekarang" (tepat di bawah tabel, di bagian "Hash, jam, dan pemutaran ulang"), `Enter` | Kartu dimuat ulang dan vonis replay dihitung ULANG di server dari snapshot beku yang sama; banner SIMULATED tetap melekat di puncak sepanjang gulir | Enter, replay keyboard-first, banner di setiap frame |
+| 16–20 | `Shift+Tab` lalu `Tab` | Cincin fokus bolak-balik antara "back to the watchlist", "the JSON behind this card", dan "skip to the ten point-then-speak rows" — kedua arah bekerja | Shift+Tab |
+| 20–24 | `Enter` di "skip to the ten point-then-speak rows" | Tabel sepuluh baris tunjuk→sebut, tiap baris membawa nilai, `tool.field`, `snapshot`, `as_of` di kolom **yang berjudul benar** — sembilan judul untuk sembilan kolom | nilai + sumber |
+| 24–27 | (diam; sorot baris `unspoken` bila ada) | Baris `unspoken` bertuliskan "unspoken — the evidence is not enough, and that is not zero"; hijau-netral bertuliskan "neutral — not against it, and not a confirmation" | unspoken ≠ 0, warna tidak sendirian |
+| 27–30 | `Tab` ke "replay now" (tepat di bawah tabel, di bagian "Hashes, clocks, and replay"), `Enter` | Kartu dimuat ulang dan vonis replay dihitung ULANG di server dari snapshot beku yang sama; banner SIMULATED tetap melekat di puncak sepanjang gulir | Enter, replay keyboard-first, banner di setiap frame |
 
 Opsional (di luar 30 detik, kalau ada waktu rekaman kedua): nyalakan pembaca layar, arahkan ke
 satu baris kartu, dan biarkan ia membacakan `aria-label`-nya — satu kalimat itu memuat nilai

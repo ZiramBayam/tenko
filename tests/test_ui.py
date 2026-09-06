@@ -229,9 +229,24 @@ def by_symbol(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 # --- kewajiban lomba: setiap respons mengaku simulasi ---------------------------------------
 def test_every_route_including_its_errors_says_simulated(client: TestClient, store: Store) -> None:
-    """Kalau satu saja lupa, layar mengklaim uang sungguhan (docs/rules-compliance.md)."""
+    """Kalau satu saja lupa, layar mengklaim uang sungguhan (docs/rules-compliance.md).
+
+    DITULIS ULANG untuk TASKS 3.5: `/` bukan lagi JSON melainkan Layar A, jadi menuntut field
+    `simulated` di badannya akan menuntut bentuk yang salah. Yang TIDAK dilonggarkan adalah
+    jaminannya — `/` sekarang wajib membawa banner SIMULATED yang TERBACA di halaman, penanda
+    `<meta name="tenko-simulated" content="true">`, dan CSP; sisanya tetap wajib membawa
+    `simulated: true` di JSON. Kalau `/` diam-diam kembali menjadi JSON, cabang HTML di bawah
+    gagal; kalau ia kehilangan banner, ia gagal juga.
+    """
+    screen = client.get("/")
+    assert screen.status_code == 200
+    assert screen.headers["content-type"].startswith("text/html")
+    assert BANNER in screen.text, "`/` tanpa banner SIMULATED"
+    assert "practice" in screen.text and "No real funds" in screen.text
+    assert '<meta name="tenko-simulated" content="true">' in screen.text
+    assert "default-src 'none'" in screen.headers["content-security-policy"]
     paths = [
-        "/",
+        "/api/routes",
         "/api/health",
         "/api/watchlist",
         "/api/decisions",
@@ -306,7 +321,7 @@ def test_an_id_outside_the_sqlite_integer_range_is_422_not_a_crash(
     assert response.headers["content-type"].startswith("application/json")
     body = response.json()
     assert body["simulated"] is True and body["banner"] == BANNER
-    assert "tidak ada yang dibaca dari store" in body["error"]
+    assert "nothing was read from the store" in body["error"]
 
 
 def test_an_unexpected_failure_still_admits_it_is_a_simulation(
@@ -382,7 +397,7 @@ def test_watchlist_with_no_decisions_says_n_is_zero(empty_client: TestClient) ->
     payload = empty_client.get("/api/watchlist").json()
     assert payload["n"] == 0
     assert payload["symbols"] == []
-    assert any("belum ada data (n=0)" in note for note in payload["notes"])
+    assert any("no data yet (n=0)" in note for note in payload["notes"])
 
 
 # --- TASKS 3.1a: dua generasi -------------------------------------------------------------
@@ -398,7 +413,7 @@ def test_watchlist_and_decisions_show_only_rows_that_carry_algo(client: TestClie
     listed = client.get("/api/decisions").json()
     assert legacy_id not in [entry["decision_id"] for entry in listed["decisions"]]
     assert listed["n_legacy_skipped"] == 1
-    assert any("generasi sebelumnya" in note for note in listed["notes"])
+    assert any("from an earlier generation" in note for note in listed["notes"])
 
 
 def test_decisions_min_id_is_at_least_the_first_current_generation_row(
@@ -430,8 +445,8 @@ def test_a_legacy_id_is_200_with_stale_algo_and_no_rendered_blocking(
     assert body["blocking"] == [] and body["blocking_rendered"] is False
     # `blocking_json` warisan berisi [5, 6, 10]: tidak boleh muncul sebagai daftar penahan.
     assert "5" not in [str(entry) for entry in body["blocking"]]
-    assert any("dihapus" in note for note in body["notes"])  # satu kalimat penjelasan
-    assert any("bilangan bulat" in note for note in body["notes"])
+    assert any("no longer exists" in note for note in body["notes"])  # satu kalimat penjelasan
+    assert any("holds integers" in note for note in body["notes"])
     assert body["narration"] is None
 
 
@@ -456,7 +471,9 @@ def test_a_zero_evidence_row_is_never_a_green_badge(client: TestClient, store: S
     assert body["replay_tone"] == TONE_NO_EVIDENCE
     assert VERDICT_IDENTICAL not in json.dumps(body)
     assert body["snapshot_ids"] == [] and body["replay_bundle"] == []
-    assert any("tidak ada bukti" in note or "BUKAN verifikasi" in note for note in body["notes"])
+    assert any(
+        "without a single piece of evidence" in note or "NOT verification" in note for note in body["notes"]
+    )
 
 
 def stale_params_row(store: Store, symbol: str = "SOL") -> int:
@@ -493,10 +510,10 @@ def test_stale_params_says_it_did_not_look_instead_of_accusing(client: TestClien
     assert body["verified"] is False
     assert body["replay_tone"] == TONE_NOT_ASSESSED
     assert VERDICT_IDENTICAL not in json.dumps(body)
-    assert any("TIDAK menilainya sama sekali" in note for note in body["notes"])
+    assert any("we did NOT judge it at all" in note for note in body["notes"])
     # Ketidaktahuan dikatakan sebagai ketidaktahuan: kalimatnya menolak DUA-DUANYA sekaligus.
-    assert any("bukan pula temuan" in note for note in body["notes"])
-    assert "temuan:" not in body["replay_label"]
+    assert any("it is not a finding either" in note for note in body["notes"])
+    assert "finding:" not in body["replay_label"]
 
 
 def test_a_finding_and_an_unassessed_row_never_share_a_tone(client: TestClient, store: Store) -> None:
@@ -510,7 +527,7 @@ def test_a_finding_and_an_unassessed_row_never_share_a_tone(client: TestClient, 
     assert bad["replay_tone"] == TONE_FINDING
     assert stale["replay_tone"] != bad["replay_tone"]
     assert stale["replay_label"] != bad["replay_label"]
-    assert "temuan" in bad["replay_label"] and "temuan" not in stale["replay_label"]
+    assert "finding" in bad["replay_label"] and "finding" not in stale["replay_label"]
     # Perbedaannya juga dikatakan sekali, dengan cacahnya, di catatan daftar.
     notes = " ".join(client.get("/api/decisions").json()["notes"])
     assert TONE_NOT_ASSESSED in notes and TONE_FINDING in notes
@@ -576,7 +593,7 @@ def test_a_row_dropped_for_clock_skew_is_named_on_the_screen(skewed_client: Test
     assert dropped, body["warnings"]
     assert "skipped" in dropped[0] and "snapshot_id=" in dropped[0]
     # Angkanya berdampingan dengan kalimatnya: juri tidak perlu membuka `warnings` untuk tahu.
-    assert any(f"{body['n_warnings']} peringatan envelope" in note for note in body["notes"])
+    assert any(f"{body['n_warnings']} envelope warnings" in note for note in body["notes"])
 
 
 def test_the_watchlist_counts_the_warnings_it_does_not_print(skewed_client: TestClient) -> None:
@@ -590,7 +607,7 @@ def test_preflight_repeats_the_dropped_row_instead_of_swallowing_it(skewed_clien
     body = skewed_client.get("/api/preflight/BTC").json()
     assert any("disagree" in line for line in body["warnings"])
     assert body["n_warnings"] == len(body["warnings"])
-    assert any("peringatan envelope" in note for note in body["notes"])
+    assert any("envelope warnings" in note for note in body["notes"])
 
 
 def test_a_card_without_dropped_evidence_names_no_dropped_row(client: TestClient) -> None:
@@ -658,7 +675,7 @@ def test_an_unreadable_id_is_422_and_reads_nothing(client: TestClient) -> None:
     response = client.get("/api/decision/abc")
     assert response.status_code == 422
     assert response.json()["simulated"] is True
-    assert "tidak ada yang dibaca dari store" in response.json()["error"]
+    assert "nothing was read from the store" in response.json()["error"]
 
 
 # --- /api/preflight -------------------------------------------------------------------------
@@ -671,7 +688,7 @@ def test_preflight_recomputes_a_card_from_stored_snapshots(client: TestClient) -
     assert body["n_items"] == 10
     assert len(body["decision_hash"]) == 64
     assert body["envelope"]["simulated"] is True
-    assert any("tidak ada tool RYO yang dipanggil" in note for note in body["notes"])
+    assert any("no RYO tool was called" in note for note in body["notes"])
 
 
 def test_preflight_normalizes_the_symbol_like_the_recorder(client: TestClient) -> None:
@@ -705,10 +722,10 @@ def test_preflight_of_a_shape_that_is_not_a_symbol_is_400_not_a_card(client: Tes
     assert response.status_code == 400
     body = response.json()
     assert body["simulated"] is True
-    assert "tidak berbentuk seperti simbol" in body["error"]
+    assert "is not shaped like a symbol" in body["error"]
     assert "market_overview" not in body["error"]
     assert "monitor_market_sentiment_shift" not in body["error"]
-    assert "tidak ada satu pun bukti" not in body["error"]
+    assert "there is no evidence ABOUT" not in body["error"]
 
 
 @pytest.mark.parametrize("symbol", ["\uff33\uff2f\uff2c", "S\u041eL", "BNB\U0001f600", "BTC-PERP"])
@@ -753,9 +770,9 @@ def test_ui_and_agent_share_one_definition_of_symbol_shape() -> None:
 def test_preflight_note_counts_only_symbol_bearing_tools(client: TestClient) -> None:
     """Kalimat "N dari M tool ber-simbol": M = 3 (analyze/compare/deep), bukan 5."""
     notes = client.get("/api/preflight/BTC").json()["notes"]
-    note = next(line for line in notes if "tool ber-simbol" in line)
-    assert f"dari {len(symbol_tools('BTC'))} tool ber-simbol" in note
-    assert "dari 3 tool ber-simbol" in note
+    note = next(line for line in notes if "symbol-bearing tools" in line)
+    assert f"of {len(symbol_tools('BTC'))} symbol-bearing tools" in note
+    assert "of 3 symbol-bearing tools" in note
     assert "market_overview" not in note and "monitor_market_sentiment_shift" not in note
     named = note.split(":", 1)[1].strip().split(", ")
     assert named == sorted(named)  # `symbol_evidence` mengembalikan daftar TERURUT
@@ -785,14 +802,42 @@ def test_health_states_that_nothing_is_called(client: TestClient) -> None:
     assert body["params_hash"] == DEFAULT_PARAMS.params_hash()
     assert body["n_decisions_current_generation"] == 4
     assert body["n_decisions_legacy"] == 0
-    assert "TERBARU" in body["note"]  # cacah ≠ total tabel
+    assert "MOST RECENT" in body["note"]  # cacah ≠ total tabel
 
 
-def test_index_lists_the_routes_instead_of_being_a_landing_page(client: TestClient) -> None:
-    body = client.get("/").json()
+def test_index_serves_screen_a_and_the_route_list_is_still_discoverable(client: TestClient) -> None:
+    """TASKS 3.5, DITULIS ULANG dari `test_index_lists_the_routes_instead_of_being_a_landing_page`.
+
+    Niat lama ("`/` adalah indeks route, bukan halaman") ditulis saat Layar A belum ada. Ia
+    berbalik menjadi cacat begitu layarnya ada: pemilik repo membuka `127.0.0.1:8000`, melihat
+    JSON, dan mengira itu seluruh frontend. Niat baru: `/` ADALAH Layar A — **200 HTML**, bukan
+    3xx, supaya `curl` tanpa `-L` pun menerima banner SIMULATED pada respons pertama.
+
+    Yang dijaga agar tidak hilang bersama perubahan itu: daftar route masih bisa DITEMUKAN.
+    Rumahnya `/api/routes`, dan tautannya tercetak di kaki setiap layar — jadi ia ditemukan
+    dengan mata, bukan ditebak. Tes ini menuntut ketiganya sekaligus: halaman, daftar, tautan.
+    """
+    page = client.get("/")
+    assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
+    watchlist = client.get("/ui")
+    # Layar yang sama persis, bukan halaman kembar yang bisa menyimpang: satu-satunya beda yang
+    # diizinkan adalah jam render yang tercetak di kaki halaman.
+    assert page.text.count("<table id='watchlist'>") == watchlist.text.count("<table id='watchlist'>")
+    assert "<h1>Tenko 点呼 — pre-departure roll call (simulated)</h1>" in page.text
+    assert '<a href="/api/routes">/api/routes</a>' in page.text, "daftar route tidak bisa ditemukan"
+
+    body = client.get("/api/routes").json()
+    assert body["simulated"] is True
     assert "/api/watchlist" in body["routes"]
     assert "/api/decision/{id}" in body["routes"]
+    assert "/" in body["routes"] and "/ui/app.js" in body["routes"]
+    assert body["screens"]["A_watchlist"] == "/"
     assert body["calls_ryo_tools"] is False
+    # Setiap route yang diumumkan benar-benar dijawab: daftar yang menyebut route mati adalah
+    # penemuan yang menyesatkan, bukan penemuan.
+    for route in body["routes"]:
+        probe = route.replace("{id}", "1").replace("{symbol}", "SOL")
+        assert client.get(probe).status_code == 200, route
 
 
 def test_the_openapi_and_docs_pages_serve_nothing_from_a_cdn(client: TestClient) -> None:
@@ -922,8 +967,8 @@ def test_a_giant_card_is_rendered_within_a_stated_bound(client: TestClient, stor
     # `n_warnings` = cacah SEBENARNYA (COUNT_NAMING_RULE); yang dirender punya nama sendiri.
     assert body["n_warnings"] == body["n_warnings_total"] == n_rows
     assert body["n_warnings_rendered"] == len(body["warnings"])
-    assert any(f"{n_rows} baris panggilan" in note for note in body["notes"])
-    assert any(f"{n_rows} peringatan envelope ada" in note for note in body["notes"])
+    assert any(f"{n_rows} roll-call rows" in note for note in body["notes"])
+    assert any(f"{n_rows} envelope warnings sit on this row" in note for note in body["notes"])
     # Layar A membaca baris yang sama; ia tetap menjawab, dengan cacah SEBENARNYA di sampingnya.
     entry = by_symbol(client.get("/api/watchlist").json())["SOL"]
     assert entry["n_items"] == n_rows and entry["n_warnings"] == n_rows
@@ -1063,17 +1108,17 @@ def test_live_zero_evidence_rows_are_marked_not_verified(live_client: TestClient
     assert body["n_snapshots"] == 0
     assert VERDICT_IDENTICAL not in json.dumps(body)
     assert body["replay_tone"] == TONE_NOT_ASSESSED and body["replay_tone"] != TONE_FINDING
-    assert any("TIDAK menilainya sama sekali" in note for note in body["notes"])
+    assert any("we did NOT judge it at all" in note for note in body["notes"])
     # Ketidaktahuan, bukan tuduhan: tidak satu pun kalimat mengaku memeriksa dan menemukan.
-    assert not any("terbukti ditulis tanpa bukti" in note for note in body["notes"])
+    assert not any("booked without a single piece of evidence" in note for note in body["notes"])
 
 
 @pytest.mark.parametrize("decision_id", LIVE_ZERO_EVIDENCE_IDS)
 def test_live_stale_params_rows_never_look_like_a_finding(live_client: TestClient, decision_id: int) -> None:
     """AC 0.14 (4): juri melihat `MISMATCH` dan `STALE_PARAMS` berdampingan; keduanya beda."""
     body = live_client.get(f"/api/decision/{decision_id}").json()
-    assert "temuan" not in body["replay_label"]
-    assert "tidak dinilai" in body["replay_label"]
+    assert "finding" not in body["replay_label"]
+    assert "not assessed" in body["replay_label"]
 
 
 def test_live_legacy_row_is_200_not_404(live_client: TestClient) -> None:
@@ -1296,8 +1341,8 @@ def test_screen_a_answers_which_symbol_is_closest_to_go_in_its_first_sentence(cl
     assert page.status_code == 200
     assert page.headers["content-type"].startswith("text/html")
     lede = strip_tags(page.text.split("<table")[0])
-    assert "paling dekat GO: SOL" in lede  # fixture: SOL satu-satunya GO
-    assert "bukan skor" in lede
+    assert "closest to GO: SOL" in lede  # fixture: SOL satu-satunya GO
+    assert "not a score" in lede
     assert BANNER in lede
 
 
@@ -1317,8 +1362,8 @@ def test_screen_a_orders_rows_by_veto_power_and_says_what_holds_each_symbol(clie
 def test_screen_a_says_how_much_it_did_not_show(client: TestClient) -> None:
     """Pemotongan harus terlihat: batas pindai dan baris generasi lama disebut dengan angkanya."""
     readable = strip_tags(client.get("/ui").text)
-    assert "baris keputusan TERBARU, bukan seluruh tabel" in readable
-    assert "generasi lama tidak ditampilkan" in readable
+    assert "MOST RECENT decision rows, not the whole table" in readable
+    assert "earlier-generation rows are not shown here" in readable
 
 
 def test_screen_b_headline_answers_why_this_decision_without_a_single_click(client: TestClient) -> None:
@@ -1327,7 +1372,7 @@ def test_screen_b_headline_answers_why_this_decision_without_a_single_click(clie
     html = render_card(payload, BANNER, render_clock())
     above_fold = strip_tags(html.split("<h2")[0])
     assert "BTC" in above_fold and "NO_GO" in above_fold
-    assert "Penahan TERBERAT: 06_confluence" in above_fold
+    assert "HEAVIEST blocker: 06_confluence" in above_fold
     assert "the evidence does not agree with itself" in above_fold
     assert "deep_analysis" in above_fold and "data.confluence.state" in above_fold
     assert "as_of" in above_fold
@@ -1469,7 +1514,7 @@ def test_a_reason_survives_the_whole_chain_from_item_result_to_the_rendered_scre
     assert reason in readable  # 814 aksara, utuh — bukan 400
     assert readable.count(SCREEN_CUT_NOTE.format(limit=REASON_LIMIT)) == 0
     assert REASON_CUT_NOTE in readable  # sebabnya disebut, dan sebabnya BENAR
-    assert f"{REASON_LIMIT} aksara" in REASON_CUT_NOTE  # langit-langit yang BENAR-BENAR memotong
+    assert f"{REASON_LIMIT} characters" in REASON_CUT_NOTE  # langit-langit yang BENAR-BENAR memotong
     # Baris generasi kini tidak boleh memakai kalimat baris warisan: `TEXT_LIMIT` disebut hanya
     # oleh `LEGACY_REASON_CUT_NOTE`, dan menyebut langit-langit yang salah = kartu yang berbohong.
     assert "TEXT_LIMIT" not in REASON_CUT_NOTE
@@ -1549,7 +1594,8 @@ def test_a_row_booked_at_the_old_ceiling_names_that_ceiling_and_its_era() -> Non
     }
     readable = strip_tags(render_card(payload, BANNER, render_clock()))
     assert LEGACY_REASON_CUT_NOTE in readable
-    assert f"{TEXT_LIMIT} aksara" in LEGACY_REASON_CUT_NOTE and "SEBELUM dinaikkan" in LEGACY_REASON_CUT_NOTE
+    assert f"{TEXT_LIMIT} characters" in LEGACY_REASON_CUT_NOTE
+    assert "BEFORE it was raised" in LEGACY_REASON_CUT_NOTE
     assert FOREIGN_MARK_NOTE not in readable  # sebabnya diketahui: jangan bilang tidak tahu
     assert REASON_CUT_NOTE not in readable  # dan jangan menyebut langit-langit yang salah
 
@@ -1617,15 +1663,15 @@ def test_screen_b_age_is_derived_from_as_of_not_from_ts_utc(client: TestClient) 
     payload["as_of"] = (now - timedelta(minutes=60)).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     payload["ts_utc"] = (now - timedelta(minutes=6000)).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     readable = strip_tags(render_card(payload, BANNER, now))
-    assert "60.0 menit sebelum halaman ini dirender" in readable
-    assert "100.0 jam" not in readable  # 6000 menit = umur `ts_utc`, yang TIDAK boleh dipakai
-    assert "TAMPILAN" in readable and "tidak masuk `decision_hash`" in readable
+    assert "60.0 min before this page was rendered" in readable
+    assert "100.0 h" not in readable  # 6000 menit = umur `ts_utc`, yang TIDAK boleh dipakai
+    assert "PRESENTATION" in readable and "never enters `decision_hash`" in readable
 
 
 def test_screen_b_says_so_when_as_of_cannot_be_read_instead_of_borrowing_the_wall_clock() -> None:
     """Jam yang tidak terbaca tidak diganti jam sekarang, dan "umur 0 menit" tidak dikarang."""
     readable = strip_tags(render_card({"decision_id": 1, "as_of": None}, BANNER, render_clock()))
-    assert "umur tidak bisa disebut" in readable
+    assert "age cannot be stated" in readable
     assert age_phrase("bukan jam", render_clock()) is None
 
 
@@ -1646,7 +1692,7 @@ def test_green_neutral_is_rendered_differently_from_green_confirmation(client: T
     assert "s-green-neutral" in neutral_row and "s-green-neutral" not in confirming_row
     assert NEUTRAL_MARK in strip_tags(neutral_row) and NEUTRAL_MARK not in strip_tags(confirming_row)
     assert f'aria-label="status green, {NEUTRAL_MARK}"' in neutral_row  # bukan hanya warna
-    assert "tidak menentang, bukan konfirmasi" in NEUTRAL_MARK
+    assert "not against it, and not a confirmation" in NEUTRAL_MARK
 
 
 def test_unspoken_is_spelled_out_instead_of_being_a_grey_number(client: TestClient) -> None:
@@ -1654,7 +1700,7 @@ def test_unspoken_is_spelled_out_instead_of_being_a_grey_number(client: TestClie
     payload["items"] = [{"item_id": "01_freshness", "veto_rank": 1, "status": "unspoken", "value": None}]
     readable = strip_tags(render_card(payload, BANNER, render_clock()))
     assert UNSPOKEN_MARK in readable
-    assert "bukti tidak cukup" in readable and "bukan nol" in readable
+    assert "the evidence is not enough" in readable and "that is not zero" in readable
 
 
 def test_every_narration_line_is_labelled_beside_the_deterministic_reason(client: TestClient) -> None:
@@ -1689,7 +1735,7 @@ def test_every_narration_line_is_labelled_beside_the_deterministic_reason(client
     assert NARRATION_LABEL in readable
     assert readable.index(NARRATION_LABEL) < readable.index("GO, buy now")
     assert "not a confirmation either" in readable  # `reason` deterministik, baris yang SAMA
-    assert "TIDAK diverifikasi terhadap bukti" in strip_tags(html)
+    assert "NOT verified against the evidence" in strip_tags(html)
     assert NARRATION_NOTE in strip_tags(html)
 
 
@@ -1738,7 +1784,12 @@ def test_the_screens_escape_html_and_isolate_bidi_for_every_value_from_ryo(clien
         },
     ]
     html = render_card(payload, BANNER, render_clock())
-    assert "<script" not in html.lower()
+    # Nilai asal-DB tidak bisa menambah satu tag skrip pun: yang ada tepat SATU, dan ia bundel
+    # aplikasi ini sendiri (`src="/ui/app.js"`, tanpa isi). `<script>` yang datang dari `value`
+    # keluar sebagai `&lt;script&gt;` — dihitung di bawah, bukan diasumsikan.
+    assert html.lower().count("<script") == 1
+    assert '<script src="/ui/app.js" defer></script>' in html
+    assert "&lt;script&gt;" in html or "&lt;/script&gt;" in html or "\\u202e" in html
     assert "‮" not in html  # dibuang? tidak — di-escape TERLIHAT:
     assert html.count("\\u202e") >= 5
     assert "&lt;/td&gt;" in html
@@ -1758,31 +1809,73 @@ def test_screen_a_escapes_a_poisoned_symbol_that_really_came_from_the_store(clie
     payload = client.get("/api/watchlist").json()
     payload["symbols"][0]["symbol"] = "‮</table><script>x</script>"
     html = render_watchlist(payload, BANNER, render_clock())
-    assert "<script" not in html.lower() and "</table><script" not in html
+    # Satu-satunya `<script>` adalah bundel aplikasi ini; simbol beracun tidak bisa membuat yang
+    # kedua, dan tidak bisa menutup tabelnya.
+    assert html.lower().count("<script") == 1
+    assert '<script src="/ui/app.js" defer></script>' in html
+    assert "</table><script" not in html
     assert "\\u202e" in html
 
 
-def test_the_screens_contain_no_script_at_all_and_the_csp_forbids_one(client: TestClient) -> None:
-    """Permukaan `innerHTML` ditutup dengan menghapusnya: layar ini tidak punya JS sama sekali."""
-    for path in ("/ui", "/ui/decision/1", "/ui/decision/999999"):
+def test_the_only_script_is_this_apps_own_bundle_and_the_csp_allows_nothing_else(
+    client: TestClient,
+) -> None:
+    """DITULIS ULANG dari `test_the_screens_contain_no_script_at_all_and_the_csp_forbids_one`.
+
+    Niat lama menutup permukaan `innerHTML` dengan menghapus JS sepenuhnya. ADR-020 butir 5
+    melonggarkan SATU direktif, jadi tes ini memaku pelonggaran itu tetap SEMPIT — dan ia
+    menggigit lebih keras daripada yang lama, karena sekarang ada sesuatu yang bisa salah:
+
+    * tepat SATU `<script>` di setiap halaman, dan ia `src`-nya `/ui/app.js` (origin sendiri);
+    * `<script>` itu tidak punya isi sebaris satu aksara pun (`'unsafe-inline'` tidak ada, jadi
+      skrip sebaris tidak akan jalan — dan halaman yang mengandalkannya adalah halaman rusak);
+    * CSP memuat `script-src 'self'` dan TIDAK memuat `unsafe-inline`, `unsafe-eval`, `data:`,
+      `blob:`, `*`, maupun satu pun host;
+    * `default-src 'none'`, `img-src 'none'`, `base-uri 'none'` tetap seperti sebelumnya;
+    * nol atribut penangan kejadian sebaris (`onerror=`, `onclick=`, …) dan nol `javascript:`.
+    """
+    for path in ("/", "/ui", "/ui/decision/1", "/ui/decision/999999"):
         response = client.get(path)
-        assert "<script" not in response.text.lower()
-        assert "onerror=" not in response.text.lower() and "javascript:" not in response.text.lower()
+        lower = response.text.lower()
+        scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", response.text, re.S)
+        assert len(scripts) == 1, f"{path}: {len(scripts)} tag script"
+        assert scripts[0] == "", f"{path}: ada skrip SEBARIS, yang CSP-nya sendiri melarang"
+        assert '<script src="/ui/app.js" defer></script>' in response.text, path
+        assert not re.search(r"\son[a-z]+\s*=", lower), f"{path}: penangan kejadian sebaris"
+        assert "javascript:" not in lower, path
         csp = response.headers["content-security-policy"]
-        assert "default-src 'none'" in csp and "script-src" not in csp
+        assert "script-src 'self'" in csp, path
+        for forbidden in ("unsafe-inline", "unsafe-eval", "data:", "blob:", "http", "*"):
+            assert forbidden not in csp, f"{path}: CSP melonggar ke {forbidden}"
+        assert "default-src 'none'" in csp and "img-src 'none'" in csp and "base-uri 'none'" in csp
         assert response.headers["x-content-type-options"] == "nosniff"
 
 
 def test_no_asset_comes_from_any_host_but_this_app(client: TestClient) -> None:
-    """ADR-001 & DISCLOSURE: nol CDN, nol npm, dan `ui/static/` memang tidak ada di repo."""
-    for path in ("/ui", "/ui/decision/1"):
+    """Nol CDN dan nol aset yang diunduh saat runtime — sekarang dengan DUA aset, bukan satu.
+
+    `ui/static/` sekarang ADA (ADR-020 butir 2: hasil build yang dilacak git), jadi klaim lama
+    "berkasnya memang tidak ada" diganti klaim yang benar dan lebih sulit dipenuhi: kedua aset
+    dilayani dari origin ini, keduanya tidak menyebut satu host pun, dan tidak satu pun dari
+    keduanya menarik berkas ketiga.
+    """
+    for path in ("/", "/ui", "/ui/decision/1"):
         text = client.get(path).text
         assert "//" not in text.replace("<!doctype", "").replace("&#8635;", "")
         assert 'href="/ui/tenko.css"' in text
+        assert 'src="/ui/app.js"' in text
     css = client.get("/ui/tenko.css")
     assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
     assert "http" not in css.text and "@import" not in css.text
-    assert not (ROOT / "ui" / "static").exists()
+    script = client.get("/ui/app.js")
+    assert script.status_code == 200
+    assert script.headers["content-type"].startswith("text/javascript")
+    assert script.headers["x-content-type-options"] == "nosniff"
+    for forbidden in ("http://", "https://", "//cdn", "import(", "importScripts", 'fetch("h'):
+        assert forbidden not in script.text, forbidden
+    # Yang dilayani ADALAH berkas yang dilacak git, bukan sesuatu yang dirakit saat permintaan.
+    assert script.text == (ROOT / "ui" / "static" / "app.js").read_text(encoding="utf-8")
+    assert css.text == (ROOT / "ui" / "static" / "app.css").read_text(encoding="utf-8")
 
 
 def test_the_stylesheet_has_no_animation_and_no_hover_only_information(client: TestClient) -> None:
@@ -1818,9 +1911,9 @@ def test_screen_b_shows_the_totals_when_it_renders_fewer_rows_than_the_card_hold
     payload["items"] = payload["items"][:1]
     payload["n_warnings_rendered"], payload["n_warnings_total"] = 0, 7
     readable = strip_tags(render_card(payload, BANNER, render_clock()))
-    assert "n=1 baris dirender" in readable
+    assert "n=1 rows rendered" in readable
     assert "n_items_total" in readable and str(payload["n_items_total"]) in readable
-    assert "0 dirender dari 7" in readable
+    assert "0 rendered of 7" in readable
 
 
 def test_screen_b_offers_a_replay_button_that_reruns_on_the_server(client: TestClient) -> None:
@@ -1828,9 +1921,9 @@ def test_screen_b_offers_a_replay_button_that_reruns_on_the_server(client: TestC
     payload = card_payload(client)
     html = render_card(payload, BANNER, render_clock())
     assert f'<a class="badge" href="/ui/decision/{payload["decision_id"]}" aria-label=' in html
-    assert "putar ulang sekarang" in strip_tags(html)
+    assert "replay now" in strip_tags(html)
     readable = strip_tags(html)
-    assert "dihitung ULANG di server" in readable
+    assert "recomputed ON THE SERVER" in readable
     assert f"make replay ID={payload['decision_id']}" in readable
 
 
@@ -1881,7 +1974,11 @@ def test_every_failing_screen_request_is_still_a_screen_with_a_banner_and_a_csp(
     assert response.headers["x-content-type-options"] == "nosniff"
     assert BANNER in unescape(response.text)
     assert 'name="tenko-simulated" content="true"' in response.text
-    assert "<script" not in response.text.lower()
+    # Halaman GAGAL pun hanya membawa bundel aplikasi ini sendiri, dan CSP-nya tetap sempit.
+    assert response.text.lower().count("<script") == 1
+    assert '<script src="/ui/app.js" defer></script>' in response.text
+    assert "script-src 'self'" in response.headers["content-security-policy"]
+    assert "unsafe-inline" not in response.headers["content-security-policy"]
     if status == 405:
         assert "GET" in response.headers.get("allow", "")  # metode yang benar tetap disebut
 
@@ -1986,17 +2083,17 @@ def test_the_empty_screen_says_n_is_zero_instead_of_showing_an_empty_table(empty
     page = empty_client.get("/ui")
     assert page.status_code == 200
     readable = strip_tags(page.text)
-    assert "belum ada data (n=0)" in readable
+    assert "no data yet (n=0)" in readable
     assert "<table" not in page.text
 
 
 def test_a_legacy_row_screen_refuses_to_render_what_it_cannot_judge(client: TestClient, store: Store) -> None:
     legacy_id = legacy_row(store)
     readable = strip_tags(client.get(f"/ui/decision/{legacy_id}").text)
-    assert "generasi lama" in readable
-    assert "TIDAK dirender" in readable
-    assert "STALE_ALGO" in readable and "tidak dinilai" in readable
-    assert "belum ada data (n=0)" in readable
+    assert "Earlier-generation row" in readable
+    assert "are NOT rendered" in readable
+    assert "STALE_ALGO" in readable and "not assessed" in readable
+    assert "no data yet (n=0)" in readable
 
 
 def test_the_html_screens_never_write_to_the_database(client: TestClient, store: Store) -> None:
@@ -2093,7 +2190,7 @@ def test_a_card_with_thousands_of_blockers_truncates_blocking_and_says_the_total
     assert len(body["blocking"]) == ui_app.MAX_BLOCKING_ROWS < N_BLOCKERS
     assert body["n_blocking"] == body["n_blocking_total"] == N_BLOCKERS + 1
     assert body["n_blocking_rendered"] == ui_app.MAX_BLOCKING_ROWS
-    assert any(f"{N_BLOCKERS + 1} baris menahan keputusan ini" in note for note in body["notes"])
+    assert any(f"{N_BLOCKERS + 1} rows hold this decision back" in note for note in body["notes"])
     assert len(response.content) < 200_000
     # Yang dibuang adalah EKOR: penahan terberat tetap ada, dan tetap di baris pertama.
     assert body["blocking"][0] == HEAVIEST
@@ -2114,7 +2211,7 @@ def test_the_watchlist_row_for_that_card_is_bounded_and_still_names_its_blocker(
     # Urutan layar dihitung dari cacah SEBENARNYA, dan penahan terberatnya tetap terbaca.
     assert entry["top_blocker"]["item_id"] == HEAVIEST
     assert entry["veto_rank"] == ITEM_ORDER.index(HEAVIEST) + 1
-    assert any(f"terbanyak {N_BLOCKERS + 1}" in note for note in body["notes"])
+    assert any(f"most: {N_BLOCKERS + 1}" in note for note in body["notes"])
 
 
 def test_the_decisions_list_says_it_cut_the_blocking_lists_too(client: TestClient, store: Store) -> None:
@@ -2122,7 +2219,7 @@ def test_the_decisions_list_says_it_cut_the_blocking_lists_too(client: TestClien
     body = client.get("/api/decisions").json()
     entry = next(row for row in body["decisions"] if row["symbol"] == "SOL")
     assert entry["n_blocking_rendered"] < entry["n_blocking"] == N_BLOCKERS + 1
-    assert any(f"terbanyak {N_BLOCKERS + 1}" in note for note in body["notes"])
+    assert any(f"most: {N_BLOCKERS + 1}" in note for note in body["notes"])
 
 
 def test_a_normal_card_says_no_truncation_and_counts_every_blocker(client: TestClient) -> None:
@@ -2146,7 +2243,7 @@ def test_preflight_bounds_its_own_blocking_list(client: TestClient, monkeypatch:
     assert cut["blocking"] == body["blocking"][:1]
     assert cut["n_blocking"] == cut["n_blocking_total"] == body["n_blocking"]
     assert cut["n_blocking_rendered"] == 1
-    assert any(f"{body['n_blocking']} baris menahan keputusan ini" in note for note in cut["notes"])
+    assert any(f"{body['n_blocking']} rows hold this decision back" in note for note in cut["notes"])
 
 
 def test_every_count_field_on_every_route_means_the_same_thing(client: TestClient, store: Store) -> None:
@@ -2180,7 +2277,7 @@ def test_every_count_field_on_every_route_means_the_same_thing(client: TestClien
     assert card["n_items_rendered"] == ui_app.MAX_ITEM_ROWS
     assert card["n_warnings_rendered"] == ui_app.MAX_WARNING_ROWS
     # Ketiga pemotongan disebut, masing-masing dengan totalnya sendiri.
-    assert len([note for note in card["notes"] if "batas render" in note]) == 3
+    assert len([note for note in card["notes"] if "render bound" in note]) == 3
 
     assert sorted(assert_count_naming(client.get("/api/preflight/BTC").json())) == [
         "blocking",
@@ -2206,8 +2303,8 @@ def test_screen_b_headline_counts_every_blocker_not_only_the_rendered_ones(clien
         "n_items": N_BLOCKERS,
     }
     readable = strip_tags(ui_screens.render_card(payload, BANNER, render_clock()))
-    assert f"Ditahan {N_BLOCKERS} dari {N_BLOCKERS} baris panggilan" in readable
-    assert f"{N_BLOCKERS - 1} lagi yang tidak dirender" in readable
+    assert f"Held by {N_BLOCKERS} of {N_BLOCKERS} roll-call rows" in readable
+    assert f"{N_BLOCKERS - 1} more that are not rendered" in readable
 
 
 def test_preflight_counts_the_warnings_it_does_not_print(
@@ -2228,7 +2325,7 @@ def test_preflight_counts_the_warnings_it_does_not_print(
     assert cut["n_warnings"] == cut["n_warnings_total"] == full["n_warnings"]
     assert cut["n_items"] == cut["n_items_total"] == full["n_items"] > cut["n_items_rendered"] == 1
     assert sorted(assert_count_naming(cut)) == ["blocking", "items", "warnings"]
-    assert any(f"{full['n_warnings']} peringatan envelope ada" in note for note in cut["notes"])
+    assert any(f"{full['n_warnings']} envelope warnings sit on this row" in note for note in cut["notes"])
 
 
 # --- TASKS 4.6: keyboard & aksesibilitas ---------------------------------------------------
@@ -2250,19 +2347,19 @@ def test_every_call_row_is_announced_as_a_point_then_speak_sentence(client: Test
     assert len(rows) == len(payload["items"]) >= 1
     for item, row in zip(payload["items"], rows, strict=True):
         label = aria_label_of(row)
-        assert label.startswith(f"baris {item['item_id']}; ")
+        assert label.startswith(f"row {item['item_id']}; ")
         assert f"; status {item['status']}" in label
-        assert f"; sumber {item['tool']}.{item['field']}, " in label
+        assert f"; source {item['tool']}.{item['field']}, " in label
         # `02_completeness` dibaca dari SEMUA envelope sekaligus, jadi `snapshot_id`-nya memang
         # None; yang dibacakan kemudian "snapshot tidak disebut", bukan nomor yang dikarang.
         assert (
             f"snapshot {item['snapshot_id']}" in label
             if item["snapshot_id"] is not None
-            else "snapshot tidak disebut" in label
+            else "snapshot not stated" in label
         )
         assert f"as_of {item['as_of_jst']}" in label
         # Bagian "sebut": nilainya, atau kalimat yang mengaku nilainya tidak ada.
-        assert ("nilai yang disebut: " in label) or ("nilai: " in label)
+        assert ("value spoken: " in label) or ("value: " in label)
         # Anggaran `aria-label` cukup untuk data hari ini: kalimatnya utuh sampai klausa sumber.
         assert len(label) <= ui_screens.ARIA_LABEL_LIMIT
 
@@ -2284,11 +2381,11 @@ def test_an_unspoken_row_is_announced_as_not_spoken_never_as_zero(client: TestCl
     ]
     (row,) = aria_rows(render_card(payload, BANNER, render_clock()))
     label = aria_label_of(row)
-    assert f"nilai: {UNSPOKEN_MARK}" in label
-    assert "nilai yang disebut" not in label  # tidak ada nilai yang disebut untuk baris ini
-    assert "nilai: 0" not in label and "nilai: null" not in label and "nilai: -" not in label
+    assert f"value: {UNSPOKEN_MARK}" in label
+    assert "value spoken" not in label  # tidak ada nilai yang disebut untuk baris ini
+    assert "value: 0" not in label and "value: null" not in label and "value: -" not in label
     # Sumbernya tetap disebut: yang tidak ada adalah NILAInya, bukan tempat kami mencarinya.
-    assert "sumber analyze_token.data.liquidity.depth_usd, snapshot 2166" in label
+    assert "source analyze_token.data.liquidity.depth_usd, snapshot 2166" in label
 
 
 def test_a_null_value_on_a_spoken_row_is_still_never_announced_as_zero(client: TestClient) -> None:
@@ -2296,7 +2393,7 @@ def test_a_null_value_on_a_spoken_row_is_still_never_announced_as_zero(client: T
     payload["items"] = [{"item_id": "07_flow", "veto_rank": 7, "status": "green", "value": None}]
     (row,) = aria_rows(render_card(payload, BANNER, render_clock()))
     label = aria_label_of(row)
-    assert ui_screens.ARIA_NULL in label and "bukan nol" in label
+    assert ui_screens.ARIA_NULL in label and "that is not zero" in label
     assert ui_screens.ARIA_NO_SOURCE in label  # tool/field memang tidak ada di baris ini
 
 
@@ -2308,19 +2405,19 @@ def test_every_watchlist_row_is_announced_with_its_blocker_and_where_it_came_fro
     assert len(rows) == len(payload["symbols"]) >= 1
     for entry, row in zip(payload["symbols"], rows, strict=True):
         label = aria_label_of(row)
-        assert label.startswith(f"simbol {entry['symbol']}; keputusan {entry['decision']}; ")
-        assert f"ditahan {entry['n_blocking']} dari {entry['n_items']} baris panggilan" in label
-        assert f"{entry['n_unspoken']} baris tidak disebut" in label
-        assert f"as_of bundle {entry['as_of_jst']}" in label
+        assert label.startswith(f"symbol {entry['symbol']}; decision {entry['decision']}; ")
+        assert f"held by {entry['n_blocking']} of {entry['n_items']} roll-call rows" in label
+        assert f"{entry['n_unspoken']} rows unspoken" in label
+        assert f"bundle as_of {entry['as_of_jst']}" in label
         blocker = entry["top_blocker"]
         if blocker:
-            assert f"penahan terberat {blocker['item_id']}" in label
-            assert f"sumber {blocker['tool']}.{blocker['field']}, as_of {blocker['as_of_jst']}" in label
+            assert f"heaviest blocker {blocker['item_id']}" in label
+            assert f"source {blocker['tool']}.{blocker['field']}, as_of {blocker['as_of_jst']}" in label
             # `top_blocker` tidak membawa `snapshot_id`; layar TIDAK boleh mengaku bukti itu
             # tak bernomor hanya karena ringkasan barisnya tidak memuat nomornya.
-            assert "snapshot tidak disebut" not in label
+            assert "snapshot not stated" not in label
         else:
-            assert "nol baris menahan keputusan ini" in label
+            assert "zero rows hold this decision back" in label
 
 
 def test_the_symbol_link_says_what_enter_will_open(client: TestClient) -> None:
@@ -2328,8 +2425,8 @@ def test_the_symbol_link_says_what_enter_will_open(client: TestClient) -> None:
     html = render_watchlist(payload, BANNER, render_clock())
     entry = payload["symbols"][0]
     assert (
-        f'aria-label="buka kartu panggilan {entry["symbol"]}; keputusan {entry["decision"]}; '
-        f'kartu nomor {entry["decision_id"]}"' in html
+        f'aria-label="open the roll-call card for {entry["symbol"]}; decision {entry["decision"]}; '
+        f'card number {entry["decision_id"]}"' in html
     )
 
 
@@ -2338,9 +2435,9 @@ def test_the_replay_link_says_what_it_replays_not_just_an_arrow(client: TestClie
     payload = card_payload(client)
     html = render_card(payload, BANNER, render_clock())
     assert (
-        f'aria-label="putar ulang keputusan nomor {payload["decision_id"]}; '
-        "memuat ulang kartu ini dan menghitung ulang vonis dari snapshot beku yang sama"
-        '">putar ulang sekarang' in html
+        f'aria-label="replay decision number {payload["decision_id"]}; '
+        "reloads this card and recomputes the verdict from the same frozen snapshots"
+        '">replay now' in html
     )
 
 
@@ -2433,6 +2530,8 @@ def test_the_ui_readme_carries_the_a11y_checklist_and_admits_the_missing_recordi
         "Esc tidak punya apa pun untuk ditutup",
         "Fokus terlihat",
         "`aria-label` memuat nilai + sumber",
+        "Isi yang berubah diumumkan",  # ADR-020: konten dinamis wajib `aria-live`
+        "Nilai yang tidak ada adalah KATA, bukan tanda hubung",
         "Tanpa hover-only",
         "8.45:1",
         "3.38:1",
@@ -2494,7 +2593,7 @@ def test_the_card_table_has_one_header_for_every_column_it_renders(client: TestC
     for row in rows:
         assert len(re.findall(r"<t[dh][ >]", row)) == len(headers)
     readable = strip_tags(table)
-    for name in ("sumber: tool.field", "snapshot", "as_of bukti"):
+    for name in ("source: tool.field", "snapshot", "evidence as_of"):
         assert name in readable, name
 
 
@@ -2517,10 +2616,10 @@ def test_screen_b_puts_the_ten_rows_above_the_hashes_not_below_them(client: Test
     """
     html = render_card(card_payload(client), BANNER, render_clock())
     assert html.index('<h2 id="panggilan">') < html.index('<dl class="meta">')
-    assert html.index("<h2>Hash, jam, dan pemutaran ulang</h2>") < html.index('<dl class="meta">')
+    assert html.index("<h2>Hashes, clocks, and replay</h2>") < html.index('<dl class="meta">')
     # Tidak ada yang hilang saat dipindahkan: hash, vonis replay, dan tombolnya tetap di kartu.
     readable = strip_tags(html)
-    for kept in ("decision_hash", "computed_hash", "params_hash", "putar ulang sekarang"):
+    for kept in ("decision_hash", "computed_hash", "params_hash", "replay now"):
         assert kept in readable, kept
 
 
@@ -2589,7 +2688,7 @@ def test_both_screens_admit_the_veto_rank_column_is_a_claim_not_a_measurement(
     for name, expected in (
         ("asal urutan", "spec §4"),
         ("nama konstantanya", "ITEM_ORDER"),
-        ("status validasinya", "BELUM divalidasi"),
+        ("the validation status", "NOT validated"),
         ("alat yang membantah", "preflight/veto_table.py"),
         ("contoh peringkat 1", "01_freshness"),
         ("contoh peringkat 6", "06_confluence"),
@@ -2604,7 +2703,7 @@ def test_both_screens_admit_the_veto_rank_column_is_a_claim_not_a_measurement(
     for screen in (watchlist, card):
         readable = strip_tags(screen)
         assert sentence in readable
-        assert "belum divalidasi" in ui_screens.VETO_RANK_COLUMN
+        assert "not validated" in ui_screens.VETO_RANK_COLUMN
         assert ui_screens.VETO_RANK_COLUMN in readable
 
 
@@ -2630,9 +2729,9 @@ def test_screen_a_prints_the_grade_line_and_ui_still_never_imports_grading(
     perintahnya, dan nol impor `grading` di seluruh `ui/`.
     """
     sentence = ui_app.GRADE_UNPROVEN_SENTENCE
-    assert "BELUM terbukti menyelamatkan apa pun" in sentence
+    assert "NOT yet proven to have saved anything" in sentence
     assert "make grade" in sentence
-    assert "nol selang kepercayaan" in sentence  # kenapa tak ada CI: n efektif di bawah ambang
+    assert "zero confidence intervals" in sentence  # kenapa tak ada CI: n efektif di bawah ambang
     assert "ADR-003" in sentence
     assert len(sentence) <= ui_screens.WARNING_LIMIT
 
@@ -2679,7 +2778,7 @@ def test_a_row_label_never_carries_less_than_the_cell_shows(client: TestClient) 
         assert f"{key}={value}" in cell_text, key
     # Klausa SUMBER berdiri di belakang klausa nilai: anggaran yang terlalu kecil memakannya
     # diam-diam, dan justru klausa itulah "tunjuk"-nya tunjuk→sebut.
-    assert "sumber deep_analysis.data.confluence, snapshot 4242, as_of 2026-09-06 06:15 JST" in label
+    assert "source deep_analysis.data.confluence, snapshot 4242, as_of 2026-09-06 06:15 JST" in label
     assert len(label) <= ui_screens.ARIA_LABEL_LIMIT
 
 
@@ -2691,7 +2790,7 @@ def test_english_evidence_is_marked_lang_en_inside_an_indonesian_page(client: Te
     salah. Bahasa BINGKAI tidak diubah di sini: itu keputusan produk, bukan keputusan layar.
     """
     html = render_card(card_payload(client), BANNER, render_clock())
-    assert '<html lang="id">' in html
+    assert '<html lang="en">' in html
     assert f'<bdi lang="{ui_screens.EVIDENCE_LANG}">' in html
     # `reason` deterministik `preflight/items.py` adalah kalimat Inggris terpenting di kartu.
     reasons = [item["reason"] for item in card_payload(client)["items"] if item.get("reason")]
@@ -2718,3 +2817,290 @@ def test_every_column_header_on_both_screens_carries_a_scope(client: TestClient)
         for header in headers:
             assert 'scope="col"' in header or 'scope="row"' in header, header
         assert "scope='" not in html
+
+
+# --- ADR-020: Node adalah alat BUILD, dan klien tidak boleh menghitung apa pun ---------------
+#: Sumber TypeScript + hasil build-nya. Keduanya dilacak git; yang kedua ikut terkirim.
+FRONTEND = ROOT / "frontend"
+STATIC = ROOT / "ui" / "static"
+
+
+def git_tracked(path: Path) -> bool:
+    """Apakah git benar-benar melacak berkas ini? Diukur dengan `git ls-files`, bukan ditebak."""
+    import subprocess
+
+    result = subprocess.run(  # argumen tetap, tanpa shell
+        ["git", "ls-files", "--error-unmatch", str(path.relative_to(ROOT))],  # noqa: S607
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def strip_comments(source: str) -> str:
+    """Kode tanpa komentarnya.
+
+    Penjaga di bawah membandingkan APA YANG DIJALANKAN, bukan apa yang dijelaskan: docstring
+    `frontend/src/dom.ts` menyebut `innerHTML` justru untuk mengatakan ia dilarang, dan tes yang
+    membacanya sebagai pelanggaran akan menghukum dokumentasi yang benar.
+    """
+    without_block = re.sub(r"/\*.*?\*/", " ", source, flags=re.S)
+    return re.sub(r"^\s*//.*$", "", without_block, flags=re.M)
+
+
+def test_a_clone_without_node_can_run_tenko_because_the_build_output_is_tracked() -> None:
+    """ADR-020 butir 2 sebagai SYARAT PENERIMAAN, bukan harapan.
+
+    Mesin juri belum tentu punya Node — ADR-001 lahir persis dari kekhawatiran itu. Yang membuat
+    janji "clone bersih tanpa Node tetap bisa `make ui`" bisa dipercaya adalah tiga fakta yang
+    diukur di sini, bukan kalimat di dokumen:
+
+    1. kedua artefak build ADA dan tidak kosong;
+    2. git benar-benar MELACAK keduanya (`git ls-files`), jadi `git clone` membawanya;
+    3. `.gitignore` tidak memuat satu pun pola yang menangkap `ui/static/` — dan `node_modules/`
+       justru DIABAIKAN, supaya pohon 49 paket build tidak ikut terkirim.
+
+    Rusakkan salah satunya (hapus `ui/static/app.js`, atau tambahkan `ui/static/` ke
+    `.gitignore`) dan tes ini merah — yang memang tugasnya.
+    """
+    for name in ("app.js", "app.css"):
+        artefact = STATIC / name
+        assert artefact.is_file(), f"{artefact} hilang: clone tanpa Node tidak akan bisa `make ui`"
+        assert artefact.stat().st_size > 1000, f"{artefact} kosong"
+        assert git_tracked(artefact), f"{artefact} tidak dilacak git; ia tidak akan ikut clone"
+    ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "node_modules/" in ignore  # pohon build tidak ikut terkirim
+    for line in ignore.splitlines():
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        assert "static" not in entry, f"`.gitignore` bisa menelan hasil build: {entry!r}"
+
+
+def test_nothing_on_the_runtime_path_reaches_for_node_or_npm() -> None:
+    """`make ui`, `make test`, dan `make demo` tidak boleh menyentuh Node satu kali pun.
+
+    Diukur di dua tempat: (1) tidak ada modul Python yang dikirim (`ui/`, `core/`, `preflight/`,
+    `agent/`, `grading/`) menyebut `npm`/`npx`/`node_modules`/`esbuild`; (2) resep `Makefile`
+    untuk `ui`, `test`, dan `demo` tidak menyebutnya juga. Hanya target `frontend` yang boleh.
+    """
+    for package in ("ui", "core", "preflight", "agent", "grading"):
+        for source in (ROOT / package).rglob("*.py"):
+            tree = ast.parse(source.read_text(encoding="utf-8"))
+            imported: set[str] = set()
+            literals: set[str] = set()
+            # Docstring & string telanjang = PROSA, bukan kode: dikenali dari posisinya (satu
+            # `ast.Expr`) dan dikecualikan lebih dulu, supaya penjaga ini tidak menghukum
+            # dokumentasi yang justru menjelaskan larangannya.
+            prose = {
+                id(node.value)
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+            }
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imported.update(alias.name.split(".")[0] for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    imported.add(node.module.split(".")[0])
+                elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    if id(node) not in prose:
+                        literals.add(node.value)
+            # Diperiksa pada KODE, bukan pada prosa: docstring `ui/app.py` menyebut esbuild
+            # justru untuk mengatakan bahwa buildnya terjadi di tempat lain.
+            assert "subprocess" not in imported, f"{source}: mengimpor subprocess"
+            for value in literals:
+                for forbidden in ("npm", "npx", "node_modules", "esbuild"):
+                    assert forbidden not in value.split(), f"{source}: literal {value!r}"
+
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    recipes: dict[str, list[str]] = {}
+    current = None
+    for line in makefile.splitlines():
+        if line and not line.startswith("\t") and ":" in line and not line.startswith("."):
+            current = line.split(":", 1)[0].strip()
+            recipes[current] = []
+        elif line.startswith("\t") and current:
+            recipes[current].append(line)
+    assert "frontend" in recipes, "target `make frontend` hilang"
+    assert any("esbuild" in line for line in recipes["frontend"])
+    assert any("npm ci" in line for line in recipes["frontend"]), "pakai `npm ci`, bukan `npm install`"
+    for target in ("ui", "test", "demo"):
+        joined = " ".join(recipes[target])
+        for forbidden in ("npm", "npx", "node "):
+            assert forbidden not in joined, f"`make {target}` menyentuh Node lewat {forbidden}"
+
+
+def test_npm_has_zero_runtime_dependencies() -> None:
+    """ADR-020 butir 3: dependency runtime npm NOL, dan hanya dua paket yang boleh masuk build."""
+    manifest = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+    assert manifest["dependencies"] == {}, "nol dependency RUNTIME npm (ADR-020 butir 3)"
+    assert set(manifest["devDependencies"]) == {"esbuild", "typescript"}
+    assert manifest["devDependencies"]["esbuild"] == "0.28.2"
+    assert manifest["devDependencies"]["typescript"] == "7.0.2"
+    lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
+    roots = {name.removeprefix("node_modules/") for name in lock["packages"] if name}
+    # Yang bukan binary per-platform: tepat dua nama. Kalau sebuah framework menyelinap masuk,
+    # daftar ini tumbuh dan tes ini merah sebelum `DISCLOSURE.md` sempat menjadi salah.
+    non_platform = {
+        name for name in roots if not name.startswith("@esbuild/") and not name.startswith("@typescript/")
+    }
+    assert non_platform == {"esbuild", "typescript"}, non_platform
+
+
+#: Konstanta yang HARUS berbunyi sama di server dan di klien. Kirinya nama di `frontend/src/
+#: text.ts`, kanannya nilai Python-nya.
+SHARED_SENTENCES = {
+    "EMPTY_SENTENCE": ui_screens.EMPTY_SENTENCE,
+    "NEUTRAL_MARK": ui_screens.NEUTRAL_MARK,
+    "UNSPOKEN_MARK": ui_screens.UNSPOKEN_MARK,
+    "ABSENT_MARK": ui_screens.ABSENT_MARK,
+    "ARIA_NULL": ui_screens.ARIA_NULL,
+    "ARIA_NO_SOURCE": ui_screens.ARIA_NO_SOURCE,
+    "NARRATION_LABEL": ui_screens.NARRATION_LABEL,
+    "NARRATION_EMPTY": ui_screens.NARRATION_EMPTY,
+    "NARRATION_NOTE": ui_screens.NARRATION_NOTE,
+    "VETO_RANK_COLUMN": ui_screens.VETO_RANK_COLUMN,
+    "AGE_NOTE": ui_screens.AGE_NOTE,
+}
+
+
+def client_constants() -> dict[str, str]:
+    """`export const NAMA = "...";` dari `frontend/src/text.ts`, dibaca TANPA menjalankan Node."""
+    source = (FRONTEND / "src" / "text.ts").read_text(encoding="utf-8")
+    found = re.findall(r'^export const ([A-Z_]+) = "((?:[^"\\]|\\.)*)";$', source, re.M)
+    return {name: json.loads(f'"{value}"') for name, value in found}
+
+
+def test_the_client_and_the_server_speak_one_sentence_not_two() -> None:
+    """Klien merender tabel yang SAMA, jadi kalimatnya harus kalimat yang sama.
+
+    Ini penjaga terhadap kelas kegagalan yang paling mungkin lahir dari ADR-020: dua salinan
+    kalimat "unspoken — the evidence is not enough, and that is not zero", satu di Python dan
+    satu di TypeScript, yang menyimpang diam-diam sampai layar hasil polling berbunyi lain
+    daripada layar hasil render server. Berkas TS-nya dibaca sebagai TEKS — tidak ada Node yang
+    dijalankan — dan tiap kalimat dibandingkan apa adanya.
+
+    Ia juga menjaga BUNDEL tetap segar: kalimat yang sudah diubah di sumber tetapi belum
+    dibangun ulang tidak akan ada di `ui/static/app.js`, dan cabang terakhir merah.
+    """
+    declared = client_constants()
+    bundle = (STATIC / "app.js").read_text(encoding="utf-8")
+    for name, sentence in SHARED_SENTENCES.items():
+        assert name in declared, f"{name} tidak ada di frontend/src/text.ts"
+        assert declared[name] == sentence, f"{name} berbeda antara server dan klien"
+        assert sentence in bundle, f"{name} tidak ada di bundel: `make frontend` belum dijalankan?"
+
+
+def test_the_client_can_only_write_text_never_html_and_never_evaluates_anything() -> None:
+    """Permukaan `innerHTML` tidak lagi ditutup dengan "nol JS"; ia ditutup di sini.
+
+    Sebelum ADR-020, layar ini membuktikan dirinya aman dari injeksi dengan tidak punya JS sama
+    sekali. Sekarang ada JS, jadi janjinya harus dibuktikan dengan cara lain: satu-satunya jalan
+    teks masuk DOM adalah `textContent`, dan tidak ada satu pun jalan untuk mengevaluasi teks
+    sebagai kode. Diperiksa di SUMBER **dan** di bundel yang benar-benar dilayani — sumber yang
+    bersih dengan bundel yang basi tidak membuktikan apa pun tentang yang dijalankan browser.
+    """
+    forbidden = (
+        "innerHTML",
+        "outerHTML",
+        "insertAdjacentHTML",
+        "document.write",
+        "eval(",
+        "new Function",
+        "srcdoc",
+        "javascript:",
+        "localStorage",
+        "sessionStorage",
+        "document.cookie",
+    )
+    sources = sorted((FRONTEND / "src").glob("*.ts"))
+    assert len(sources) >= 5, "sumber TypeScript hilang"
+    for path in [*sources, STATIC / "app.js"]:
+        body = strip_comments(path.read_text(encoding="utf-8"))
+        for needle in forbidden:
+            assert needle not in body, f"{path.name}: {needle}"
+        # Nol host pihak ketiga, dan nol aset yang diunduh saat runtime.
+        assert "http://" not in body and "https://" not in body, path.name
+
+
+def test_the_client_renders_unspoken_as_a_word_and_computes_no_decision() -> None:
+    """ADR-003 utuh, dan `unspoken` tetap `unspoken` — dipatok pada sumber klien.
+
+    Yang dilarang bukan sekadar kata: klien tidak boleh memuat satu pun nama ambang, nama item,
+    atau nama vonis yang akan berarti ia MEMUTUSKAN sesuatu. Kalau suatu hari seseorang menyalin
+    `ITEM_ORDER` atau daftar `VERDICT_*` ke dalam TypeScript, keputusan mulai lahir di dua
+    tempat dan `make replay` berhenti menjadi kebenaran tunggal.
+    """
+    body = strip_comments(
+        "\n".join(path.read_text(encoding="utf-8") for path in sorted((FRONTEND / "src").glob("*.ts")))
+    )
+    for item_id in ITEM_ORDER:
+        assert item_id not in body, f"klien menyebut item keputusan {item_id}"
+    for forbidden in ("max_age_min", "params_hash =", "decide", "threshold"):
+        assert forbidden not in body, forbidden
+    # Yang WAJIB ada: kata untuk ketiadaan.
+    assert "UNSPOKEN_MARK" in body and "ABSENT_MARK" in body
+    # Dan modul yang MERENDER tidak boleh mengganti nilai kosong dengan nol satu kali pun.
+    # `?? 0` yang sah hidup di `order.ts`, yang tidak pernah menyentuh DOM — pemisahan itulah
+    # yang membuat aturan ini bisa ditegakkan, bukan sekadar dinasihatkan.
+    render = strip_comments((FRONTEND / "src" / "render.ts").read_text(encoding="utf-8"))
+    for substitute in ("?? 0", "|| 0", '?? ""', '|| ""', '?? "-"'):
+        assert substitute not in render, f"render.ts mengganti ketiadaan dengan {substitute}"
+
+
+def test_the_client_verifies_the_simulated_flag_before_it_renders_anything() -> None:
+    """Kewajiban lomba berlaku untuk klien juga: badan tanpa `simulated: true` TIDAK dirender.
+
+    Server sudah menjamin setiap respons membawanya; yang dijaga di sini adalah bahwa klien
+    memeriksanya, bukan mempercayainya — dan bahwa yang tertinggal saat pemeriksaan itu gagal
+    adalah layar hasil render server, bukan layar kosong.
+    """
+    api = (FRONTEND / "src" / "api.ts").read_text(encoding="utf-8")
+    assert 'payload["simulated"] !== true' in api
+    assert "throw new ApiError" in api
+    bundle = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert '"simulated"' in bundle and "simulated: true" in bundle
+
+
+def test_the_screens_declare_the_polling_interval_they_actually_use() -> None:
+    """Selang penyegaran DISEBUT di layar dan bisa dimatikan — bukan angka rahasia di dalam JS.
+
+    Satu angka, dua tempat yang harus setuju: kalimat yang dibaca juri dan atribut yang dibaca
+    kode. Kalau salah satunya bergeser, layar menjanjikan ritme yang tidak dijalankannya.
+    """
+    seconds = ui_screens.POLL_INTERVAL_MS // 1000
+    assert f"every {seconds} seconds" in ui_screens.CLIENT_NOTE
+    assert "a switch on screen turns that off" in ui_screens.CLIENT_NOTE
+    main = (FRONTEND / "src" / "main.ts").read_text(encoding="utf-8")
+    assert 'body.dataset["pollMs"]' in main, "klien harus membaca selangnya dari halaman"
+    assert "aria-pressed" in main, "sakelar penyegaran harus mengumumkan keadaannya"
+    # Dan angka CADANGAN di dalam klien harus angka yang sama. Tanpa baris ini tes di atas
+    # hanya membandingkan konstanta dengan dirinya sendiri: `CLIENT_NOTE` diturunkan dari
+    # `POLL_INTERVAL_MS`, jadi menggesernya menggeser keduanya sekaligus dan tidak ada yang
+    # merah. Yang BISA menyimpang adalah bawaan klien — dan itulah yang dipatok di sini.
+    (fallback,) = re.findall(r"^let pollMs = (\d+);$", main, re.M)
+    assert int(fallback) == ui_screens.POLL_INTERVAL_MS, "bawaan klien dan selang yang dicetak layar berbeda"
+    # (Bundelnya sendiri menulis angka itu sebagai `3e4`; yang dipatok di sini sumbernya, dan
+    # kesegaran bundel dijaga `test_the_client_and_the_server_speak_one_sentence_not_two`.)
+
+
+def test_every_screen_carries_the_hooks_the_client_needs_and_a_banner_without_it(
+    client: TestClient,
+) -> None:
+    """ADR-020 butir 6: banner dari SERVER, dan kait klien tidak boleh menggantikan isi apa pun.
+
+    Halaman yang dikirim server sudah lengkap — banner, `<main id="isi">`, tabel — dan kait yang
+    dipakai klien hanyalah dua atribut `data-*`. Kalau suatu hari server menyusut menjadi
+    kerangka kosong, `<table>` di bawah hilang dan tes ini merah.
+    """
+    for path, screen in (("/", "watchlist"), ("/ui", "watchlist"), ("/ui/decision/1", "card")):
+        html = client.get(path).text
+        assert f'data-screen="{screen}"' in html
+        assert f'data-poll-ms="{ui_screens.POLL_INTERVAL_MS}"' in html
+        assert '<main id="isi">' in html
+        assert BANNER in html
+        # Isi ADA sebelum satu baris JS pun jalan.
+        assert "<table" in html and "aria-label=" in html
+    card = client.get("/ui/decision/1").text
+    assert 'data-decision-id="1"' in card

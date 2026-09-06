@@ -8,8 +8,14 @@ references/
 
 # artefak build
 .venv/
+node_modules/
 __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
 docs/samples/*.raw.json
+
+# ui/static/ SENGAJA TIDAK diabaikan: `ui/static/app.js` dan `ui/static/app.css` adalah hasil
+# build esbuild yang WAJIB dilacak git dan ikut terkirim, supaya clone tanpa Node sama sekali
+# tetap bisa `make ui` / `make test` / `make demo` (ADR-020 butir 2). Kalau suatu hari ada yang
+# menambahkan pola yang menangkapnya, `tests/test_ui.py` menjadi merah — dengan sengaja.

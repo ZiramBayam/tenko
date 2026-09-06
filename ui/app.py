@@ -9,8 +9,9 @@ Empat route menjawab empat pertanyaan juri, dan tidak satu pun memanggil tool RY
 * ``GET /api/decision/{id}`` — kartu panggilan 10 baris + bundle replay + vonis replay.
 * ``GET /api/preflight/{symbol}`` — panggilan pra-berangkat store-first untuk satu simbol.
 
-Ditambah dua route pelayan: ``GET /`` (indeks route, bukan landing page) dan ``GET /api/health``
-(``calls_ryo_tools: false``).
+Ditambah route pelayan: ``GET /`` (**Layar A itu sendiri**, TASKS 3.5 — bukan indeks JSON dan
+bukan landing page), ``GET /api/routes`` (rumah baru daftar route), ``GET /api/health``
+(``calls_ryo_tools: false``), serta dua aset build ``GET /ui/tenko.css`` dan ``GET /ui/app.js``.
 
 Aturan yang ditegakkan di sini, bukan dijanjikan
 ------------------------------------------------
@@ -111,21 +112,32 @@ from preflight.skill import (
     symbol_evidence,
     symbol_tools,
 )
-from ui.screens import STYLESHEET, render_card, render_error, render_watchlist
+from ui.screens import (
+    CLIENT_SCRIPT,
+    STYLESHEET,
+    render_card,
+    render_error,
+    render_watchlist,
+)
 
 log = logging.getLogger("ui.app")
 
 #: Banner tetap — kalimat yang sama di tiap layar dan tiap respons (rules-compliance).
 BANNER = "SIMULATED — practice positions on read-only market intelligence. No real funds."
 
-#: Header setiap halaman HTML. `default-src 'none'` melarang SKRIP sama sekali (Layar A/B tidak
-#: memuat satu pun `<script>`; lihat `ui/screens.py`), `style-src 'self'` hanya mengizinkan
-#: `/ui/tenko.css` yang lahir dari repo ini, dan tidak ada satu pun sumber pihak ketiga yang
-#: diizinkan — termasuk CDN mana pun (checklist UI, DISCLOSURE.md: `ui/static/` tidak ada).
+#: Header setiap halaman HTML — dan setiap aset yang dilayaninya.
+#:
+#: ADR-020 butir 5 melonggarkan SATU direktif dan tidak lebih: `script-src 'self'` menggantikan
+#: larangan total, supaya `/ui/app.js` (hasil build `frontend/`, dilayani dari origin ini
+#: sendiri) bisa berjalan. Yang TIDAK berubah, dan yang menjadikan pelonggaran itu sempit:
+#: `default-src 'none'` tetap menutup segalanya yang tidak disebut, `style-src 'self'` tetap
+#: hanya mengizinkan `/ui/tenko.css`, `img-src 'none'` tetap melarang gambar, dan TIDAK ADA
+#: `'unsafe-inline'`, TIDAK ADA `'unsafe-eval'`, serta nol host pihak ketiga — jadi skrip
+#: sebaris, `eval`, dan CDN mana pun tetap ditolak browser, bukan hanya oleh sopan santun.
 HTML_HEADERS = {
     "Content-Security-Policy": (
-        "default-src 'none'; style-src 'self'; img-src 'none'; base-uri 'none'; "
-        "form-action 'none'; frame-ancestors 'none'"
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; "
+        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     ),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
@@ -176,22 +188,22 @@ COUNT_NAMING_RULE = "`n_x` dan `n_x_total` = cacah sebenarnya; `n_x_rendered` = 
 
 #: Kalimat yang dipakai berulang; dipatok tes supaya tidak menguap saat teks diedit.
 LEGACY_SENTENCE = (
-    "Keputusan ini ditulis implementasi yang sudah dihapus (kartunya tidak menyebut algoritma "
-    f"hash {ALGO}), jadi item, blocking, dan hash-nya tidak bisa dinilai ulang dengan aturan "
-    "sekarang — barisnya ditampilkan apa adanya, tanpa satu pun angka yang dikarang."
+    "This decision was written by an implementation that no longer exists (its card does not "
+    f"name the {ALGO} hash algorithm), so its items, blocking list and hash cannot be judged "
+    "again under today's rules — the row is shown as it stands, with no invented numbers."
 )
 NO_EVIDENCE_SENTENCE = (
-    "Baris ini dibukukan tanpa satu snapshot beku pun, jadi tidak ada bukti yang bisa diputar "
-    "ulang: yang cocok dengan hash tersimpannya hanyalah ketiadaan itu sendiri. Ini BUKAN "
-    "verifikasi."
+    "This row was booked without a single frozen snapshot, so there is no evidence to replay: "
+    "the only thing that matches its stored hash is that absence itself. This is NOT "
+    "verification."
 )
 STALE_PARAMS_SENTENCE = (
-    "Baris ini ditulis dengan ambang (`params_hash`) yang berbeda dari yang berlaku sekarang, "
-    "jadi kami TIDAK menilainya sama sekali — bukan menemukannya salah. Buktinya belum "
-    "diperiksa: untuk memeriksanya, putar ulang dengan params yang dipakai saat baris ini "
-    "ditulis. Ini bukan verifikasi, dan bukan pula temuan."
+    "This row was written with thresholds (`params_hash`) different from the ones in force "
+    "now, so we did NOT judge it at all — we did not find it wrong. Its evidence has not been "
+    "checked: to check it, replay with the params that were used when this row was written. "
+    "This is not verification, and it is not a finding either."
 )
-EMPTY_SENTENCE = "belum ada data (n=0)"
+EMPTY_SENTENCE = "no data yet (n=0)"
 
 #: Status kolom "daya veto" — WAJIB tercetak di Layar A DAN Layar B (laporan juri fase 5, #3).
 #:
@@ -209,11 +221,11 @@ EMPTY_SENTENCE = "belum ada data (n=0)"
 #: sengaja kualitatif ("puluhan kali"): `preflight/veto_table.py` sendiri memperingatkan `n`-nya
 #: bergerak selama perekam hidup, jadi angka statis di layar akan basi tanpa ada yang tahu.
 VETO_RANK_UNVALIDATED_SENTENCE = (
-    "Kolom `daya veto` BELUM divalidasi: urutannya konstanta desain spec §4 "
-    "(`preflight/params.py` ITEM_ORDER), bukan hasil ukur — dan alat ukur repo ini "
-    "membantahnya. `preflight/veto_table.py` mencatat `01_freshness` (peringkat 1) NOL kali "
-    "merah, sementara `06_confluence` (peringkat 6) merah puluhan kali. Angkanya: "
-    "`uv run python -m preflight.veto_table --db <salinan data/ryo.db>`."
+    "The `veto power` column is NOT validated: its order is a spec §4 design constant "
+    "(`preflight/params.py` ITEM_ORDER), not a measurement — and this repo's own instrument "
+    "contradicts it. `preflight/veto_table.py` records `01_freshness` (rank 1) red ZERO times, "
+    "while `06_confluence` (rank 6) is red dozens of times. For the numbers: "
+    "`uv run python -m preflight.veto_table --db <copy of data/ryo.db>`."
 )
 
 #: Angka paling jujur di repo ini, ditaruh di layar yang paling mungkin dibuka (laporan juri
@@ -232,15 +244,16 @@ VETO_RANK_UNVALIDATED_SENTENCE = (
 #: yang justru merugikan), sebutkan kenapa nol selang kepercayaan dicetak (`n` efektif di bawah
 #: ambang spec §6), dan sebutkan PERINTAH yang mencetak angkanya hari ini.
 GRADE_UNPROVEN_SENTENCE = (
-    "Veto ini BELUM terbukti menyelamatkan apa pun: `make grade` belum mencatat satu pun "
-    "kerugian terbukti dicegah, dan beberapa veto justru menahan plan yang kemudian menyentuh "
-    "target. n efektifnya di bawah ambang 30, jadi nol selang kepercayaan dicetak. Layar ini "
-    "TIDAK menghitungnya (ADR-003: `grading` di luar jalur keputusan) — jalankan `make grade`."
+    "These vetoes are NOT yet proven to have saved anything: `make grade` has recorded no "
+    "loss demonstrably avoided, and some vetoes held back plans that later reached target. "
+    "The effective n is below the threshold of 30, so zero confidence intervals are printed. "
+    "This screen does NOT compute it (ADR-003: `grading` stays off the decision path) — run "
+    "`make grade`."
 )
 WARNINGS_SENTENCE = (
-    "{n} peringatan envelope ditampilkan apa adanya di `warnings` — termasuk bukti yang DIBUANG "
-    "sebelum dinilai (mis. snapshot yang `ts_utc` dan `as_of`-nya bertengkar). Baris yang hilang "
-    "disebut di sini, bukan hanya di log."
+    "{n} envelope warnings are shown verbatim in `warnings` — including evidence DROPPED "
+    "before it was judged (e.g. a snapshot whose `ts_utc` and `as_of` disagree). The missing "
+    "row is named here, not only in the log."
 )
 
 #: Nada tiap vonis = nama kelas CSS Layar A/B (TASKS 3.2). Yang mengikat: `finding` (kami
@@ -263,13 +276,13 @@ VERDICT_TONE: dict[str, str] = {
 #: Teks pendek yang MENYERTAI nama vonis (tidak menggantikannya) — supaya juri tidak perlu tahu
 #: kosakata internal untuk membedakan temuan dari ketidaktahuan.
 VERDICT_LABEL: dict[str, str] = {
-    VERDICT_IDENTICAL: "terverifikasi: bukti beku menghasilkan hash yang sama",
-    VERDICT_MISMATCH: "temuan: bukti tidak mereproduksi keputusan ini",
-    VERDICT_STALE_ALGO: "tidak dinilai: kartunya tidak menyebut algoritma hash yang berlaku",
-    VERDICT_STALE_PARAMS: "tidak dinilai: ambangnya sudah berubah sejak baris ini ditulis",
-    VERDICT_NO_EVIDENCE: "tidak terverifikasi: baris ini dibukukan tanpa satu bukti pun",
+    VERDICT_IDENTICAL: "verified: the frozen evidence produces the same hash",
+    VERDICT_MISMATCH: "finding: the evidence does not reproduce this decision",
+    VERDICT_STALE_ALGO: "not assessed: this card does not name the hash algorithm in force",
+    VERDICT_STALE_PARAMS: "not assessed: the thresholds changed after this row was written",
+    VERDICT_NO_EVIDENCE: "not verified: this row was booked without a single piece of evidence",
 }
-UNKNOWN_LABEL = "tidak dinilai: replay atas baris ini tidak bisa dijalankan"
+UNKNOWN_LABEL = "not assessed: replay could not be run over this row"
 
 
 class SafeJSONResponse(JSONResponse):
@@ -333,7 +346,7 @@ def _clean(value: Any, limit: int = TEXT_LIMIT, depth: int = 0) -> Any:
     if isinstance(value, list) and depth < MAX_CLEAN_DEPTH:
         return [_clean(entry, limit, depth + 1) for entry in value]
     if isinstance(value, dict | list):
-        return f"[{type(value).__name__} lebih dalam dari {MAX_CLEAN_DEPTH} tingkat]"
+        return f"[{type(value).__name__} nested deeper than {MAX_CLEAN_DEPTH} levels]"
     return value
 
 
@@ -584,7 +597,7 @@ def _verdict_of(report: ReplayReport, row: DecisionRow) -> dict[str, Any]:
 def _unreadable(what: str, exc: Exception) -> HTTPException:
     """503 yang menyebut JENIS kegagalan, bukan pesannya: pesan store memuat path berkas."""
     log.warning("%s: store tidak terbaca: %s", what, type(exc).__name__)
-    return HTTPException(status_code=503, detail=f"{what} tidak bisa dilayani ({type(exc).__name__})")
+    return HTTPException(status_code=503, detail=f"{what} cannot be served ({type(exc).__name__})")
 
 
 def _report_for(row: DecisionRow, store: Store) -> ReplayReport | None:
@@ -602,7 +615,7 @@ def _unknown_verdict() -> dict[str, Any]:
         "replay_tone": TONE_UNKNOWN,
         "replay_label": UNKNOWN_LABEL,
         "verified": False,
-        "detail": "replay atas baris ini tidak bisa dijalankan; jangan baca ini sebagai terverifikasi",
+        "detail": "replay could not be run over this row; do not read this as verified",
         "stored_hash": None,
         "computed_hash": None,
         "algo": None,
@@ -687,11 +700,11 @@ def _tone_note(entries: list[dict[str, Any]]) -> str | None:
     if not n_unassessed:
         return None
     return (
-        f"{n_unassessed} baris bernada `{TONE_NOT_ASSESSED}` (STALE_ALGO/STALE_PARAMS): aturan "
-        "yang dipakai menulisnya sudah berubah, jadi buktinya TIDAK kami periksa sama sekali. "
-        f"Itu bukan temuan; baris bernada `{TONE_FINDING}` (MISMATCH, n={n_finding}) adalah "
-        "temuan — bukti sudah diperiksa dan tidak mereproduksi keputusannya. Dua nada ini wajib "
-        "tampil dengan warna berbeda di layar."
+        f"{n_unassessed} rows carry the `{TONE_NOT_ASSESSED}` tone (STALE_ALGO/STALE_PARAMS): "
+        "the rules used to write them have changed, so we did NOT check their evidence at all. "
+        f"That is not a finding; rows carrying the `{TONE_FINDING}` tone (MISMATCH, "
+        f"n={n_finding}) are findings — their evidence was checked and does not reproduce the "
+        "decision. These two tones must appear in different colours on screen."
     )
 
 
@@ -707,9 +720,9 @@ def _row_truncation_note(entries: list[dict[str, Any]]) -> str | None:
         return None
     worst = max(entry["n_blocking"] for entry in cut)
     return (
-        f"{len(cut)} baris di layar ini menahan lebih dari {MAX_BLOCKING_ROWS} item (terbanyak "
-        f"{worst}); daftar `blocking`-nya dipotong di batas render itu, sedangkan `n_blocking` "
-        "tiap baris tetap cacah sebenarnya dan urutan layar dihitung dari cacah itu."
+        f"{len(cut)} rows on this screen are held by more than {MAX_BLOCKING_ROWS} items (most: "
+        f"{worst}); their `blocking` lists are cut at that render bound, while each row's "
+        "`n_blocking` stays the true count and the screen order is computed from that count."
     )
 
 
@@ -734,20 +747,21 @@ def _truncation_notes(
     notes: list[str] = []
     if n_items_total > n_items:
         notes.append(
-            f"kartu ini memuat {n_items_total} baris panggilan; hanya {n_items} yang dirender "
-            f"(batas render {MAX_ITEM_ROWS}). `n_items_total` adalah cacah sebenarnya."
+            f"this card holds {n_items_total} roll-call rows; only {n_items} are rendered "
+            f"(render bound {MAX_ITEM_ROWS}). `n_items_total` is the true count."
         )
     if n_warnings_total > n_warnings:
         notes.append(
-            f"{n_warnings_total} peringatan envelope ada di baris ini; hanya {n_warnings} yang "
-            f"dirender (batas render {MAX_WARNING_ROWS}). `n_warnings_total` adalah cacah "
-            "sebenarnya, dan tidak satu pun dihapus dari store."
+            f"{n_warnings_total} envelope warnings sit on this row; only {n_warnings} are "
+            f"rendered (render bound {MAX_WARNING_ROWS}). `n_warnings_total` is the true count, "
+            "and not one of them was deleted from the store."
         )
     if n_blocking_total > n_blocking:
         notes.append(
-            f"{n_blocking_total} baris menahan keputusan ini; hanya {n_blocking} id penahan "
-            f"yang dirender di `blocking` (batas render {MAX_BLOCKING_ROWS}, ekor daftar yang "
-            "dibuang — penahan terberat selalu ikut). `n_blocking` adalah cacah sebenarnya."
+            f"{n_blocking_total} rows hold this decision back; only {n_blocking} blocker ids "
+            f"are rendered in `blocking` (render bound {MAX_BLOCKING_ROWS}; the tail of the "
+            "list is dropped — the heaviest blocker is always kept). `n_blocking` is the true "
+            "count."
         )
     return notes
 
@@ -783,10 +797,12 @@ def _is_screen(request: Request) -> bool:
 
     Dijawab dari PATH, bukan dari header `Accept`: `Accept` datang dari pemanggil, dan
     membiarkannya memilih bentuk berarti `/api/decision/abc` bisa menjawab HTML tanpa
-    `simulated: true` di badan JSON-nya. Path `/ui...` adalah milik kami sendiri.
+    `simulated: true` di badan JSON-nya. Path `/ui...` adalah milik kami sendiri — dan sejak
+    TASKS 3.5, `/` juga: ia MENYAJIKAN Layar A, jadi `POST /` yang dijawab JSON telanjang akan
+    kehilangan banner di route yang paling mungkin dibuka orang.
     """
     path = request.url.path
-    return path == HTML_PREFIX or path.startswith(HTML_PREFIX + "/")
+    return path == "/" or path == HTML_PREFIX or path.startswith(HTML_PREFIX + "/")
 
 
 def _fail(
@@ -822,12 +838,25 @@ def _fail(
 
 @app.api_route("/ui/tenko.css", methods=["GET", "HEAD"])
 def stylesheet() -> Response:
-    """Satu-satunya aset layar, dan ia lahir di repo ini.
+    """Gaya layar — hasil build `frontend/styles/app.css`, dilayani dari origin ini sendiri.
 
-    Tidak ada `ui/static/`, tidak ada CDN, tidak ada npm (ADR-001; DISCLOSURE.md menyatakan
-    nol berkas three/GSAP/Lenis pernah disalin ke repo — pernyataan itu tetap benar).
+    Sejak ADR-020 ia lahir lewat esbuild dan tinggal di `ui/static/app.css`, yang **dilacak
+    git**: clone tanpa Node sama sekali tetap bisa `make ui`. Yang tidak berubah: nol CDN, nol
+    webfont, nol aset yang diunduh saat runtime, dan nol berkas pihak ketiga yang disalin ke
+    repo ini.
     """
     return Response(content=STYLESHEET, media_type="text/css; charset=utf-8", headers=HTML_HEADERS)
+
+
+@app.api_route("/ui/app.js", methods=["GET", "HEAD"])
+def client_script() -> Response:
+    """Klien TypeScript yang sudah dibundel (`frontend/src/` → esbuild → `ui/static/app.js`).
+
+    Ia dilayani dari origin ini sendiri karena itulah satu-satunya sumber yang diizinkan
+    `script-src 'self'`. Isinya dibaca SEKALI saat impor `ui.screens`; route ini tidak pernah
+    menyentuh berkas berdasarkan apa pun yang datang dari request.
+    """
+    return Response(content=CLIENT_SCRIPT, media_type="text/javascript; charset=utf-8", headers=HTML_HEADERS)
 
 
 @app.api_route("/ui", methods=["GET", "HEAD"])
@@ -843,7 +872,7 @@ def screen_watchlist() -> Response:
     try:
         payload = watchlist()
     except HTTPException as exc:
-        detail = exc.detail if isinstance(exc.detail, str) else "watchlist tidak bisa dilayani"
+        detail = exc.detail if isinstance(exc.detail, str) else "the watchlist cannot be served"
         return _html(render_error(exc.status_code, detail, BANNER, _now_jst()), exc.status_code)
     return _html(render_watchlist(payload, BANNER, _now_jst()))
 
@@ -861,27 +890,60 @@ def screen_card(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> Respo
     try:
         payload = decision(decision_id)
     except HTTPException as exc:
-        detail = exc.detail if isinstance(exc.detail, str) else "kartu ini tidak bisa dilayani"
+        detail = exc.detail if isinstance(exc.detail, str) else "this card cannot be served"
         return _html(render_error(exc.status_code, detail, BANNER, _now_jst()), exc.status_code)
     return _html(render_card(payload, BANNER, _now_jst()))
 
 
 # --- route --------------------------------------------------------------------------------
-@app.get("/")
-def index() -> dict[str, Any]:
-    """Indeks route — bukan halaman; Layar A/B HTML adalah TASKS 3.2."""
+#: Daftar route yang bisa ditemukan, sekarang dari `/api/routes` (TASKS 3.5). Ia dipatok
+#: konstanta supaya "route yang ada" dan "route yang diumumkan" bisa DIBANDINGKAN oleh tes,
+#: bukan hanya dijanjikan docstring.
+ROUTE_INDEX = (
+    "/",
+    "/ui",
+    "/ui/decision/{id}",
+    "/ui/tenko.css",
+    "/ui/app.js",
+    "/api/routes",
+    "/api/health",
+    "/api/watchlist",
+    "/api/decisions",
+    "/api/decision/{id}",
+    "/api/preflight/{symbol}",
+)
+
+
+@app.api_route("/", methods=["GET", "HEAD"])
+def index() -> Response:
+    """`/` ADALAH Layar A (TASKS 3.5) — halaman, bukan indeks JSON.
+
+    Sebelumnya route ini menjawab daftar route, dan pemilik repo sendiri membuka
+    `127.0.0.1:8000`, melihat JSON, dan mengira itu seluruh frontend — layarnya ada di `/ui`.
+    Kalau pemilik repo terjebak, juri akan terjebak persis sama dan tidak ada yang memberi tahu
+    mereka.
+
+    **200 HTML, bukan 3xx ke `/ui`.** Alasannya satu dan bisa diperiksa: `curl` tanpa `-L`
+    menerima badan KOSONG dari sebuah 302, jadi respons PERTAMA yang dilihat pemanggil akan
+    menjadi respons tanpa banner SIMULATED — dan `docs/rules-compliance.md` menuntut banner itu
+    ada di layar yang dilihat orang, bukan di layar berikutnya. Pengalihan juga menambah satu
+    langkah di demo 30 detik tanpa menambah satu pun informasi. `/ui` tetap dilayani apa adanya
+    supaya tautan lama (README, `agent/demo.py`, `scripts/chaos.sh`) tidak mati.
+
+    Daftar route tidak hilang: ia pindah ke `GET /api/routes` (JSON ber-`simulated: true`), yang
+    DITAUTKAN di kaki setiap layar — jadi ia bisa ditemukan dengan mata, bukan hanya ditebak.
+    """
+    return screen_watchlist()
+
+
+@app.get("/api/routes")
+def routes() -> dict[str, Any]:
+    """Indeks route untuk konsumen API — rumah baru daftar yang dulu ada di `/`."""
     return _body(
         {
             "product": "Tenko (点呼)",
-            "routes": [
-                "/ui",
-                "/ui/decision/{id}",
-                "/api/health",
-                "/api/watchlist",
-                "/api/decisions",
-                "/api/decision/{id}",
-                "/api/preflight/{symbol}",
-            ],
+            "routes": list(ROUTE_INDEX),
+            "screens": {"A_watchlist": "/", "B_call_card": "/ui/decision/{id}"},
             "calls_ryo_tools": False,
             "calls_llm": False,
         }
@@ -908,7 +970,9 @@ def health() -> dict[str, Any]:
             "n_decisions_scanned": len(rows),
             "n_decisions_current_generation": len(current),
             "n_decisions_legacy": len(rows) - len(current),
-            "note": f"cacah di atas adalah {WATCHLIST_SCAN_LIMIT} baris TERBARU, bukan total tabel",
+            "note": (
+                f"the counts above cover the {WATCHLIST_SCAN_LIMIT} MOST RECENT rows, not the whole table"
+            ),
         }
     )
 
@@ -940,7 +1004,7 @@ def watchlist() -> dict[str, Any]:
         )
     )
     notes = [
-        "urut daya veto: penahan terberat (spec §4 peringkat 1) di atas; simbol tanpa penahan menyusul",
+        "ordered by veto power: the heaviest blocker (spec §4 rank 1) on top; symbols with no blocker follow",
         VETO_RANK_UNVALIDATED_SENTENCE,
         GRADE_UNPROVEN_SENTENCE,
     ]
@@ -952,9 +1016,9 @@ def watchlist() -> dict[str, Any]:
         notes.append(cut_note)
     if n_legacy:
         notes.append(
-            f"{n_legacy} baris keputusan generasi sebelumnya tidak ditampilkan di sini: kartunya "
-            f"tidak menyebut algoritma hash {ALGO}, jadi item dan penahannya tidak bisa dinilai "
-            "ulang dengan aturan sekarang (lihat /api/decision/{id})"
+            f"{n_legacy} decision rows from an earlier generation are not shown here: their "
+            f"cards do not name the {ALGO} hash algorithm, so their items and blockers cannot "
+            "be judged again under today's rules (see /api/decision/{id})"
         )
     if not entries:
         notes.append(EMPTY_SENTENCE)
@@ -978,7 +1042,7 @@ def decisions() -> dict[str, Any]:
             entries = [_summary_row(row, store) for row in rows]
     except (StoreError, LedgerError) as exc:
         raise _unreadable("decisions", exc) from None
-    notes = [f"maksimum {DECISIONS_LIMIT} baris TERBARU; tanpa paginasi, tanpa filter"]
+    notes = [f"at most {DECISIONS_LIMIT} MOST RECENT rows; no pagination, no server-side filter"]
     tone_note = _tone_note(entries)
     if tone_note:
         notes.append(tone_note)
@@ -987,8 +1051,9 @@ def decisions() -> dict[str, Any]:
         notes.append(cut_note)
     if n_legacy:
         notes.append(
-            f"{n_legacy} baris generasi sebelumnya dilewati (kartunya tidak menyebut algoritma "
-            f"hash {ALGO}); barisnya tetap bisa dibuka satu per satu lewat /api/decision/{{id}}"
+            f"{n_legacy} rows from an earlier generation were skipped (their cards do not name "
+            f"the {ALGO} hash algorithm); each row can still be opened one by one via "
+            "/api/decision/{id}"
         )
     if not entries:
         notes.append(EMPTY_SENTENCE)
@@ -1032,7 +1097,7 @@ def decision(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> dict[str
             if row is None:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"tidak ada keputusan ber-id {decision_id} di buku besar ini",
+                    detail=f"there is no decision with id {decision_id} in this ledger",
                 )
             report = _report_for(row, store)
             verdict = _unknown_verdict() if report is None else _verdict_of(report, row)
@@ -1067,17 +1132,18 @@ def decision(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> dict[str
     if legacy:
         notes.append(LEGACY_SENTENCE)
         notes.append(
-            "Kolom `blocking_json` baris ini memuat bilangan bulat (indeks implementasi yang "
-            "sudah dihapus), bukan id item panggilan, jadi ia TIDAK dirender di sini."
+            "The `blocking_json` column of this row holds integers (indices of an "
+            "implementation that no longer exists), not roll-call item ids, so it is NOT "
+            "rendered here."
         )
     elif verdict["replay_status"] == VERDICT_NO_EVIDENCE:
         notes.append(NO_EVIDENCE_SENTENCE)
     elif verdict["replay_status"] == VERDICT_STALE_PARAMS:
         notes.append(STALE_PARAMS_SENTENCE)
     if not items and not legacy:
-        notes.append(f"kartu keputusan ini tidak memuat satu baris panggilan pun ({EMPTY_SENTENCE})")
+        notes.append(f"this decision card holds no roll-call row at all ({EMPTY_SENTENCE})")
     if not bundle:
-        notes.append(f"nol snapshot beku pada baris ini ({EMPTY_SENTENCE})")
+        notes.append(f"zero frozen snapshots on this row ({EMPTY_SENTENCE})")
     if warnings:
         notes.append(WARNINGS_SENTENCE.format(n=n_warnings_total))
     notes.extend(
@@ -1087,9 +1153,9 @@ def decision(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> dict[str
     )
     if len(snapshot_ids) > len(bundle):
         notes.append(
-            f"baris ini menyebut {len(snapshot_ids)} snapshot beku; hanya {len(bundle)} pertama "
-            f"yang dirender di `replay_bundle` (batas render {MAX_BUNDLE_ROWS}). `n_snapshots` "
-            "tetap cacah sebenarnya, dan `make replay` memutar SEMUANYA."
+            f"this row names {len(snapshot_ids)} frozen snapshots; only the first {len(bundle)} "
+            f"are rendered in `replay_bundle` (render bound {MAX_BUNDLE_ROWS}). `n_snapshots` "
+            "stays the true count, and `make replay` replays ALL of them."
         )
 
     return _body(
@@ -1160,14 +1226,14 @@ def preflight_symbol(symbol: str) -> dict[str, Any]:
     """
     normalized = normalize_symbol(symbol)
     if normalized is None:
-        raise HTTPException(status_code=400, detail="simbol tidak bisa dibaca; tidak ada yang dipanggil")
+        raise HTTPException(status_code=400, detail="symbol cannot be read; nothing was called")
     if not plausible_symbol(normalized):
         raise HTTPException(
             status_code=400,
             detail=(
-                f"{clean_text(normalized, KEY_LIMIT)} tidak berbentuk seperti simbol (bukan huruf/"
-                "angka satu aksara), jadi tidak ada yang dicari; agen menolak bentuk yang sama "
-                "dan layar ini tidak boleh menjanjikan bahwa ia hanya belum direkam"
+                f"{clean_text(normalized, KEY_LIMIT)} is not shaped like a symbol (not "
+                "single-character letters/digits), so nothing was looked up; the agent refuses "
+                "the same shape, and this screen must not promise that it is merely unrecorded"
             ),
         )
     try:
@@ -1188,10 +1254,10 @@ def preflight_symbol(symbol: str) -> dict[str, Any]:
         raise HTTPException(
             status_code=404,
             detail=(
-                f"tidak ada satu pun bukti TENTANG {normalized} di store dalam "
-                f"{DEFAULT_PARAMS.max_age_min} menit terakhir "
-                f"({', '.join(sorted(symbol_tools(normalized))) or '-'} tidak menjawab); yang "
-                "terbaca hanya bukti market-wide, dan itu tidak berbicara tentang simbol ini"
+                f"there is no evidence ABOUT {normalized} in the store within the last "
+                f"{DEFAULT_PARAMS.max_age_min} minutes "
+                f"({', '.join(sorted(symbol_tools(normalized))) or '-'} did not answer); only "
+                "market-wide evidence was readable, and that does not speak about this symbol"
             ),
         )
     skill = envelope if isinstance(envelope, dict) else {}
@@ -1235,10 +1301,10 @@ def preflight_symbol(symbol: str) -> dict[str, Any]:
             ).as_summary(),
             "envelope": skill,
             "notes": [
-                "dihitung ulang dari snapshot yang SUDAH tersimpan; tidak ada tool RYO yang dipanggil",
-                f"{len(spoken_about)} dari {len(symbol_tools(normalized))} tool ber-simbol "
-                f"punya bukti tentang {normalized}: {', '.join(spoken_about)}",
-                "keputusan ini tidak dibukukan: /api/preflight tidak menulis baris `decisions`",
+                "recomputed from snapshots ALREADY stored; no RYO tool was called",
+                f"{len(spoken_about)} of {len(symbol_tools(normalized))} symbol-bearing tools "
+                f"hold evidence about {normalized}: {', '.join(spoken_about)}",
+                "this decision is not booked: /api/preflight writes no `decisions` row",
                 *([WARNINGS_SENTENCE.format(n=n_warnings_total)] if warnings else []),
                 *_truncation_notes(
                     len(items),
@@ -1267,7 +1333,7 @@ def _http_error(request: Request, exc: StarletteHTTPException) -> Response:
     Bentuknya mengikuti PATH: `/ui/nope` dan `POST /ui` menjawab halaman ber-banner + CSP,
     `/favicon.ico` dan `POST /api/health` tetap JSON ber-`simulated`.
     """
-    detail = exc.detail if isinstance(exc.detail, str) else "permintaan tidak bisa dilayani"
+    detail = exc.detail if isinstance(exc.detail, str) else "this request cannot be served"
     # `Allow` pada 405 dibawa apa adanya dari exception, karena menjawab "metode salah" tanpa
     # menyebut metode yang benar adalah jawaban setengah — dan ia ikut ke halaman HTML juga.
     return _fail(request, exc.status_code, detail, dict(exc.headers) if exc.headers else None)
@@ -1284,7 +1350,7 @@ def _validation_error(request: Request, exc: RequestValidationError) -> Response
     return _fail(
         request,
         422,
-        "parameter permintaan tidak bisa dibaca; tidak ada yang dibaca dari store",
+        "the request parameters cannot be read; nothing was read from the store",
         extra={"n_errors": len(exc.errors())},
     )
 
@@ -1305,6 +1371,5 @@ def _unexpected_error(request: Request, exc: Exception) -> Response:
     return _fail(
         request,
         500,
-        "permintaan ini gagal karena kesalahan tak terduga di server; tidak ada angka yang "
-        "dikarang untuk menutupinya",
+        "this request failed on an unexpected server error; no number was invented to cover it up",
     )
