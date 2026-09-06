@@ -1,6 +1,6 @@
 # DISCLOSURE — sesuai Official Rules §5 "Original Work and Third-Party Materials"
 
-Status: **lengkap per 1 Sep 2026** untuk isi `uv.lock` saat ini (32 paket di luar `tenko` sendiri).
+Status: **lengkap per 6 Sep 2026** untuk isi `uv.lock` saat ini (32 paket di luar `tenko` sendiri).
 Diperbarui pada commit yang sama dengan setiap penambahan dependency, aset, dataset, atau sumber eksternal
 (`CLAUDE.md`, `docs/rules-compliance.md`).
 
@@ -25,6 +25,14 @@ ada nama yang tidak dikenal lock). Daftar mentahnya:
 grep '^name = ' uv.lock          # 33 baris = 32 dependency + paket "tenko" sendiri
 ```
 
+**Batas daftar ini: paket yang di-ship/diimpor, bukan perkakas sistem.** `scripts/chaos.sh` memanggil `openssl` untuk
+membuat sertifikat self-signed berumur 1 hari bagi server fixture di 127.0.0.1 (`openssl req -x509` di
+`scripts/chaos.sh`; sertifikat lahir di `mktemp -d` dan tidak pernah masuk repo) — sama
+kelasnya dengan `bash`, `git`, atau `sqlite3` CLI: tidak di-ship, tidak diimpor kode, tidak masuk `uv.lock`, dan hanya
+hidup di dalam harness tes. Karena sumber kebenaran tabel di bawah adalah `uv.lock` dan `tests/test_disclosure.py`
+membandingkan kedua himpunan **dua arah**, menambahkan baris non-lock justru merusak invarian yang menjaga daftar ini
+tetap lengkap. Versi perkakas runtime tercatat di `docs/versions.md`.
+
 ## Open-source dependencies — Python (dari `uv.lock`)
 
 <!-- python-deps:start -->
@@ -37,7 +45,7 @@ grep '^name = ' uv.lock          # 33 baris = 32 dependency + paket "tenko" send
 | pydantic | 2.13.5 | MIT | kontrak & validasi `SkillResult` — dipakai di `core/skill.py` |
 | pyyaml | 6.0.3 | MIT | baca `sources.yaml` — dipakai di `core/sources.py` |
 | anthropic | 1.2.0 | MIT | narasi kartu (di luar jalur keputusan, ADR-003) — **dipakai kode sejak TASKS 2.3**: hanya di `preflight/narrate.py`, satu panggilan `messages.create` per kartu, model `claude-opus-5`, setelah keputusan final; kredensial hanya dari env, tanpa kredensial tidak ada request sama sekali |
-| fastapi | 0.141.1 | MIT | route JSON UI — **dipakai kode sejak TASKS 3.1**: `ui/app.py` (enam route `GET`: `/`, `/api/health`, `/api/watchlist`, `/api/decisions`, `/api/decision/{id}`, `/api/preflight/{symbol}`). Hanya membaca store (`Store(..., read_only=True)`); tidak ada `httpx` di `ui/`, `/api/health` melaporkan `calls_ryo_tools: false` dan `calls_llm: false`. Setiap respons — termasuk 400/404/405/422/500/503 — membawa `simulated: true` + banner SIMULATED. **Yang mendarat adalah API-nya, bukan layarnya**: Layar A/B (TASKS 3.2) belum ada |
+| fastapi | 0.141.1 | MIT | route JSON + dua layar HTML — **dipakai kode sejak TASKS 3.1**: `ui/app.py` mendeklarasikan **delapan route `GET`** (`/`, `/api/health`, `/api/watchlist`, `/api/decisions`, `/api/decision/{id}`, `/api/preflight/{symbol}`, `/ui`, `/ui/decision/{id}`) ditambah satu aset `GET`/`HEAD` `/ui/tenko.css` yang dibangkitkan dari `ui/screens.py` — nol berkas statis, nol CDN, nol npm. **Layar A/B (TASKS 3.2) sekarang ADA** dan dirender di server tanpa satu pun `<script>` (`Content-Security-Policy: default-src 'none'; style-src 'self'`); baris ini menggantikan bunyi sebelumnya "enam route GET … Layar A/B belum ada" (6 Sep 2026). Hanya membaca store (`Store(..., read_only=True)`); tidak ada `httpx`/`anthropic` di `ui/`, `/api/health` melaporkan `calls_ryo_tools: false` dan `calls_llm: false`. Setiap respons — termasuk 400/404/405/422/500/503 — membawa `simulated: true` + banner SIMULATED |
 | uvicorn | 0.52.4 | BSD-3-Clause | server `make ui` — **dipakai sejak TASKS 3.1**, dijalankan dari `Makefile` (`uv run uvicorn ui.app:app --port $UI_PORT`), bukan diimpor kode; tanpa extra `[standard]` (`docs/versions.md`) |
 | pytest | 9.1.1 | MIT | dev — menjalankan `make test` |
 | ruff | 0.16.5 | MIT | dev — lint & format (`make lint`) |
@@ -82,14 +90,18 @@ pernah terpicu. Paket tetap terpasang utuh dari PyPI melalui `uv.lock`.
 
 ## Aset frontend JS — direncanakan (ADR-014), BELUM di-vendor
 
-**Status jujur per 5 Sep 2026: direktori `ui/static/` tidak ada di repo** (`ls ui/static` → tidak ditemukan; isi `ui/`
-hanya `ui/__init__.py` dan `ui/app.py` — route JSON, tanpa satu pun aset statis). Tidak satu pun berkas
-three/GSAP/Lenis pernah disalin ke repo ini. Fase 3.2 belum dikerjakan.
+**Status jujur per 6 Sep 2026: direktori `ui/static/` tetap tidak ada di repo** (`ls ui/static` → tidak ditemukan;
+isi `ui/` hanya `__init__.py`, `app.py`, `screens.py`, `README.md`). Layar A/B **sudah mendarat** (TASKS 3.2) — dan
+mendarat **tanpa** satu pun library JS: nol `<script>`, satu-satunya aset adalah `/ui/tenko.css` yang dibangkitkan
+dari `ui/screens.py`, dan satu-satunya ikon adalah SVG tertanam di HTML. Tidak satu pun berkas three/GSAP/Lenis pernah
+disalin ke repo ini.
 
 Rencananya (ADR-014): saat layar dibangun, ketiga library **di-vendor lokal** ke `ui/static/vendor/<paket>/`, tanpa
 build step, tanpa npm, tanpa CDN saat runtime (ADR-001; `make demo` wajib jalan offline dari fixture dan chaos test
 mematikan host). Versi, lisensi, format berkas, dan hash sudah diverifikasi api-verifier dan tercatat di
-`docs/versions.md` §"Aset frontend JS"; pin-nya sendiri masih menunggu pemakaian nyata.
+`docs/versions.md` §"Aset frontend JS"; pin-nya sendiri masih menunggu pemakaian nyata. **Layar yang benar-benar
+dikirim tidak memakai satu pun dari ketiganya**, jadi rencana ini tetap rencana; bila suatu saat dipakai, berkas ini
+berubah pada commit yang sama.
 
 Baris di bawah adalah **rencana**, bukan laporan tentang berkas yang ada di repo. Berkas ini diperbarui pada commit
 yang sama saat vendoring benar-benar terjadi (termasuk salinan LICENSE per paket dan header copyright yang
@@ -140,6 +152,14 @@ Dipisahkan dari tabel open-source di atas karena **GSAP bukan perangkat lunak op
 
 Output tool RYO adalah data RYO: dipakai hanya di dalam submission, tidak dipublikasikan di post sosial
 (ADR-008, `docs/rules-compliance.md`).
+
+**Fixture di repo = salinan output RYO, bukan bahan pihak ketiga yang baru.** `docs/samples/*.json` (6 envelope live,
+1 Sep 2026), `agent/fixtures/*.json`, dan `preflight/fixtures/*.json` semuanya disalin dari respons tool RYO di atas
+dan tercakup oleh baris RYO-CHAN; tidak ada dataset atau sumber baru yang masuk lewat berkas itu, jadi tidak ada baris
+tambahan di sini. Satu pengecualian yang wajib disebut: di
+`preflight/fixtures/outage-one-tool-2026-09-05.json` satu envelope **dibentuk** menjadi `status: "unavailable"` karena
+RYO belum pernah mengeluarkan status itu (0 dari 3645 snapshot, `docs/api-facts.md` §A). Berkasnya mengaku sendiri di
+blok `synthetic`, dan naskah `make demo` mencetak pengakuan itu — lihat README §6.
 
 ## Simulation notice
 Semua posisi adalah practice/simulated. Tidak ada dana nyata, wallet, atau eksekusi. Swap yang dianalisis (bila ada)
