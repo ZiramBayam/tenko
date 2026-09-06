@@ -1958,19 +1958,67 @@ def test_no_asset_comes_from_any_host_but_this_app(client: TestClient) -> None:
     assert script.status_code == 200
     assert script.headers["content-type"].startswith("text/javascript")
     assert script.headers["x-content-type-options"] == "nosniff"
-    for forbidden in ("http://", "https://", "//cdn", "import(", "importScripts", 'fetch("h'):
+    # Yang dilarang adalah MENGHUBUNGI host asing, bukan menyebut string "http". Namespace XML
+    # dan URL lisensi di komentar bukan alamat yang pernah diambil — dan yang kedua justru WAJIB
+    # utuh (lisensi GSAP menuntut header copyright-nya, MIT menuntut notis Lenis).
+    for forbidden in ("//cdn", "import(", "importScripts", 'fetch("h', "XMLHttpRequest"):
         assert forbidden not in script.text, forbidden
+    for url in re.findall(r"https?://[^\s\"')]+", script.text):
+        assert url.rstrip(".") in BUNDLE_URL_ALLOWLIST, f"URL asing di bundel: {url}"
     # Yang dilayani ADALAH berkas yang dilacak git, bukan sesuatu yang dirakit saat permintaan.
     assert script.text == (ROOT / "ui" / "static" / "app.js").read_text(encoding="utf-8")
     assert css.text == (ROOT / "ui" / "static" / "app.css").read_text(encoding="utf-8")
 
 
-def test_the_stylesheet_has_no_animation_and_no_hover_only_information(client: TestClient) -> None:
-    """Video demo tanpa animasi (checklist), dan tidak ada isi yang hanya muncul saat hover."""
+def test_motion_is_allowed_but_never_required_to_read_the_screen(client: TestClient) -> None:
+    """ADR-025 MENCABUT larangan animasi/transisi/`:hover`. Yang TIDAK dicabut ada di bawah.
+
+    Larangan lama ("nol animasi, nol transisi, nol `:hover` di seluruh berkas") adalah cara
+    kasar membeli satu jaminan a11y: layar tidak boleh menuntut gerak atau tuding untuk bisa
+    dibaca. Ia membeli jaminan itu dengan melarang seluruh kelas teknik, dan itu yang membuat
+    pekerjaan tampilan menabrak tembok berkali-kali.
+
+    Jaminannya sekarang dibeli langsung, dan justru lebih ketat dari sebelumnya:
+
+    1. **`prefers-reduced-motion` benar-benar dihormati.** Klien MEMATIKAN gerak seluruhnya di
+       sana — Lenis tidak dibuat, ScrollTrigger tidak dipasang, dan `js-motion` tidak pernah
+       ditempel, jadi tidak ada elemen yang pernah `opacity: 0`.
+    2. **Keadaan awal reveal tidak pernah datang dari server.** `opacity: 0` hanya berlaku di
+       bawah `.js-motion`, yang ditempel KLIEN. Halaman tanpa JS terlihat utuh. Ini butir 6
+       ADR-020, dan ia yang membedakan "situs beranimasi" dari "halaman kosong".
+    3. **Tidak ada informasi yang hanya muncul saat hover.** Ini aturan a11y aslinya, dan ia
+       tetap berlaku apa pun tekniknya.
+    """
     css = client.get("/ui/tenko.css").text
-    assert ":hover" not in css
-    assert "animation" not in css and "transition" not in css and "@keyframes" not in css
-    assert ":focus-visible" in css and "outline" in css  # fokus keyboard terlihat
+    squashed = css.replace(" ", "").replace("\n", "")
+    main = main_source()
+
+    # 1. Gerak dimatikan TOTAL saat pemakai memintanya — bukan dipercepat, bukan diperpendek.
+    assert '"(prefers-reduced-motion: reduce)"' in main, "klien tidak pernah menanyakan preferensi gerak"
+    guard = slice_of(main, "function motion(): void {", "function railbar()")
+    assert guard.index("prefers-reduced-motion") < guard.index("new Lenis"), (
+        "Lenis dibuat SEBELUM preferensi gerak diperiksa"
+    )
+    assert "matches) return;" in guard, "pemeriksaan gerak tidak menghentikan apa pun"
+
+    # 2. Keadaan tak-terlihat hanya hidup di bawah kelas yang dipasang klien.
+    assert ".js-motion.reveal{opacity:0" in squashed, (
+        "keadaan awal reveal tidak dipagari `.js-motion` — halaman tanpa JS bisa jadi kosong"
+    )
+    assert "js-motion" in main, "klien tidak pernah menempelkan pagar itu"
+    for path in ("/", "/app", "/app/decision/1"):
+        html = client.get(path).text
+        assert "js-motion" not in html, f"{path}: server menempelkan kelas milik klien"
+        assert "opacity:0" not in html.replace(" ", ""), f"{path}: server menyembunyikan isi"
+
+    # 3. Aturan a11y aslinya, yang TIDAK dicabut.
+    for rule in re.findall(r"[^{}]+\{[^{}]*\}", css):
+        if ":hover" not in rule:
+            continue
+        selector = rule.split("{")[0]
+        assert ":focus" in selector or ":focus-visible" in selector, (
+            f"gaya hover tanpa padanan fokus (informasi hover-only): {selector.strip()}"
+        )
 
 
 def test_the_replay_badge_colour_comes_only_from_replay_tone(client: TestClient) -> None:
@@ -2640,6 +2688,19 @@ def test_the_ui_readme_carries_the_a11y_checklist_and_admits_the_missing_recordi
 #: sehingga penyegaran tampilan berikutnya tidak bisa menggeser satu nilai lalu "mengukur ulang"
 #: pasangannya menjadi angka lain yang kebetulan juga lulus. `--line` khususnya: ia baru saja
 #: dinaikkan dari #2c3442 (1.52:1, GAGAL 1.4.11) dan tidak boleh diredupkan kembali demi rasa.
+#: URL yang BOLEH muncul di bundel yang dilayani. Tidak satu pun pernah diambil saat runtime:
+#: dua namespace XML (nama, bukan alamat) dan empat URL lisensi/dokumen di dalam komentar —
+#: yang justru WAJIB utuh, karena lisensi GSAP menuntut header copyright-nya tidak dibuang dan
+#: MIT menuntut notis Lenis ikut terdistribusi (DISCLOSURE.md).
+BUNDLE_URL_ALLOWLIST = {
+    "http://www.w3.org/1999/xhtml",
+    "http://www.w3.org/2000/svg",
+    "https://github.com/darkroomengineering/lenis/blob/main/LICENSE",
+    "https://gsap.com",
+    "https://gsap.com/standard-license",
+    "https://gsap.com/forums/topic/20368-possible-gsap-bug-switching-classnames-in-chrome/",
+}
+
 MEASURED_PALETTE = {
     "bg": "#eef2f7",
     "panel": "#ffffff",
@@ -3124,20 +3185,36 @@ def test_nothing_on_the_runtime_path_reaches_for_node_or_npm() -> None:
 
 
 def test_npm_has_zero_runtime_dependencies() -> None:
-    """ADR-020 butir 3: dependency runtime npm NOL, dan hanya dua paket yang boleh masuk build."""
+    """ADR-020 butir 3 + ADR-025: dependency RUNTIME npm tetap NOL; yang boleh masuk BUILD terdaftar.
+
+    Yang dijaga di sini bukan "sedikit paket" melainkan janji yang membuat ADR-020 ada: **clone
+    tanpa Node sama sekali tetap bisa `make ui`, `make test`, `make demo`**. Itu tetap benar
+    dengan gsap dan lenis, karena keduanya DIBUNDEL ke `ui/static/app.js` yang dilacak git —
+    mesin juri tidak pernah menjalankan npm.
+
+    Daftarnya tetap TERTUTUP dan disebutkan satu per satu. Bukan karena paket itu jahat, tetapi
+    karena `DISCLOSURE.md` wajib menyebut setiap paket yang benar-benar terkirim, dan daftar
+    yang boleh tumbuh diam-diam adalah daftar yang berhenti menggambarkan apa pun.
+    """
     manifest = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
-    assert manifest["dependencies"] == {}, "nol dependency RUNTIME npm (ADR-020 butir 3)"
-    assert set(manifest["devDependencies"]) == {"esbuild", "typescript"}
+    assert manifest.get("dependencies", {}) == {}, "nol dependency RUNTIME npm (ADR-020 butir 3)"
+    assert set(manifest["devDependencies"]) == {"esbuild", "typescript", "gsap", "lenis"}
     assert manifest["devDependencies"]["esbuild"] == "0.28.2"
     assert manifest["devDependencies"]["typescript"] == "7.0.2"
+    assert manifest["devDependencies"]["gsap"] == "3.12.5"
+    assert manifest["devDependencies"]["lenis"] == "1.1.0"
     lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
     roots = {name.removeprefix("node_modules/") for name in lock["packages"] if name}
-    # Yang bukan binary per-platform: tepat dua nama. Kalau sebuah framework menyelinap masuk,
-    # daftar ini tumbuh dan tes ini merah sebelum `DISCLOSURE.md` sempat menjadi salah.
     non_platform = {
         name for name in roots if not name.startswith("@esbuild/") and not name.startswith("@typescript/")
     }
-    assert non_platform == {"esbuild", "typescript"}, non_platform
+    assert non_platform == {
+        "esbuild",
+        "typescript",
+        "gsap",
+        "lenis",
+        "@darkroom.engineering/tempus",  # satu-satunya transitif lenis
+    }, non_platform
 
 
 #: Konstanta yang HARUS berbunyi sama di server dan di klien. Kirinya nama di `frontend/src/
@@ -3214,8 +3291,12 @@ def test_the_client_can_only_write_text_never_html_and_never_evaluates_anything(
         body = strip_comments(path.read_text(encoding="utf-8"))
         for needle in forbidden:
             assert needle not in body, f"{path.name}: {needle}"
-        # Nol host pihak ketiga, dan nol aset yang diunduh saat runtime.
-        assert "http://" not in body and "https://" not in body, path.name
+        # Nol host pihak ketiga YANG DIHUBUNGI. Melarang string "http" secara buta akan
+        # menolak namespace XML (yang bukan alamat yang pernah diambil) dan URL lisensi di
+        # komentar (yang justru WAJIB ada — lihat DISCLOSURE.md). Yang diperiksa karena itu
+        # adalah setiap URL yang muncul, terhadap daftar yang alasannya tertulis.
+        for url in re.findall(r"https?://[^\s\"')]+", body):
+            assert url.rstrip(".") in BUNDLE_URL_ALLOWLIST, f"{path.name}: URL asing {url}"
 
 
 def test_the_client_renders_unspoken_as_a_word_and_computes_no_decision() -> None:
@@ -3545,8 +3626,8 @@ def test_one_css_naming_rule_serves_both_renderers() -> None:
 #:
 #: Cara memperbaruinya: `make frontend` mencetak hash barunya. Menggantinya adalah perbuatan
 #: yang TERLIHAT di diff — dan itulah seluruh gunanya.
-BUNDLE_SHA256 = "9cd8331776d7edee415faa86d1518d6f0e867ceb4abd316d033388959c1a9e4e"
-STYLESHEET_SHA256 = "45b7497116a03533695b1f58f6f4d091c3b6557c0e520250ef96152ffe8ff566"
+BUNDLE_SHA256 = "9c53cb42aeecba10d2d98526ac2f685f6cb99e336686ac5f8746fec83597c137"
+STYLESHEET_SHA256 = "5ced71d44b5c182aaa24b69d866a2b1f579d3fa3c35f4b8f4607827887d42910"
 
 
 def test_the_shipped_bundle_is_pinned_byte_for_byte() -> None:

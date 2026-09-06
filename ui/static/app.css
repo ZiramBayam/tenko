@@ -529,6 +529,23 @@ button:focus-visible {
     color: var(--ink);
   }
 }
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+.js-motion .reveal {
+  opacity: 0;
+  transform: translateY(18px);
+}
 .railbar {
   --p: 0;
   position: sticky;

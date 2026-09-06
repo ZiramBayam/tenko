@@ -17,6 +17,9 @@
 //
 // Kalau berkas ini gagal dimuat, yang tertinggal adalah layar lengkap hasil render server.
 
+import gsap from "gsap";
+import ScrollTrigger from "gsap/ScrollTrigger";
+import Lenis from "lenis";
 import { getJson, ApiError } from "./api.js";
 import { append, el } from "./dom.js";
 import type { Json } from "./json.js";
@@ -336,6 +339,51 @@ function isInternal(link: HTMLAnchorElement): boolean {
  * daripada layar menggambar, dan menulis gaya di setiap kejadian adalah cara membuat halaman
  * yang mulus terasa berat.
  */
+
+/** Smooth scroll (Lenis) + reveal saat gulir (GSAP ScrollTrigger). Landing SAJA.
+ *
+ * Tiga aturan yang membuat gerak ini tidak menabrak jaminan 4.6, dan semuanya wajib:
+ *
+ * 1. `prefers-reduced-motion` MEMATIKANNYA SELURUHNYA — bukan mempercepatnya. Lenis tidak
+ *    pernah dibuat, ScrollTrigger tidak pernah dipasang, dan `js-motion` tidak pernah
+ *    ditempel, jadi tidak ada satu pun elemen yang pernah `opacity: 0`. Gulir kembali menjadi
+ *    gulir bawaan browser, yang memang yang diminta pemakainya.
+ * 2. Kelas `js-motion` ditempel KLIEN. Keadaan awal reveal (`opacity: 0`) karena itu tidak
+ *    pernah ada di HTML server: klien yang gagal memuat meninggalkan landing yang TERLIHAT.
+ *    Ini butir 6 ADR-020, dan ia lebih penting daripada animasinya.
+ * 3. Gerak tidak pernah menahan akses ke informasi. Reveal hanya memindahkan 18px dan memudar
+ *    masuk; tidak ada isi yang hanya muncul setelah digulir, dan `once: true` memastikan blok
+ *    yang sudah tampil tidak pernah menghilang lagi saat digulir balik.
+ *
+ * Kegagalan apa pun di sini dibiarkan diam: landing tetap halaman lengkap tanpa gerak.
+ */
+function motion(): void {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const targets = document.querySelectorAll<HTMLElement>(
+    ".hero, .board, .proofs, .why, .rails"
+  );
+  if (!targets.length) return;
+
+  document.documentElement.classList.add("js-motion");
+  for (const node of targets) node.classList.add("reveal");
+
+  const lenis = new Lenis({ duration: 1.1, smoothWheel: true });
+  lenis.on("scroll", ScrollTrigger.update);
+  gsap.ticker.add((time: number) => lenis.raf(time * 1000));
+  gsap.ticker.lagSmoothing(0);
+
+  gsap.registerPlugin(ScrollTrigger);
+  for (const node of targets) {
+    gsap.to(node, {
+      opacity: 1,
+      y: 0,
+      duration: 0.7,
+      ease: "power2.out",
+      scrollTrigger: { trigger: node, start: "top 88%", once: true },
+    });
+  }
+}
+
 function railbar(): void {
   const bar = document.querySelector(".railbar");
   if (!(bar instanceof HTMLElement)) return;
@@ -379,7 +427,10 @@ function start(): void {
   // `landing` dan `error` sama-sama INERT (ADR-021 butir 6). Tanpa cabang ini keduanya jatuh ke
   // `state.screen = "watchlist"` di atas, dan klien akan melukis Layar A di atas halaman yang
   // bukan Layar A — landing kehilangan seluruh isinya beberapa milidetik setelah dibuka.
-  if (screen === "landing") railbar();
+  if (screen === "landing") {
+    railbar();
+    motion();
+  }
   const inert = screen === "error" || screen === "landing";
   liveNode.textContent = inert ? CLIENT_INERT : CLIENT_ATTACHED;
   main.appendChild(controlsNode);

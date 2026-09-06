@@ -365,6 +365,21 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   .hero h1 { background-image: none; color: var(--ink); }
 }
 
+/* --- gerak: smooth scroll + reveal (ADR-025) ------------------------------------------------
+   Kelas di bawah dipasang KLIEN, tidak pernah oleh server. Itu urutan yang menjaga jaminan
+   ADR-020 butir 6: halaman yang dikirim server sudah lengkap dan TERLIHAT; klien yang gagal
+   memuat meninggalkan landing yang utuh, bukan halaman berisi blok tak terlihat yang menunggu
+   animasi yang tidak pernah datang. Menaruh `opacity: 0` di HTML server adalah cara paling
+   umum sebuah situs beranimasi menjadi halaman kosong.
+
+   `scroll-behavior: auto` wajib: `smooth` bawaan browser berkelahi dengan Lenis. */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto; }
+.lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
+.lenis.lenis-stopped { overflow: hidden; }
+/* Keadaan awal reveal — HANYA aktif setelah klien menandai dokumen. */
+.js-motion .reveal { opacity: 0; transform: translateY(18px); }
+
 /* --- bilah gulir bergaya peta jalur --------------------------------------------------------
    Rel melintang di bawah banner, dengan kereta yang bergerak sepanjangnya seiring gulir.
    Bentuknya diambil dari peta jalur (路線図) yang tergantung di atas pintu kereta: garis tipis,

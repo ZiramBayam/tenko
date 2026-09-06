@@ -35,7 +35,7 @@ frontend:          ## bangun ulang ui/static/app.js + app.css dari frontend/ (BU
 	  exit 1; }
 	npm ci                       # ci, bukan install: lockfile yang menentukan, bukan rentang versi
 	npx tsc --noEmit             # type-check; esbuild sendiri tidak memeriksa tipe
-	npx esbuild frontend/src/main.ts --bundle --format=iife --target=es2020 --charset=utf8 --legal-comments=none --outfile=ui/static/app.js
+	npx esbuild frontend/src/main.ts --bundle --format=iife --target=es2020 --charset=utf8 --legal-comments=eof --banner:js='/*! Lenis 1.1.0 — The MIT License — Copyright (c) 2024 darkroom.engineering — https://github.com/darkroomengineering/lenis/blob/main/LICENSE */' --outfile=ui/static/app.js  # eof, BUKAN none: lisensi GSAP menuntut header copyright utuh (ADR-014)
 	npx esbuild frontend/styles/app.css --bundle --charset=utf8 --legal-comments=none --external:/ui/fonts/* --outfile=ui/static/app.css
 	@echo "ui/static/ dibangun ulang. JANGAN lupa: git add ui/static/ — artefaknya dilacak."
 	@echo "SHA-256 artefak (paku ulang di tests/test_ui.py: BUNDLE_SHA256 / STYLESHEET_SHA256):"

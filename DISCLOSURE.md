@@ -140,7 +140,7 @@ itself, against `node_modules` on disk, and against the npm registry — `docs/v
 
 This file is corrected in the same commit if any of that changes.
 
-## Frontend JS assets — planned (ADR-014), NOT vendored
+## Frontend JS assets — SHIPPED (ADR-025); three.js still not vendored
 
 **Honest status as of 6 Sep 2026: `ui/static/` now EXISTS and holds exactly two files** — `app.css` and `app.js`,
 both esbuild output from `frontend/`, both tracked (`git ls-files ui/static`). An earlier version of this paragraph
@@ -168,9 +168,24 @@ in which vendoring actually happens (including a per-package copy of LICENSE and
 
 GSAP is deliberately **not** in this table — see the next section.
 
-## Third-party proprietary (no-charge license) — also NOT vendored
+## Third-party proprietary (no-charge license) — SHIPPED, bundled into `ui/static/app.js`
 Kept separate from the open-source table above because **GSAP is not open source software** (a consequence of
 ADR-014).
+
+**Status as of 7 Sep 2026 (ADR-025): GSAP 3.12.5 and Lenis 1.1.0 are now SHIPPED.** They are not vendored as
+separate files; they are bundled by esbuild into `ui/static/app.js`, which is tracked in git. Node is still a
+**build** tool only — a clone with no Node at all still runs `make ui`, `make test` and `make demo`, because the
+bundle is committed (ADR-020 § 2). `package.json` → `"dependencies": {}` remains true and is tested.
+
+| Package | Version | License | Licence obligation, and how it is met |
+|---|---|---|---|
+| **gsap** (incl. ScrollTrigger) | **3.12.5** | **Standard "no charge" license** — *not* open source. `package.json` → `"license"` names `https://gsap.com/standard-license`; the package ships **no LICENSE file** (verified 7 Sep 2026 in `node_modules/gsap`). | Free while end users are not charged — nothing here charges anyone. The licence requires the copyright headers to stay intact, so the JS build uses `--legal-comments=eof`, **not** `none`; `grep GreenSock ui/static/app.js` finds them. A test pins the URLs that may appear in the bundle. |
+| **lenis** | **1.1.0** | **MIT** — `LICENSE` file present: *"The MIT License / Copyright (c) 2024 darkroom.engineering"* | MIT requires the notice to travel with the code. The minified dist carries no notice of its own, so the build injects one with esbuild `--banner:js`; it is the first line of `ui/static/app.js`. |
+| **@darkroom.engineering/tempus** | **0.0.46** | **MIT** (`package.json` → `"license"`; no LICENSE file in the package) | The only transitive dependency of lenis. Bundled with it. |
+
+Why these two and not a framework: they buy smooth scroll and scroll-triggered reveals, which is what the owner
+asked for, without adding a runtime framework. **three.js is still NOT vendored** — ADR-025 chose Lenis + GSAP over
+the 3D path with one day to the deadline.
 
 | Package (planned) | Version | License | Role | Status in repo |
 |---|---|---|---|---|

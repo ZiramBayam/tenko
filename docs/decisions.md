@@ -558,3 +558,50 @@ ulang skrip) · `README.md`. Nol dependency baru, nol aset baru, CSP tidak disen
 
 Risiko yang diterima: tiga palet dalam satu hari berarti `docs/judge-reports/fase-5.md` dan checklist 4.6 makin
 jauh dari apa yang benar-benar dilayani. 4.6 HARUS dijalankan ulang atas UI ini sebelum video direkam.
+
+## ADR-025 (DITERIMA 7 Sep 2026) Gerak diizinkan: Lenis + GSAP dibundel; larangan teknik dicabut, jaminan a11y dibeli langsung
+Konteks: pemilik repo menilai landing "jelek" berulang kali, meminta referensi 3D/GSAP/smooth-scroll di-clone
+(`references/awwwards-3d`, MIT, sudah ada sejak 1 Sep), lalu meminta "hapus semua larangan memakai html, css, js".
+Larangan yang dimaksud memang nyata dan memang menghalangi: nol animasi, nol transisi, nol `:hover`, nol `url()`,
+nol webfont, dan palet hex yang beku. Semuanya membeli jaminan a11y dengan cara melarang seluruh kelas teknik.
+
+Keputusan:
+1. **Larangan TEKNIK dicabut**: animasi, transisi, `:hover`, `url()`, dan webfont boleh dipakai.
+2. **Jaminan yang dulu dibelinya, dibeli langsung dan lebih ketat.** `test_the_stylesheet_has_no_animation_and_
+   no_hover_only_information` DIGANTI oleh `test_motion_is_allowed_but_never_required_to_read_the_screen`, yang
+   menuntut tiga hal yang sebelumnya tidak pernah diuji satu pun: (a) klien MEMATIKAN gerak seluruhnya di bawah
+   `prefers-reduced-motion` — diperiksa bahwa pemeriksaannya terjadi SEBELUM `new Lenis`; (b) keadaan awal reveal
+   (`opacity: 0`) hanya hidup di bawah kelas `.js-motion` yang ditempel KLIEN, dan HTML server dibuktikan tidak
+   pernah menyembunyikan isi; (c) tiap aturan `:hover` wajib punya padanan `:focus` — itu aturan a11y aslinya,
+   dan ia TIDAK dicabut.
+3. **Larangan KEPATUHAN & KEAMANAN tidak disentuh**: banner SIMULATED di tiap layar, `simulated: true` di tiap
+   respons, nol `innerHTML`/`eval`/`new Function` (nilai RYO/DB masuk DOM; U+202E terbukti sampai ke sana), store
+   append-only, determinisme replay. Bundel GSAP+Lenis diperiksa dan LOLOS seluruhnya — tidak ada yang perlu
+   dilonggarkan untuk memasukkannya.
+4. **Lenis 1.1.0 (MIT) + GSAP 3.12.5 + ScrollTrigger dibundel esbuild**, bukan di-vendor sebagai berkas terpisah
+   dan bukan lewat importmap CDN seperti template rujukan. `dependencies` npm tetap `{}`; Node tetap alat BUILD
+   saja; clone tanpa Node tetap jalan karena `ui/static/app.js` dilacak git.
+5. **GSAP dipin 3.12.5, BUKAN 3.15.0 seperti ADR-014.** Alasannya kombinasi yang TERUJI: skill rujukan mengunci
+   three 0.170.0 + gsap 3.12.5 + lenis 1.1.0 sebagai satu set, dan ADR-014 sendiri mencatat kompatibilitas
+   ScrollTrigger 3.12.5 → 3.15.0 BELUM DIVERIFIKASI. Satu hari sebelum deadline, versi teruji menang atas versi
+   terbaru.
+6. **Dua kewajiban lisensi ditegakkan oleh BUILD, bukan oleh niat.** Lisensi GSAP menuntut header copyright utuh,
+   jadi build JS memakai `--legal-comments=eof`, bukan `none` (yang membuangnya). MIT menuntut notis Lenis ikut
+   terdistribusi, tetapi dist-nya tidak membawa notis apa pun, jadi build menyuntikkannya lewat `--banner:js`.
+   Keduanya terlihat di `ui/static/app.js` dan tercatat di `DISCLOSURE.md`.
+7. **URL di bundel diperiksa dengan ALLOWLIST, bukan larangan buta.** Larangan lama ("string `http` tidak boleh
+   ada") menolak namespace XML — yang bukan alamat yang pernah diambil — dan URL lisensi di komentar, yang justru
+   WAJIB ada. Sekarang tiap URL dicocokkan ke daftar yang alasannya tertulis, dan `fetch`/`import()`/
+   `XMLHttpRequest` ke luar tetap dilarang.
+8. **three.js TIDAK diambil.** Jalur 3D penuh dari template `minimal` menuntut vendor three + 6 addon dan hampir
+   seluruh sisa waktu; pemilik repo memilih jalur Lenis + GSAP setelah ongkos keduanya dipaparkan.
+9. **Gerak hanya di landing.** Layar A/B tidak disentuh: keduanya punya polling, manajemen fokus, dan navigasi
+   keyboard yang jaminannya sudah diuji, dan tidak ada alasan rubric untuk mengguncangnya sehari sebelum deadline.
+
+Catatan yang jujur tentang skill rujukan: `references/awwwards-3d` TIDAK memberi panduan `prefers-reduced-motion`
+sama sekali. Butir 2(a) karena itu ditulis sendiri, bukan disalin.
+
+Konsekuensi: `Makefile` (legal-comments, banner) · `package.json`/`package-lock.json` (gsap, lenis, tempus) ·
+`frontend/src/main.ts` (`motion()`) · `frontend/styles/app.css` · `tests/test_ui.py` (satu tes diganti, dua
+ditulis ulang jadi allowlist) · `DISCLOSURE.md` (dua heading "NOT vendored" dikoreksi + tabel lisensi baru).
+Bundel tumbuh 37 KB → 341 KB; itu ongkos yang diterima untuk aset lokal tanpa CDN.
