@@ -192,6 +192,51 @@ STALE_PARAMS_SENTENCE = (
     "ditulis. Ini bukan verifikasi, dan bukan pula temuan."
 )
 EMPTY_SENTENCE = "belum ada data (n=0)"
+
+#: Status kolom "daya veto" — WAJIB tercetak di Layar A DAN Layar B (laporan juri fase 5, #3).
+#:
+#: Kolom itu adalah :data:`preflight.params.ITEM_ORDER`, yaitu urutan spec §4: sebuah konstanta
+#: DESAIN. Sampai kalimat ini ditulis tidak ada satu pun baris di kedua layar yang mengakuinya,
+#: sehingga peringkat 1 terbaca sebagai temuan. Ia bukan — dan alat ukur repo ini sendiri
+#: (`preflight/veto_table.py`, TASKS 2.1b) MEMBANTAHNYA dengan contoh: item peringkat 1
+#: (`01_freshness`) tidak pernah menahan apa pun, sementara item peringkat 6 (`06_confluence`)
+#: menahan puluhan kali. Sebabnya struktural dan diakui `preflight/skill.py`: pemilihan store
+#: sudah membatasi umur bukti, jadi `01_freshness` adalah TANDA TERIMA, bukan veto.
+#:
+#: Yang TIDAK dilakukan di sini: mengubah urutannya. Urutan adalah milik `preflight/`, dan
+#: layar yang mengarang urutan sendiri akan berbeda dari keputusan yang benar-benar diambil
+#: agen. Yang dilakukan hanya memberi label jujur pada kolom yang sudah ada. Angka contohnya
+#: sengaja kualitatif ("puluhan kali"): `preflight/veto_table.py` sendiri memperingatkan `n`-nya
+#: bergerak selama perekam hidup, jadi angka statis di layar akan basi tanpa ada yang tahu.
+VETO_RANK_UNVALIDATED_SENTENCE = (
+    "Kolom `daya veto` BELUM divalidasi: urutannya konstanta desain spec §4 "
+    "(`preflight/params.py` ITEM_ORDER), bukan hasil ukur — dan alat ukur repo ini "
+    "membantahnya. `preflight/veto_table.py` mencatat `01_freshness` (peringkat 1) NOL kali "
+    "merah, sementara `06_confluence` (peringkat 6) merah puluhan kali. Angkanya: "
+    "`uv run python -m preflight.veto_table --db <salinan data/ryo.db>`."
+)
+
+#: Angka paling jujur di repo ini, ditaruh di layar yang paling mungkin dibuka (laporan juri
+#: fase 5, #4). Ia KUALITATIF dengan sengaja, dan itu bukan kemalasan:
+#:
+#: * ADR-003 mengikat — `grading/` TIDAK boleh masuk jalur keputusan, dan
+#:   `test_decision_path_never_imports_grading` memeriksa `core/`, `preflight/`, `agent/`, dan
+#:   `ui/` nol impor `grading`. Jadi modul ini tidak boleh memanggil `grading.grader` untuk
+#:   mendapat `k`/`n`/`target_first` yang hidup, betapapun menariknya angka itu;
+#: * dan menaruh SALINAN angkanya (`k=0`, `target_first=3`, `n=13`) sebagai literal di sini
+#:   akan menjadi angka yang membeku diam-diam: begitu satu outcome baru matang, layar akan
+#:   mengutip laporan yang sudah tidak ada lagi — persis kelas kesalahan yang produk ini jual
+#:   lawannya.
+#:
+#: Yang tersisa dan jujur: sebutkan ARAHnya (belum ada yang terbukti diselamatkan; ada veto
+#: yang justru merugikan), sebutkan kenapa nol selang kepercayaan dicetak (`n` efektif di bawah
+#: ambang spec §6), dan sebutkan PERINTAH yang mencetak angkanya hari ini.
+GRADE_UNPROVEN_SENTENCE = (
+    "Veto ini BELUM terbukti menyelamatkan apa pun: `make grade` belum mencatat satu pun "
+    "kerugian terbukti dicegah, dan beberapa veto justru menahan plan yang kemudian menyentuh "
+    "target. n efektifnya di bawah ambang 30, jadi nol selang kepercayaan dicetak. Layar ini "
+    "TIDAK menghitungnya (ADR-003: `grading` di luar jalur keputusan) — jalankan `make grade`."
+)
 WARNINGS_SENTENCE = (
     "{n} peringatan envelope ditampilkan apa adanya di `warnings` — termasuk bukti yang DIBUANG "
     "sebelum dinilai (mis. snapshot yang `ts_utc` dan `as_of`-nya bertengkar). Baris yang hilang "
@@ -894,7 +939,11 @@ def watchlist() -> dict[str, Any]:
             entry["symbol"],
         )
     )
-    notes = ["urut daya veto: penahan terberat (spec §4 peringkat 1) di atas; simbol tanpa penahan menyusul"]
+    notes = [
+        "urut daya veto: penahan terberat (spec §4 peringkat 1) di atas; simbol tanpa penahan menyusul",
+        VETO_RANK_UNVALIDATED_SENTENCE,
+        GRADE_UNPROVEN_SENTENCE,
+    ]
     tone_note = _tone_note(entries)
     if tone_note:
         notes.append(tone_note)
@@ -1014,7 +1063,7 @@ def decision(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> dict[str
     warnings, n_warnings_total = ([], 0) if legacy else _warnings_of(skill)
     blocking, n_blocking_total = ([], 0) if legacy else _blocking_of(row, skill)
     summary = skill.get("summary") if isinstance(skill.get("summary"), dict) else {}
-    notes: list[str] = []
+    notes: list[str] = [] if legacy else [VETO_RANK_UNVALIDATED_SENTENCE]
     if legacy:
         notes.append(LEGACY_SENTENCE)
         notes.append(

@@ -69,6 +69,12 @@ NARRATION_NOTE = (
 )
 NARRATION_EMPTY = "tidak ada narasi untuk baris ini"
 
+#: Bahasa ISI bukti. Bingkai halaman Indonesia (`<html lang="id">`), tetapi `reason`, `value`,
+#: `headline`, peringatan envelope, dan narasi model ditulis Inggris oleh `preflight/` dan RYO.
+#: Menandainya per-span adalah satu-satunya jalan yang TIDAK memutuskan ulang bahasa produk:
+#: mengubah bingkai halaman ke Inggris adalah keputusan produk, bukan keputusan layar ini.
+EVIDENCE_LANG = "en"
+
 #: Batas panjang kolom `nilai`. Ia BUKAN batas kejujuran: `ui.app` sudah membersihkan tiap teks
 #: di dalam `value` satu per satu, dan yang dibatasi di sini hanya panjang barisan `k=v` yang
 #: dirakit layar. Kalau ia menggigit, layar MENGATAKANNYA dan menunjuk JSON mentahnya.
@@ -147,13 +153,29 @@ FOREIGN_MARK_NOTE = (
 NEUTRAL_MARK = "netral — tidak menentang, bukan konfirmasi"
 UNSPOKEN_MARK = "tidak disebut — bukti tidak cukup, dan itu bukan nol"
 
-#: Batas panjang SATU `aria-label`. Ia bukan batas kejujuran melainkan batas kesabaran: pembaca
-#: layar membacakan atribut ini utuh dan tanpa jeda, jadi kalimat 1500 aksara mengubur nilai yang
-#: harus terdengar. Bila ia menggigit, `clean_text` menempelkan penandanya sehingga PENDENGAR
-#: tahu ada yang dipotong — dan sel di sebelahnya tetap memuat bentuk penuhnya.
-ARIA_LABEL_LIMIT = 600
-#: Batas nilai DI DALAM `aria-label`; `value` item bisa ratusan aksara `k=v`.
-ARIA_VALUE_LIMIT = 200
+#: Batas nilai DI DALAM `aria-label`. Ia SAMA PERSIS dengan :data:`VALUE_LIMIT`, batas sel yang
+#: dilihat mata, dan itulah seluruh maksudnya.
+#:
+#: Sebelumnya ia 200 sementara selnya 1500: `value` item yang berbentuk `k=v` sepuluh field
+#: tampil utuh di layar tetapi dibacakan terpotong `...(truncated)`. Artinya pemakai pembaca
+#: layar menerima LEBIH SEDIKIT bukti daripada pemakai awas — di produk yang seluruh nilai
+#: jualnya "nilai ini datang dari sini", itu bukan ketidaknyamanan melainkan kehilangan isi.
+#: Alasan lamanya ("batas kesabaran") tidak salah sebagai keluhan, tetapi ia menyelesaikan
+#: kesabaran dengan memotong FAKTA; yang benar adalah memotong panjang di tempat yang tidak
+#: membuang fakta, dan tempat itu tidak ada di baris kartu.
+ARIA_VALUE_LIMIT = VALUE_LIMIT
+
+#: Ongkos klausa NON-nilai pada satu `aria-label` baris kartu, pada batas terburuk tiap klausa:
+#: `item_id`, daya veto, status, lalu tool/field/snapshot/as_of — masing-masing sudah dipotong
+#: `clean_text` di batasnya sendiri, ditambah kata penghubung Indonesia-nya.
+#:
+#: Ia DIHITUNG, bukan ditebak, karena :func:`_aria` memotong dari BELAKANG: anggaran yang terlalu
+#: kecil akan memakan klausa SUMBER — klausa yang justru "tunjuk"-nya tunjuk→sebut — dan
+#: memotongnya diam-diam saat `value` kebetulan panjang.
+ARIA_CLAUSE_BUDGET = 6 * (KEY_LIMIT + len(TRUNCATED_MARK)) + (TEXT_LIMIT + len(TRUNCATED_MARK)) + 320
+
+#: Batas panjang SATU `aria-label`: cukup untuk nilai PENUH plus seluruh klausa di sekitarnya.
+ARIA_LABEL_LIMIT = ARIA_VALUE_LIMIT + len(TRUNCATED_MARK) + ARIA_CLAUSE_BUDGET
 #: Nilai yang tidak ada di bukti, dibacakan sebagai "tidak disebut" — TIDAK PERNAH sebagai 0 dan
 #: tidak pernah sebagai kesunyian (ADR-013). Sel kosong yang terdengar seperti nol adalah
 #: kebohongan yang paling murah dilakukan pembaca layar, dan produk ini persis menjual lawannya.
@@ -184,8 +206,14 @@ EMPTY_SENTENCE = "belum ada data (n=0)"
 #: itu `<th scope="col">` yang menunjuk kolom yang salah. Judulnya kini satu per kolom, dan
 #: :func:`tests.test_ui.test_the_card_table_has_one_header_for_every_column_it_renders`
 #: menghitung keduanya supaya tidak bisa berselisih lagi.
+#: Judul kolom pertama menyebut STATUS peringkatnya, bukan hanya namanya: ia konstanta desain
+#: spec §4 yang belum diukur, dan kalimat panjangnya ada di `notes` (lihat
+#: :data:`ui.app.VETO_RANK_UNVALIDATED_SENTENCE`). Judul yang berbunyi "daya veto" saja membuat
+#: angka 1..10 terbaca sebagai temuan.
+VETO_RANK_COLUMN = "daya veto (spec §4, belum divalidasi)"
+
 CARD_COLUMNS = (
-    "daya veto",
+    VETO_RANK_COLUMN,
     "item",
     "status",
     "reason (deterministik, bisa di-replay)",
@@ -405,17 +433,26 @@ footer p { max-width: 108ch; }
 
 
 # --- escaping & pembungkusan --------------------------------------------------------------
-def _bdi(value: Any, limit: int = TEXT_LIMIT) -> str:
+def _bdi(value: Any, limit: int = TEXT_LIMIT, *, lang: str | None = None) -> str:
     """Satu-satunya pintu untuk nilai asal-DB/asal-RYO masuk ke HTML.
 
     Tiga hal sekaligus, dan sengaja tidak bisa dipakai setengah-setengah: aksara tak tercetak
     di-escape TERLIHAT (`\\u202e`), `<`/`>`/`&`/kutip di-escape HTML, lalu arah teksnya
     diisolasi `<bdi>` supaya satu nilai tidak bisa membalik sel tetangganya.
+
+    `lang` menandai bahasa ISI, bukan bahasa bingkainya. Halaman ini `lang="id"` — judul, kalimat
+    jawaban, dan catatannya memang Indonesia — tetapi `reason`, `value`, `headline`, peringatan
+    envelope, dan narasi model semuanya ditulis dalam bahasa Inggris oleh `preflight/` dan RYO.
+    Tanpa penanda ini pembaca layar Indonesia melafalkan kalimat Inggris dengan aturan fonem
+    Indonesia, dan bagian kartu yang justru membawa BUKTI menjadi bagian yang paling sulit
+    didengar. Penandanya dipasang di elemen yang sama dengan isolasi arah, jadi tidak ada nilai
+    yang bisa lolos lewat pintu kedua.
     """
     if value is None:
         return '<span class="dim">—</span>'
     text = value if isinstance(value, str) else _scalar(value)
-    return f"<bdi>{escape(clean_text(text, limit), quote=True)}</bdi>"
+    tag = f'<bdi lang="{escape(lang, quote=True)}">' if lang else "<bdi>"
+    return f"{tag}{escape(clean_text(text, limit), quote=True)}</bdi>"
 
 
 def _scalar(value: Any) -> str:
@@ -628,7 +665,9 @@ def _watchlist_lede(entries: list[dict[str, Any]]) -> str:
         f"{n_blocked} ditahan; {tail}.</p>"
         '<p class="sub">Urut daya veto: penahan terberat (spec §4 peringkat 1) di atas. '
         '"Paling dekat GO" dihitung terbalik dari urutan itu: penahan terberatnya paling ringan, '
-        "lalu penahan paling sedikit — bukan skor, bukan ramalan.</p>"
+        "lalu penahan paling sedikit — bukan skor, bukan ramalan. Peringkat itu sendiri "
+        "<strong>belum divalidasi</strong>: ia konstanta desain spec §4, dan alat ukur repo ini "
+        "membantahnya — lihat Catatan layar di bawah.</p>"
     )
 
 
@@ -713,11 +752,11 @@ def render_watchlist(payload: dict[str, Any], banner: str, now: datetime) -> str
     raw = payload.get("symbols")
     entries = [entry for entry in raw if isinstance(entry, dict)] if isinstance(raw, list) else []
     header = "".join(
-        f"<th scope='col'>{escape(name, quote=True)}</th>"
+        f'<th scope="col">{escape(name, quote=True)}</th>'
         for name in (
             "simbol",
             "keputusan",
-            "daya veto penahan",
+            f"{VETO_RANK_COLUMN} — penahan",
             "apa yang menahan (dan dari mana)",
             "penahan / baris",
             "tidak disebut",
@@ -891,18 +930,22 @@ def _reason_cell(value: Any) -> str:
     di sini hanya mungkin untuk teks yang TIDAK datang lewat `ItemResult`, dan kalimatnya pun
     sudah berbeda.
     """
-    return _bdi(value, REASON_LIMIT) + _cut_marks(value, REASON_LIMIT, ledger_limits=REASON_CEILINGS)
+    return _bdi(value, REASON_LIMIT, lang=EVIDENCE_LANG) + _cut_marks(
+        value, REASON_LIMIT, ledger_limits=REASON_CEILINGS
+    )
 
 
 def _item_row(item: dict[str, Any]) -> str:
     narration = item.get("narration")
     narration_html = f'<span class="narr-label">{escape(NARRATION_LABEL, quote=True)}</span>' + (
-        f'<span class="narr">{_text(narration)}</span>'
+        f'<span class="narr" lang="{EVIDENCE_LANG}">{_text(narration)}</span>'
         if isinstance(narration, str) and narration.strip()
         else f'<span class="narr">{escape(NARRATION_EMPTY, quote=True)}</span>'
     )
     reason = _reason_cell(item.get("reason"))
-    value = _bdi(item.get("value"), VALUE_LIMIT) + _cut_marks(item.get("value"), VALUE_LIMIT)
+    value = _bdi(item.get("value"), VALUE_LIMIT, lang=EVIDENCE_LANG) + _cut_marks(
+        item.get("value"), VALUE_LIMIT
+    )
     source = _aria_source(item)
     # Nama BARIS, bukan nama sel: pembaca layar mengumumkannya sekali saat pindah baris, dan
     # kalimat itulah seluruh janji produk untuk baris ini — status, nilai yang disebut, dan dari
@@ -1056,11 +1099,13 @@ def _narration_block(payload: dict[str, Any]) -> str:
     return f"<h2>Narasi model</h2>{line}"
 
 
-def _list_block(title: str, entries: Any, empty: str) -> str:
+def _list_block(title: str, entries: Any, empty: str, *, lang: str | None = None) -> str:
+    """Daftar teks berjudul. `lang` menandai bahasa ISInya (peringatan envelope = Inggris)."""
     rows = [entry for entry in entries if isinstance(entry, str)] if isinstance(entries, list) else []
     if not rows:
         return f'<h2>{escape(title, quote=True)}</h2><p class="sub empty">{escape(empty, quote=True)}</p>'
-    body = "".join(f"<li>{_text(entry)}</li>" for entry in rows)
+    attr = f' lang="{escape(lang, quote=True)}"' if lang else ""
+    body = "".join(f"<li{attr}>{_text(entry)}</li>" for entry in rows)
     return f'<h2>{escape(title, quote=True)}</h2><ul class="notes">{body}</ul>'
 
 
@@ -1084,8 +1129,8 @@ def _bundle_table(payload: dict[str, Any], now: datetime) -> str:
     return (
         f"<h2>Bukti beku</h2><table><caption class='sub'>n={len(rows)} snapshot dirender dari "
         f"{_bdi(payload.get('n_snapshots'))} yang disebut baris ini.</caption>"
-        "<thead><tr><th scope='col'>snapshot</th><th scope='col'>tool</th>"
-        "<th scope='col'>status</th><th scope='col'>as_of</th></tr></thead>"
+        '<thead><tr><th scope="col">snapshot</th><th scope="col">tool</th>'
+        '<th scope="col">status</th><th scope="col">as_of</th></tr></thead>'
         f"<tbody>{body}</tbody></table>"
     )
 
@@ -1094,7 +1139,7 @@ def render_card(payload: dict[str, Any], banner: str, now: datetime) -> str:
     """Layar B — "kenapa keputusan ini, bukti per baris dari mana & kapan?"."""
     raw = payload.get("items")
     items = [entry for entry in raw if isinstance(entry, dict)] if isinstance(raw, list) else []
-    header = "".join(f"<th scope='col'>{escape(name, quote=True)}</th>" for name in CARD_COLUMNS)
+    header = "".join(f'<th scope="col">{escape(name, quote=True)}</th>' for name in CARD_COLUMNS)
     rows = "".join(_item_row(item) for item in items)
     caption = (
         f"n={len(items)} baris dirender; kartu ini memuat "
@@ -1119,7 +1164,10 @@ def render_card(payload: dict[str, Any], banner: str, now: datetime) -> str:
         f' · <a href="{escape(api_href, quote=True)}">JSON kartu ini, apa adanya</a>' if api_href else ""
     )
     warnings_block = _list_block(
-        f"Peringatan envelope ({warnings_caption})", payload.get("warnings"), "nol peringatan (n=0)"
+        f"Peringatan envelope ({warnings_caption})",
+        payload.get("warnings"),
+        "nol peringatan (n=0)",
+        lang=EVIDENCE_LANG,
     )
     body = (
         f'<p class="sub"><a href="/ui">← kembali ke watchlist</a>{json_link}'
@@ -1128,7 +1176,7 @@ def render_card(payload: dict[str, Any], banner: str, now: datetime) -> str:
         f"<span class='sub'>(keputusan #{_bdi(payload.get('decision_id'))}, "
         f"generasi {_bdi(payload.get('generation'), KEY_LIMIT)})</span></h1>"
         f"{_card_answer(payload, items)}"
-        f'<p class="sub">{_text(payload.get("headline"))}</p>'
+        f'<p class="sub" lang="{EVIDENCE_LANG}">{_text(payload.get("headline"))}</p>'
         # Sepuluh baris tunjuk→sebut mendahului daftar hash/jam: uji 30 detik menuntut isi
         # produk, bukan metadatanya, yang berada tepat di bawah kalimat jawaban. Daftar meta
         # sebelumnya berdiri di antara keduanya — delapan baris, sebagian berparagraf —

@@ -166,6 +166,33 @@ angkanya sekarang dipatok tes — bukan mata.
 
 ---
 
+## Kolom "daya veto" adalah klaim, dan kedua layar mengatakannya
+
+Angka 1..10 di samping tiap penahan adalah `preflight.params.ITEM_ORDER` — **urutan spec §4,
+sebuah konstanta desain**, bukan hasil ukur. Sampai 6 Sep 2026 tidak ada satu baris pun di layar
+yang mengakuinya, jadi kolom itu terbaca sebagai temuan; juri fase 5 memotong nilai di dua
+kategori karenanya. Yang membuatnya bukan sekadar "belum diukur" melainkan **dibantah** adalah
+alat ukur repo ini sendiri: `preflight/veto_table.py` mencatat `01_freshness` (peringkat 1) nol
+kali merah, sementara `06_confluence` (peringkat 6) merah puluhan kali.
+
+Yang dilakukan layar: judul kolomnya berbunyi `daya veto (spec §4, belum divalidasi)` di **kedua**
+layar, dan satu kalimat penuh (`ui.app.VETO_RANK_UNVALIDATED_SENTENCE`) berdiri di Catatan layar
+A **dan** B, menyebut asal urutannya, status validasinya, alat yang membantahnya, dan perintah
+yang mencetak angkanya.
+
+Yang **tidak** dilakukan: mengubah urutannya. `ITEM_ORDER` milik `preflight/`; layar yang
+mengarang urutan sendiri akan memajang peringkat yang bukan peringkat yang dipakai agen saat
+memutuskan — kartu yang berhenti menjelaskan keputusannya sendiri.
+
+Layar A juga memuat satu baris tentang `make grade` (`ui.app.GRADE_UNPROVEN_SENTENCE`): veto ini
+belum terbukti menyelamatkan apa pun, beberapa justru menahan plan yang kemudian menyentuh
+target, dan `n` efektifnya di bawah ambang spec §6 sehingga nol selang kepercayaan dicetak.
+Kalimat itu **kualitatif dan menyebut perintahnya**, bukan angka: ADR-003 melarang `ui/`
+mengimpor `grading/` (dijaga `test_decision_path_never_imports_grading`), dan menyalin `k`/`n`
+sebagai literal hanya akan membekukan laporan yang esok sudah berubah.
+
+---
+
 ## Batas yang belum tertutup (jangan dibaca sebagai selesai)
 
 - **Rekaman 30 detik BELUM DIBUAT.** Ia artefak manusia: tidak ada agen di repo ini yang bisa
@@ -178,9 +205,18 @@ angkanya sekarang dipatok tes — bukan mata.
 - **Nol audit kontras otomatis pihak ketiga.** ADR-001 melarang toolchain npm, jadi rasio di
   atas dihitung sendiri dari rumus WCAG 2.1 di dalam tes. Rumusnya standar; alatnya bukan alat
   bersertifikat.
-- **`aria-label` baris kartu dipotong pada 600 aksara** (`ARIA_LABEL_LIMIT`) dan nilainya pada
-  200 (`ARIA_VALUE_LIMIT`). Bila menggigit, penanda `...(truncated)` ikut TERDENGAR, dan bentuk
-  penuhnya tetap ada di sel yang sama. Baris terpanjang pada data hari ini: 412 aksara.
+- ~~**`aria-label` baris kartu dipotong pada 600 aksara**~~ — **ditutup 6 Sep 2026.**
+  `ARIA_VALUE_LIMIT` kini **sama dengan** `VALUE_LIMIT` (batas sel yang dilihat mata) dan
+  `ARIA_LABEL_LIMIT` dihitung dari situ plus anggaran klausa lainnya, jadi pemakai pembaca layar
+  tidak lagi menerima lebih sedikit bukti daripada pemakai awas. Alasan lamanya ("batas
+  kesabaran") menyelesaikan kesabaran dengan membuang fakta; di kartu ini tidak ada tempat yang
+  bisa dipotong tanpa membuang fakta.
+- **Bahasa: bingkai Indonesia, bukti Inggris.** Halaman tetap `<html lang="id">` — judul, kalimat
+  jawaban, judul kolom, dan Catatan layar memang Indonesia — sementara `reason`, `value`,
+  `headline`, peringatan envelope, dan narasi model ditulis Inggris oleh `preflight/` dan RYO.
+  Yang dilakukan: menandai span-nya `lang="en"` (`EVIDENCE_LANG`). Yang **tidak** dilakukan:
+  memindahkan bingkainya ke Inggris. Itu keputusan produk (bahasa juri RYO), bukan keputusan
+  layar, dan masih terbuka.
 - **Belum diuji dengan zoom 200%** maupun `prefers-contrast`/`forced-colors`.
 
 ---
