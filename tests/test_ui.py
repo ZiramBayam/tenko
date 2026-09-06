@@ -2586,7 +2586,7 @@ def test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed(clie
     css = client.get("/ui/tenko.css").text
     palette = dict(re.findall(r"--([a-z]+): (#[0-9a-f]{6})", css))
     assert palette.keys() >= {"bg", "panel", "line", "ink", "dim", "go", "nogo", "warn", "link"}
-    even, banner_bg, banner_ink = "#11151d", "#3a1d1d", "#ffe8e5"
+    even, banner_bg, banner_ink = "#0c1523", "#4a0f14", "#ffe3e0"
     backgrounds = (palette["bg"], palette["panel"], even)
     text_pairs = [
         (palette[name], background)
@@ -2601,9 +2601,9 @@ def test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed(clie
     for front, back in non_text_pairs:
         assert contrast_ratio(front, back) >= 3.0, f"non-teks {front} di atas {back}"
     # Angka yang ditulis `ui/README.md` adalah angka yang sama, bukan angka lama:
-    assert round(contrast_ratio(palette["nogo"], palette["panel"]), 2) == 8.45  # teks paling ketat
-    assert round(contrast_ratio(palette["line"], palette["panel"]), 2) == 3.38  # garis paling ketat
-    assert round(contrast_ratio(palette["warn"], palette["bg"]), 2) == 13.55  # cincin fokus
+    assert round(contrast_ratio(palette["nogo"], palette["panel"]), 2) == 4.53  # teks paling ketat
+    assert round(contrast_ratio(palette["line"], palette["panel"]), 2) == 3.48  # garis paling ketat
+    assert round(contrast_ratio(palette["warn"], palette["bg"]), 2) == 8.53  # cincin fokus
     measured = {colour for pair in text_pairs + non_text_pairs for colour in pair}
     assert set(re.findall(r"#[0-9a-f]{6}", css)) == measured
 
@@ -2620,8 +2620,11 @@ def test_the_ui_readme_carries_the_a11y_checklist_and_admits_the_missing_recordi
         "Isi yang berubah diumumkan",  # ADR-020: konten dinamis wajib `aria-live`
         "Nilai yang tidak ada adalah KATA, bukan tanda hubung",
         "Tanpa hover-only",
-        "8.45:1",
-        "3.38:1",
+        # Angka palet jalur JR (ADR-023), bukan palet abu-abu 4.6. Keduanya adalah pasangan
+        # TERSEMPIT di masing-masing kategori, jadi tes ini merah begitu klaim README
+        # tertinggal di belakang palet yang benar-benar dilayani.
+        "4.53:1",
+        "3.48:1",
     ):
         assert claim in readme, claim
     assert "- [ ] **Rekaman 30 detik**" in readme  # belum dicentang, dan itu memang jujur
@@ -2638,27 +2641,48 @@ def test_the_ui_readme_carries_the_a11y_checklist_and_admits_the_missing_recordi
 #: pasangannya menjadi angka lain yang kebetulan juga lulus. `--line` khususnya: ia baru saja
 #: dinaikkan dari #2c3442 (1.52:1, GAGAL 1.4.11) dan tidak boleh diredupkan kembali demi rasa.
 MEASURED_PALETTE = {
-    "bg": "#0d1016",
-    "panel": "#161b24",
-    "line": "#646e84",
-    "ink": "#f3f5f9",
-    "dim": "#c3cad6",
-    "go": "#7ff0a0",
-    "nogo": "#ff9a90",
-    "warn": "#ffd479",
-    "link": "#9fd0ff",
-    "row": "#11151d",
+    # Palet jalur JR (ADR-023). Empat warna status adalah warna jalur kereta Jepang yang
+    # sebenarnya; latarnya navy papan penunjuk stasiun. Setiap pasangan diukur di
+    # `test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`.
+    "bg": "#0a1220",
+    "panel": "#0f1829",
+    "line": "#5d6f8c",
+    "ink": "#f3f7fc",
+    "dim": "#b8c7dc",
+    "go": "#9acd32",  # Yamanote
+    "nogo": "#f62e36",  # Marunouchi
+    "warn": "#ff9500",  # Ginza
+    "link": "#00bfff",  # Keihin-Tohoku
+    "row": "#0c1523",
 }
 
 
-def test_the_restyle_did_not_move_a_single_measured_colour(client: TestClient) -> None:
-    """Tipografi, spasi, dan bentuk boleh berubah; dua belas warna yang diukur 4.6 tidak."""
+def test_the_palette_is_the_measured_jr_line_palette_and_nothing_else(client: TestClient) -> None:
+    """ADR-023: paletnya BERGERAK, sekali, dengan sengaja — dan tidak boleh menyimpang lagi.
+
+    Tes ini menggantikan `test_the_restyle_did_not_move_a_single_measured_colour`, yang menuntut
+    dua belas warna 4.6 tidak berubah. Tuntutan itu benar selama paletnya abu-abu netral;
+    ADR-023 menggantinya dengan warna jalur kereta Jepang yang sebenarnya, dan seluruh dua belas
+    pasangan diukur ULANG (bukan diasumsikan) di
+    `test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`.
+
+    Yang dijaga di sini adalah ASAL-USULNYA, bukan sekadar nilainya: keempat warna status harus
+    tetap warna jalur yang dinamai ADR-023. Warna status yang digeser "sedikit supaya lebih
+    enak dilihat" adalah cara paling pelan sebuah keputusan desain kehilangan alasannya, dan
+    dua di antaranya (nogo, line) hanya berjarak 0.03 dan 0.48 dari batas WCAG-nya.
+    """
     css = client.get("/ui/tenko.css").text
-    assert dict(re.findall(r"--([a-z]+): (#[0-9a-f]{6})", css)) == MEASURED_PALETTE
+    palette = dict(re.findall(r"--([a-z]+): (#[0-9a-f]{6})", css))
+    assert palette == MEASURED_PALETTE
+    # Warna jalur, dengan namanya. Angka telanjang di sini akan kehilangan alasannya.
+    assert palette["go"] == "#9acd32", "Yamanote (JNR Yellow Green No.6)"
+    assert palette["nogo"] == "#f62e36", "Marunouchi"
+    assert palette["warn"] == "#ff9500", "Ginza"
+    assert palette["link"] == "#00bfff", "Keihin-Tohoku"
     assert "#2c3442" not in css  # garis redup yang GAGAL 1.4.11, dan tidak boleh kembali
     assert set(re.findall(r"#[0-9a-f]{6}", css)) == set(MEASURED_PALETTE.values()) | {
-        "#3a1d1d",
-        "#ffe8e5",
+        "#4a0f14",
+        "#ffe3e0",
     }
 
 
@@ -3525,7 +3549,7 @@ def test_one_css_naming_rule_serves_both_renderers() -> None:
 #: Cara memperbaruinya: `make frontend` mencetak hash barunya. Menggantinya adalah perbuatan
 #: yang TERLIHAT di diff — dan itulah seluruh gunanya.
 BUNDLE_SHA256 = "a4e51736b3f9ef70cf13bc9270398b94dcfff67573fbff4a7eacc6b025a36a67"
-STYLESHEET_SHA256 = "55acd8c0f1f8540d7ba9772d41d16afe3ba5b0797f6bec5fdddfb2411df2f07a"
+STYLESHEET_SHA256 = "324c6366d2fe776a128b5ce0a36c0c6699307157cab9a4c282dfcea43ab9f09b"
 
 
 def test_the_shipped_bundle_is_pinned_byte_for_byte() -> None:

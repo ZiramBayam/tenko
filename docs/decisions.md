@@ -477,3 +477,47 @@ mengubah satu byte pun yang dirender hari ini.
 Risiko yang diterima sadar: permukaan serang bertambah tiga jenis sumber daya. Yang mengecilkannya adalah
 `'self'` — penyerang harus lebih dulu bisa menaruh berkas di `ui/static/`, dan siapa pun yang bisa melakukan itu
 sudah bisa mengganti `app.js`.
+
+## ADR-023 (DITERIMA 7 Sep 2026) Palet = warna jalur kereta Jepang; susunan landing = anatomi awwwards
+Konteks: pemilik repo menilai landing ADR-021 "jelek banget" dua kali, dan meminta (7 Sep 2026) dua hal terpisah:
+skema warna seperti stasiun/shinkansen Jepang alih-alih abu-abu gelap, dan susunan yang dicari dari awwwards serta
+dribbble. Keberatan yang tetap berlaku dan diterima sebagai risiko: deadline 8 Sep, rubric spec §8 tidak memberi
+satu poin pun untuk landing, dan TASKS 4.6 (Works for everyone 10) serta 5.0 (bekukan params, prasyarat video)
+masih terbuka. Ini keputusan pemilik repo sesudah membaca itu.
+
+Keputusan:
+1. **Empat warna status menjadi warna jalur kereta Jepang yang SEBENARNYA**, bukan warna "yang terasa Jepang".
+   Sumber: Wikipedia `Template:Ja-rail-color` (dibaca 7 Sep 2026). Masing-masing kebetulan memetakan persis ke
+   makna yang sudah dipakai layar ini, jadi tidak ada makna yang dipaksa:
+   `--go` **#9acd32** Yamanote (JNR Yellow Green No.6, ウグイス色) · `--nogo` **#f62e36** Marunouchi ·
+   `--warn` **#ff9500** Ginza · `--link` **#00bfff** Keihin-Tōhoku.
+2. **Latar menjadi navy papan penunjuk stasiun** (`--bg` #0a1220, `--panel` #0f1829, `--row` #0c1523), bukan
+   abu-abu netral. Ini yang mengubah kesan dari "dark fintech" menjadi "papan stasiun"; warna jalur di atas
+   navy adalah kombinasi yang dilihat orang di peron, bukan yang dikarang di sini.
+3. **Seluruh dua belas pasangan DIUKUR ULANG, bukan diasumsikan.** Batas tidak diturunkan sedikit pun: teks
+   ≥4.5:1, non-teks ≥3:1. Yang paling ketat sekarang **#f62e36 di atas #0f1829 = 4.53:1** — 0.03 di atas batas.
+   Itu margin paling tipis di repo ini dan disebut apa adanya di `ui/README.md`, `frontend/styles/app.css`, dan
+   tesnya. **Konsekuensi operasional: `--panel` tidak boleh diterangkan tanpa menghitung ulang.**
+4. **Palet ini menggantikan palet 4.6 di SELURUH layar, bukan hanya landing.** Dua palet dalam satu produk adalah
+   produk yang terlihat belum selesai, dan Layar A/B justru yang paling diuntungkan: papan keberangkatan dengan
+   warna jalur adalah bahasa yang sama dengan isinya.
+5. **Susunan landing mengikuti anatomi landing pemenang awwwards**: hero (ruang paling mahal, di atas lipatan) →
+   PRODUK → bukti → detail. Yang diambil bukan efeknya melainkan tiga keputusan bentuk: skala berani (judul
+   clamp(44px, 8vw, 92px), tracking −.035em, angka bukti setinggi judul), **garis bukan kotak** (panel berbingkai
+   di mana-mana adalah bahasa admin template), dan label mono kecil ber-tracking lebar sebagai penanda teknis —
+   yang kebetulan juga persis cara papan stasiun menamai kolomnya. TIDAK diambil: animasi gulir, rotasi bahasa,
+   dan aset apa pun.
+6. **Warna tetap tidak pernah membawa informasi sendirian.** Status di papan memakai warna jalurnya DAN tetap
+   mencetak teksnya (`GO`/`NO_GO`), jadi papan terbaca utuh hitam-putih dan oleh pembaca layar. Jaminan 4.6 tidak
+   turun satu pun.
+
+Konsekuensi: `frontend/styles/app.css` (palet + blok landing ditulis ulang) · `ui/screens.py` (urutan bagian,
+`<colgroup>` papan) · `tests/test_ui.py` (`MEASURED_PALETTE` + tiga angka yang dipatok diperbarui;
+`test_the_restyle_did_not_move_a_single_measured_colour` DIGANTI oleh
+`test_the_palette_is_the_measured_jr_line_palette_and_nothing_else`, yang kini menjaga ASAL-USUL tiap warna
+status, bukan hanya nilainya) · `ui/README.md` (tabel kontras dihitung ulang seluruhnya, bukan disunting tangan) ·
+`README.md` (tiga angka). Nol dependency baru, nol aset baru, CSP tidak disentuh.
+
+Catatan yang sengaja TIDAK dilakukan: `docs/judge-reports/fase-5.md` tetap menyebut angka lama. Itu catatan
+sejarah tentang UI yang dinilai saat itu; menyuntingnya akan membuat laporan juri berbohong tentang apa yang
+benar-benar dilihatnya.
