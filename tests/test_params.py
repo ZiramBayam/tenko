@@ -15,6 +15,7 @@ import json
 import re
 import sqlite3
 from pathlib import Path
+from typing import get_args, get_type_hints
 from urllib.parse import quote
 
 import pytest
@@ -268,6 +269,76 @@ def test_editing_only_the_provenance_prose_still_moves_the_hash() -> None:
     others = tuple(v for v in P.VOCABULARIES if v.field != edited.field)
     moved = P.DEFAULT_PARAMS.with_overrides(vocabularies=(edited, *others))
     assert moved.params_hash() != CURRENT_PARAMS_HASH
+
+
+def test_adr_017_is_a_decision_not_a_proposal() -> None:
+    """TASKS 2.1c AC(1): ADR-017 DITERIMA 6 Sep 2026; kata "USULAN" tidak boleh tersisa.
+
+    Selama ADR ini USULAN, kartu GO kami hijau atas alasan yang belum diputuskan siapa pun.
+    Tes ini membaca dokumennya, bukan mengandalkan ingatan.
+    """
+    text = (ROOT / "docs" / "decisions.md").read_text(encoding="utf-8")
+    sections = [line for line in text.splitlines() if line.startswith("## ADR-017")]
+    assert len(sections) == 1, sections
+    assert "DITERIMA" in sections[0] and "USULAN" not in sections[0]
+    start = text.index(sections[0])
+    end = text.index("\n## ADR-018", start)
+    body = text[start:end]
+    assert "USULAN" not in body
+    assert "**Status: DITERIMA**" in body
+
+
+def _neutral_knob_comment() -> str:
+    """Blok komentar `#:` tepat di atas `neutral_stance_status` — docstring atribut itu."""
+    lines = (ROOT / "preflight" / "params.py").read_text(encoding="utf-8").splitlines()
+    idx = next(i for i, line in enumerate(lines) if line.strip().startswith("neutral_stance_status:"))
+    block: list[str] = []
+    for line in reversed(lines[:idx]):
+        if not line.strip().startswith("#:"):
+            break
+        block.append(line)
+    return "\n".join(reversed(block))
+
+
+def test_the_neutral_knob_is_justified_by_adr_017_and_not_by_reading_spec_word_for_word() -> None:
+    """TASKS 2.1c AC(2): docstringnya menyebut ADR-017 dan berhenti memakai alasan lemahnya.
+
+    Alasan lama ("bacaan harfiah kolom Merah" spec §4) tidak bisa dipertahankan: spec §4
+    TIDAK menuliskan keadaan ketiga sama sekali, jadi tidak ada kalimat yang bisa dibaca
+    harfiah untuknya. Yang menanggung default `green` sekarang adalah ADR-017.
+    """
+    comment = _neutral_knob_comment()
+    assert "ADR-017" in comment
+    assert "DITERIMA" in comment and "USULAN" not in comment
+    assert "harfiah" not in comment
+
+
+def test_the_neutral_knob_keeps_both_settings_so_adr_017_stays_revocable() -> None:
+    """TASKS 2.1c AC(3): knob TIDAK dihapus — `red` tetap dapat dipilih dan tetap material."""
+    source = (ROOT / "preflight" / "params.py").read_text(encoding="utf-8")
+    assert 'neutral_stance_status: Literal["green", "red"] = "green"' in source
+    hints = get_type_hints(Params, include_extras=True)
+    assert set(get_args(hints["neutral_stance_status"])) == {"green", "red"}
+    assert DEFAULT_PARAMS.neutral_stance_status == "green"
+    flipped = DEFAULT_PARAMS.with_overrides(neutral_stance_status="red")
+    assert flipped.params_hash() != CURRENT_PARAMS_HASH
+
+
+def test_deciding_adr_017_did_not_move_the_frozen_params_hash() -> None:
+    """TASKS 2.1c AC(3) berdiri di atas asumsi yang keliru, dan itu ditulis apa adanya.
+
+    AC menuntut `params_hash` "berubah tepat sekali" saat ADR-017 diputuskan. Materi hash
+    adalah :meth:`Params.as_dict` — NILAI, bukan prosa komentar (lihat `as_dict`, yang tidak
+    membaca satu docstring pun). 2.1c hanya mengganti alasan tertulis, bukan nilai `green`
+    yang sudah dipakai sejak 2 Sep, jadi hash tidak bergeser — dan itulah hasil yang benar:
+    tidak ada baris `decisions` yang menjadi `STALE_PARAMS` karena sebuah kalimat disunting.
+    Yang menggeser hash adalah MENGUBAH knobnya (tes di atas), dan itu belum terjadi.
+    """
+    assert (
+        DEFAULT_PARAMS.params_hash()
+        == CURRENT_PARAMS_HASH
+        == "3d39fb1bd1a03b7f5269f53fec347d34645d2b402ff1c2de47e53f19d69616b7"
+    )
 
 
 def test_no_table_row_exists_without_an_observation_count() -> None:

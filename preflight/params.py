@@ -487,7 +487,7 @@ class Params:
     #: strukturalnya di item 10: terakhir di momentum tetapi tidak di market_activity).
     #: Keadaan ini justru mayoritas di data nyata (regime `neutral` 13/19; `verdict.call`
     #: `neutral` 144/294) dan tidak punya baris di spec §4.
-    #: Default `green` — **ADR-017 (USULAN 2 Sep 2026)**, tiga alasannya:
+    #: Default `green` — **ADR-017 (DITERIMA 6 Sep 2026, diusulkan 2 Sep)**, tiga alasannya:
     #: 1. Tiap field RYO SUDAH punya kosakata keberatannya sendiri, teramati terpisah
     #:    (`caution — overbought` 118× · `avoid` 5× · `cautious` 15×). Memetakan `neutral`
     #:    menjadi merah = mengarang keberatan yang sumbernya menolak menyatakan — satu
@@ -502,7 +502,12 @@ class Params:
     #: (TASKS 2.1b) — item yang tidak pernah merah disebut apa adanya, bukan dibuat bergigi
     #: dengan menaikkan ambang. Knob ini seragam untuk semua item (tidak ada nilai per item
     #: tanpa bukti yang membedakannya) dan ikut ke `params_hash`; ganti di sini, bukan di
-    #: items.py. Status ADR-017 masih USULAN (TASKS 2.1c, keputusan manusia).
+    #: items.py. Yang membenarkan default ini adalah ADR-017 (`docs/decisions.md`), bukan sebuah
+    #: pembacaan kata-per-kata spec §4: spec tidak menuliskan keadaan ketiga sama sekali, jadi
+    #: tidak ada kalimat spec yang bisa dikutip untuknya. Knob `red` sengaja dipertahankan
+    #: (ADR-017 dapat dicabut dengan satu nilai bila RYO menerbitkan enum resmi); mengubahnya
+    #: MENGGESER `params_hash` yang dibekukan TASKS 5.0 dan membuat baris `decisions` lama
+    #: dilaporkan `STALE_PARAMS` — itu perilaku yang benar, bukan bug.
     neutral_stance_status: Literal["green", "red"] = "green"
     #: Item yang TIDAK memveto saat `unspoken` (spec §4: item 8 derivatif; item 11 Bunryō
     #: belum dibangun). Item wajib yang `unspoken` masuk `blocking`.

@@ -204,7 +204,15 @@ sekarang. Memindahkan urutan cabangnya tidak menolong — ia menjadi tak terjang
 (diuji, bukan disimpulkan). Melonggarkan syaratnya menjadi `not frozen_ids` saja akan membuka kembali
 temuan SEDANG-1 security-reviewer 4 Sep, jadi syarat itu dipertahankan.
 
-## ADR-017 (USULAN 2 Sep 2026) Keadaan ketiga spec §4: `neutral` = hijau tanpa konfirmasi
+## ADR-017 (DITERIMA 6 Sep 2026; diusulkan 2 Sep 2026) Keadaan ketiga spec §4: `neutral` = hijau tanpa konfirmasi
+**Status: DITERIMA** oleh pemilik repo 6 Sep 2026 (TASKS 2.1c). Kode 2.1 sudah menerapkannya sejak
+2 Sep; yang berubah hari ini adalah ALASANNYA: `Params.neutral_stance_status` kini merujuk ADR ini,
+bukan lagi "bacaan harfiah kolom Merah" spec §4. Nilai default (`green`) tidak berubah, jadi
+`params_hash` TIDAK bergeser dan tidak ada baris `decisions` yang menjadi `STALE_PARAMS`.
+Knob `Literal["green", "red"]` sengaja DIPERTAHANKAN: bila RYO menerbitkan enum resmi yang
+menyatakan `neutral` bermakna bearish, ADR ini dicabut dengan mengubah satu nilai, dan pergeseran
+`params_hash` yang menyertainya justru yang membuat keputusan lama tetap jujur di-replay.
+
 Konteks: spec §4 hanya punya kolom Hijau ("searah plan") dan Merah ("berlawanan"). Data nyata
 (`data/ryo.db`, 756 baris, dibaca `mode=ro`, 2 Sep 2026) justru DIDOMINASI keadaan ketiga:
 `market_overview.data.regime` `neutral` 13/19 (68%) · `deep_analysis.data.verdict.call` `neutral`
