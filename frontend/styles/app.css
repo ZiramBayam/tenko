@@ -73,10 +73,20 @@
   /* Font SISTEM saja — nol webfont dan nol permintaan ke luar. Prosa memakai sans (kalimat
      yang harus terbaca dalam 30 detik), sedangkan angka, hash, id, dan nilai asal-RYO tetap
      monospace supaya kolomnya sejajar dan aksara yang mirip tidak tertukar. */
-  --sans: "IBM Plex Sans Vendored", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "DejaVu Sans", Arial, sans-serif;
-  --mono: "IBM Plex Mono Vendored", ui-monospace, SFMono-Regular, "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace;
+  --sans: "IBM Plex Sans Vendored", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "DejaVu Sans", Arial,
+    /* CJK: Plex tidak punya glif Jepang, dan tanpa baris ini 点呼 jadi kotak tofu di mesin
+       juri. Semuanya font SISTEM — nol aset baru, nol baris DISCLOSURE. */
+    "Noto Sans CJK JP", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+  --mono: "IBM Plex Mono Vendored", ui-monospace, SFMono-Regular, "DejaVu Sans Mono", "Liberation Mono", Consolas,
+    "Noto Sans CJK JP", "Noto Sans Mono CJK JP", "Yu Gothic", Meiryo, monospace;
 }
 * { box-sizing: border-box; }
+/* `[hidden]` bawaan browser adalah aturan UA ber-spesifisitas rendah; `.controls { display:flex }`
+   mengalahkannya, sehingga bar kontrol TETAP TERLIHAT di layar yang menyembunyikannya. Akibatnya
+   kartu memamerkan saringan/sakelar auto-refresh sambil kalimatnya sendiri berkata ia tidak
+   punya ketiganya — halaman yang membantah dirinya sendiri di depan juri ("Easy to read 25").
+   Satu aturan ini menutup seluruh kelasnya, bukan hanya `.controls`. */
+[hidden] { display: none !important; }
 html { background: var(--bg); }
 body {
   margin: 0 auto; max-width: 1240px; padding: 0 var(--s4) var(--s6);
@@ -267,145 +277,115 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .live.state-loading { color: var(--warn); font-weight: 700; }
 .live.state-stale { color: var(--warn); font-weight: 700; }
 
-/* --- landing (ADR-021) -------------------------------------------------------------------
-   Gaya papan informasi stasiun Jepang. Tiga aturan yang ditegakkan di sini, dan alasannya:
+/* --- landing (ADR-021, ditata ulang sesudah melihat render sungguhan) ---------------------
+   Tiga aturan yang ditegakkan di sini, dan alasannya:
 
-   1. NOL hex baru. Setiap warna adalah `var(--…)` yang sudah diukur kontrasnya
-      (`tests/test_ui.py::test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`
-      menuntut himpunan hex di berkas ini PERSIS sama dengan yang diukur). Efek sampingnya
-      persis yang diinginkan: hijau/merah tidak bisa dipakai sebagai dekorasi, hanya sebagai
-      status — disiplin "warna jenuh di bawah ~20% area" yang dikutip ADR-021 butir 8.
-   2. EMPAT ukuran teks di seluruh landing: --t-fig, --t-head, dasar 15px, dan .sub. Papan
-      keberangkatan yang baik memakai 3–4, bukan tujuh.
-   3. Nol gambar (CSP `img-src 'none'`, ADR-020 butir 5). Yang memberi bentuk adalah garis,
-      spasi, dan mono — bukan aset. */
+   1. NOL hex baru. Setiap warna `var(--…)` yang kontrasnya sudah diukur
+      (`test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed` menuntut
+      himpunan hex di berkas ini PERSIS sama dengan yang diukur). Efek sampingnya persis yang
+      diinginkan: hijau/merah tidak bisa jadi dekorasi, hanya status — disiplin "warna jenuh di
+      bawah ~20% area" yang dikutip ADR-021 butir 8.
+   2. EMPAT ukuran teks: --t-fig, --t-head, dasar 15px, dan .sub.
+   3. Nol gambar. Yang memberi bentuk adalah garis, spasi, dan mono — bukan aset.
+
+   Tata letaknya diperbaiki setelah halaman ini benar-benar DILIHAT (screenshot headless, bukan
+   dibayangkan). Yang salah pada versi pertama: papan — satu-satunya bagian yang membuktikan
+   produknya hidup — duduk di dasar halaman, sementara separuh kanan layar 1280px kosong dan
+   juri harus menggulir melewati tiga blok prosa untuk sampai ke sana. Sekarang hero adalah
+   grid dua kolom dan papan berdiri sejajar judulnya, di atas lipatan. */
 :root {
-  --t-fig: clamp(38px, 7vw, 64px);
-  --t-head: clamp(19px, 2.4vw, 25px);
+  --t-fig: clamp(38px, 6vw, 60px);
+  --t-head: clamp(18px, 2.2vw, 23px);
 }
 .hero {
-  padding: var(--s6) 0 var(--s5);
-  border-bottom: 1px solid var(--line);
-}
-.kicker {
-  margin: 0 0 var(--s4);
-  font: 700 13px/1.4 var(--mono);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--dim);
-}
-.hero h1 {
-  margin: 0 0 var(--s4);
-  max-width: 18ch;
-  font-size: var(--t-fig);
-  font-weight: 700;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
-}
-.lede {
-  margin: 0 0 var(--s5);
-  max-width: 68ch;
-  font-size: 17px;
-  line-height: 1.6;
-  color: var(--dim);
-}
-.cta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s3);
-  margin: 0 0 var(--s4);
-}
-/* Tautan aksi. `.go` memakai --go sebagai TEKS di atas panel, bukan sebagai latar penuh:
-   membalik hijau menjadi latar akan menuntut warna teks baru, dan warna baru dilarang. */
-.cta a {
-  display: inline-block;
-  padding: 13px var(--s4);
-  border-radius: var(--r1);
-  font: 700 15px/1 var(--mono);
-  letter-spacing: 0.06em;
-  text-decoration: none;
-}
-.cta .go {
-  border: 2px solid var(--go);
-  background: var(--panel);
-  color: var(--go);
-}
-.cta .alt {
-  border: 1px solid var(--line);
-  color: var(--dim);
-}
-/* Tanpa `:hover` sama sekali: `test_the_stylesheet_has_no_animation_and_no_hover_only_information`
-   melarangnya di seluruh berkas, dan itu penjaga "Works for everyone 10". Umpan balik fokus
-   sudah datang dari cincin `a:focus-visible` global di atas. */
-.why,
-.proofs,
-.board {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: var(--s6);
+  align-items: start;
   padding: var(--s5) 0;
   border-bottom: 1px solid var(--line);
 }
-.why h2,
-.proofs h2,
+/* Store kosong = tidak ada papan = satu kolom, dan judulnya tidak menggantung di kiri. */
+.hero.solo { grid-template-columns: minmax(0, 1fr); }
+.hero.solo .hero-say { max-width: 76ch; }
+@media (max-width: 900px) {
+  .hero { grid-template-columns: minmax(0, 1fr); gap: var(--s5); }
+}
+.kicker {
+  margin: 0 0 var(--s3);
+  font: 700 12px/1.4 var(--mono);
+  letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
+}
+.hero h1 {
+  margin: 0 0 var(--s3);
+  font: 700 var(--t-fig)/1.04 var(--sans);
+  letter-spacing: -.022em;
+  border: 0; padding: 0;
+}
+.lede { margin: 0 0 var(--s4); max-width: 58ch; font-size: 16px; line-height: 1.6; color: var(--dim); }
+.cta { display: flex; flex-wrap: wrap; gap: var(--s3); margin: 0 0 var(--s3); }
+/* `.go` memakai --go sebagai TEKS di atas panel, bukan latar penuh: membalik hijau jadi latar
+   menuntut warna teks baru, dan warna baru dilarang. */
+.cta a {
+  display: inline-block; padding: 12px var(--s4); border-radius: var(--r1);
+  font: 700 14px/1 var(--mono); letter-spacing: .06em; text-decoration: none;
+}
+.cta .go { border: 2px solid var(--go); background: var(--panel); color: var(--go); }
+.cta .alt { border: 1px solid var(--line); color: var(--dim); }
+
+/* --- papan keberangkatan ------------------------------------------------------------------
+   Urutan kolom tetap: As of · Symbol · Call · Held by. Ia dipanel supaya terbaca sebagai satu
+   objek — papan yang tergantung di concourse — bukan sebagai tabel yang menempel di prosa. */
+.board {
+  margin: 0; padding: var(--s4);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r2);
+}
 .board h2 {
-  margin: 0 0 var(--s4);
-  font-size: var(--t-head);
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  margin: 0 0 var(--s3); padding: 0 0 var(--s3);
+  font: 700 13px/1.3 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--dim); border-bottom: 1px solid var(--line);
 }
-.why .answer {
-  max-width: 72ch;
+.lb { width: 100%; border-collapse: collapse; text-align: left; margin: 0; table-layout: auto; }
+.lb caption { margin-bottom: var(--s3); text-align: left; }
+.lb th, .lb td {
+  padding: 10px var(--s2); border: 0; border-bottom: 1px solid var(--line);
+  vertical-align: baseline; background: none;
 }
-/* Tiga angka. `counter` dimatikan: nomor urut daftar akan bersaing dengan angkanya sendiri. */
+.lb tbody tr:last-child th, .lb tbody tr:last-child td { border-bottom: 0; }
+.lb thead th {
+  font: 700 11px/1.4 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim); background: none;
+}
+.lb tbody th { font: 700 17px/1.3 var(--mono); letter-spacing: .02em; background: none; }
+.lb tbody tr:nth-child(even) td, .lb tbody tr:nth-child(even) th { background: var(--row); }
+.lb td:first-child { font-size: 13px; white-space: nowrap; }
+
+/* --- bagian bawah: dua kolom, bukan tumpukan ---------------------------------------------- */
+.lower {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: var(--s6); padding: var(--s5) 0;
+}
+@media (max-width: 900px) { .lower { grid-template-columns: minmax(0, 1fr); gap: var(--s5); } }
+.lower h2 {
+  margin: 0 0 var(--s3); padding: 0 0 var(--s2);
+  font: 700 var(--t-head)/1.25 var(--sans); letter-spacing: -.01em;
+  border-bottom: 2px solid var(--line);
+}
+.why .answer { max-width: none; }
 .figs {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--s4);
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3);
+  margin: 0; padding: 0; list-style: none;
 }
 .figs li {
-  padding: var(--s4);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r2);
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--s4); align-items: baseline;
+  padding: var(--s3) var(--s4);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r2);
 }
 .fig {
-  margin: 0;
-  font: 700 var(--t-fig) / 0.95 var(--mono);
-  letter-spacing: -0.03em;
+  grid-row: 1 / span 2; margin: 0;
+  font: 700 var(--t-fig)/.9 var(--mono); letter-spacing: -.04em;
+  min-width: 1.6ch; text-align: right;
 }
-.fig-label {
-  margin: var(--s2) 0 var(--s3);
-  font-weight: 700;
-  line-height: 1.35;
-}
-/* Papan keberangkatan. Urutan kolom tetap — As of · Symbol · Call · Held by — dan angkanya
-   rata kiri dalam mono supaya digitnya berbaris seperti papan sungguhan. */
-.lb {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-}
-.lb caption {
-  margin-bottom: var(--s3);
-  text-align: left;
-}
-.lb th,
-.lb td {
-  padding: 11px var(--s3);
-  border-bottom: 1px solid var(--line);
-  vertical-align: baseline;
-}
-.lb thead th {
-  font: 700 12px/1.4 var(--mono);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--dim);
-}
-.lb tbody th {
-  font: 700 17px/1.3 var(--mono);
-  letter-spacing: 0.02em;
-}
-.lb tbody tr:nth-child(even) {
-  background: var(--row);
-}
+.fig-label { margin: 0 0 var(--s1); font-weight: 700; line-height: 1.3; }
+.figs .sub { margin: 0; max-width: none; }

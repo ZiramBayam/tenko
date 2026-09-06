@@ -1301,8 +1301,15 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         f'<p class="sub">{escape(body, quote=True)}</p></li>'
         for figure, label, body in LANDING_PROOFS
     )
+    board = _landing_board(entries or [])
+    # Hero adalah GRID dua kolom: kalimatnya di kiri, papannya di kanan. Sebelum ini papan
+    # duduk di dasar halaman sementara separuh kanan layar kosong — juri harus menggulir
+    # melewati tiga bagian prosa sebelum melihat produknya. Papan ADALAH produknya, jadi ia
+    # berdiri di atas lipatan, sejajar dengan judulnya. Bila store kosong, kolom kanan tidak
+    # ada dan grid runtuh jadi satu kolom dengan sendirinya (`grid-template-columns` di CSS).
     body = (
-        '<section class="hero">'
+        f'<section class="hero{"" if board else " solo"}">'
+        '<div class="hero-say">'
         '<p class="kicker"><span lang="ja">点呼</span> · TENKO · RYO-CHAN Hackathon 2026</p>'
         "<h1>Point at the evidence.<br>Say it out loud.<br>Then decide.</h1>"
         '<p class="lede">Japanese train crews do not trust a signal they have only looked at. '
@@ -1316,8 +1323,11 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         'serves, as JSON">See every route</a></p>'
         '<p class="sub">Every position here is a <strong>practice</strong> trade: no funds, no '
         "wallet, no signing keys, no real execution.</p>"
+        "</div>"
+        f"{board}"
         "</section>"
-        '<section class="why" aria-labelledby="why-h">'
+        '<section class="lower">'
+        '<div class="why" aria-labelledby="why-h">'
         '<h2 id="why-h">What goes wrong without it</h2>'
         '<p class="answer">Almost every signal agent acts on a single verdict without checking '
         "the evidence that is available — and, worse, without knowing which evidence is "
@@ -1326,10 +1336,11 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         '<p class="sub">Tenko never does. A null is not a zero, and it is not silence either: it '
         "is an <strong>unspoken</strong> item, printed on the card, and it is enough to hold the "
         "departure on its own.</p>"
-        "</section>"
-        '<section class="proofs" aria-labelledby="proofs-h">'
+        "</div>"
+        '<div class="proofs" aria-labelledby="proofs-h">'
         '<h2 id="proofs-h">Three numbers you can check yourself</h2>'
         f'<ol class="figs">{proofs}</ol>'
-        "</section>" + _landing_board(entries or [])
+        "</div>"
+        "</section>"
     )
     return _shell("Tenko (点呼) — simulated", banner, body, now, screen="landing")
