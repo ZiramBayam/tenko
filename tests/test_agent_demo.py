@@ -534,11 +534,53 @@ def test_a_fixture_that_claims_more_than_it_shaped_is_caught_too(tmp_path: Path)
 
 
 def test_an_undeclared_fixture_with_a_shaped_envelope_is_not_waved_through(tmp_path: Path) -> None:
-    """Tanpa blok `synthetic` sama sekali: diam bukan alasan, selisihnya tetap dicetak."""
+    """Tanpa blok `synthetic` sama sekali: diam bukan alasan, selisihnya tetap dicetak.
+
+    Kalimat lunak "asal-usul TIDAK DINYATAKAN" TIDAK boleh ikut tercetak di sini: berkas ini punya
+    envelope berbentuk padam, jadi keadaannya bukan "tidak dinyatakan" melainkan "tidak diakui".
+    """
     path = _tiny_step2_fixture(tmp_path, note=None, row_flag=False)
     text = _disclosure_of(path)
-    assert "TIDAK DINYATAKAN" in text
+    assert "KETIDAKCOCOKAN" in text
+    assert "TIDAK DINYATAKAN" not in text
     assert "berkas TIDAK mengaku membentuk source_id 22" in text
+    assert "berkas TIDAK memuat blok `synthetic` sama sekali" in text
+    assert "KETIDAKCOCOKAN" in _step2_summary(path)
+
+
+def test_deleting_the_whole_synthetic_block_does_not_buy_silence(tmp_path: Path) -> None:
+    """Lubang laporan juri fase 5: blok `synthetic` DIHAPUS SELURUHNYA, bendera per-baris dibiarkan.
+
+    Kedua selisih lama menjadi nol — bendera `snapshots[*].synthetic` masih mengaku, jadi himpunan
+    yang diakui persis sama dengan yang benar-benar dibentuk — dan naskah dulu lolos dengan kalimat
+    lunak "asal-usul TIDAK DINYATAKAN", exit 0, nol KETIDAKCOCOKAN. Bukti bahwa envelope itu
+    dibentuk ada di berkasnya sendiri; menghapus pengakuannya adalah penyembunyian, bukan diam.
+    """
+    path = _tiny_step2_fixture(tmp_path, note=None, row_flag=True)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert "synthetic" not in raw  # blok atas hilang; bendera per-baris tetap ada
+    assert raw["snapshots"][1]["synthetic"] is True
+    text = _disclosure_of(path)
+    assert "KETIDAKCOCOKAN" in text
+    assert "TIDAK DINYATAKAN" not in text
+    assert "berkas TIDAK memuat blok `synthetic` sama sekali" in text
+    assert "source_id 22 BERBENTUK padam" in text
+    # Ekor naskah ikut menyebutnya, sama seperti varian penyembunyian yang lain.
+    assert "KETIDAKCOCOKAN" in _step2_summary(path)
+
+
+def test_a_fixture_with_nothing_shaped_and_no_block_is_still_treated_gently(tmp_path: Path) -> None:
+    """Sisi lain penyempitan: berkas TANPA envelope padam DAN tanpa blok `synthetic` tetap lunak.
+
+    Cabang lunak tidak dihapus, hanya dipersempit: berkas pihak ketiga yang tidak memuat satu pun
+    envelope berbentuk padam tidak punya apa pun untuk diakui, jadi menuduhnya akan salah.
+    """
+    path = _tiny_step2_fixture(tmp_path, note=None, row_flag=False, shaped=False)
+    text = _disclosure_of(path)
+    assert "TIDAK DINYATAKAN" in text
+    assert "KETIDAKCOCOKAN" not in text
+    assert "PENGAKUAN" not in text
+    assert "KETIDAKCOCOKAN" not in _step2_summary(path)
 
 
 def test_an_answering_envelope_whose_content_changed_is_never_called_a_verbatim_copy(

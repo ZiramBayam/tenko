@@ -376,7 +376,7 @@ def _claimed_synthetic_ids(raw: dict[str, Any], note: dict[str, Any] | None) -> 
     return claimed
 
 
-def _disclosure_mismatch(shaped: set[int], claimed: set[int]) -> list[str]:
+def _disclosure_mismatch(shaped: set[int], claimed: set[int], *, declared: bool) -> list[str]:
     """Selisih antara envelope yang DIMUAT dan yang DIAKUI berkas — dicetak mencolok, bukan diam.
 
     Blok `synthetic` sebuah berkas tidak bisa mengaudit berkas itu sendiri: fixture yang envelope
@@ -384,15 +384,29 @@ def _disclosure_mismatch(shaped: set[int], claimed: set[int]) -> list[str]:
     mencetak klaim afirmatif yang SALAH ("id 2492 adalah salinan apa adanya bukti nyata") — lebih
     buruk daripada diam. Karena itu himpunan sintetis dihitung dari envelope yang benar-benar
     dimuat (:func:`_is_shaped`), lalu DIBANDINGKAN dengan klaim berkas; tiap selisih dicetak.
+
+    `declared` (ada tidaknya blok `synthetic`) adalah selisih KETIGA, dan ia lahir dari lubang yang
+    nyata: menghapus blok `synthetic` SELURUHNYA membuat kedua selisih di atas nol — bendera
+    per-baris `snapshots[*].synthetic` masih mengaku, jadi `shaped == claimed` — dan naskah lolos
+    dengan kalimat lunak "asal-usul TIDAK DINYATAKAN". Berkas yang membawa envelope berbentuk padam
+    TANPA menyatakan apa pun bukan berkas yang kebetulan diam; itu pemadaman yang tidak diakui, dan
+    buktinya ada di berkas itu sendiri. Berkas tanpa satu pun envelope padam tetap boleh diam.
     """
     undisclosed = sorted(shaped - claimed)
     overclaimed = sorted(claimed - shaped)
-    if not undisclosed and not overclaimed:
+    unacknowledged = [] if declared else sorted(shaped)
+    if not undisclosed and not overclaimed and not unacknowledged:
         return []
     lines = [
-        "  KETIDAKCOCOKAN — blok `synthetic` BERKAS ini tidak cocok dengan envelope yang benar-benar",
+        "  KETIDAKCOCOKAN — pengakuan BERKAS ini tidak cocok dengan envelope yang benar-benar",
         "  dimuat; yang dipakai naskah di bawah adalah hasil PEMERIKSAAN envelope, bukan klaim berkas:",
     ]
+    if unacknowledged:
+        lines.append(
+            "    berkas TIDAK memuat blok `synthetic` sama sekali, padahal envelope source_id "
+            f"{', '.join(str(entry) for entry in unacknowledged)} BERBENTUK padam — pemadaman yang "
+            "TIDAK DIAKUI, bukan berkas yang kebetulan diam"
+        )
     if undisclosed:
         lines.append(
             "    berkas TIDAK mengaku membentuk source_id "
@@ -434,7 +448,10 @@ def _step2_disclosure(path: str | Path, fixture: DemoFixture) -> list[str]:
     cocok dengan hash baris asal yang direkam saat penyalinan.
 
     Fixture yang TIDAK mengaku dibentuk tetap tidak dicap sintetis — kecuali envelopenya sendiri
-    berbentuk padam, dan itu justru disebut sebagai ketidakcocokan.
+    berbentuk padam, dan itu justru disebut sebagai ketidakcocokan. Cabang lunak ("berkasnya tidak
+    memuat blok `synthetic`, jadi naskah ini tidak mengarang pengakuan") DIPERSEMPIT ke berkas yang
+    memang tidak punya satu pun envelope berbentuk padam; berkas yang punya buktinya tetapi tidak
+    menyatakan apa pun dihakimi sebagai pemadaman yang tidak diakui.
     """
     raw = _fixture_json(path)
     note = _synthetic_note(path)
@@ -444,12 +461,16 @@ def _step2_disclosure(path: str | Path, fixture: DemoFixture) -> list[str]:
     provenance = verify_provenance(raw)
     label = _safe(raw.get("source_db", "?"))
     if note is None:
-        lines = [
-            "  asal-usul envelope di fixture ini TIDAK DINYATAKAN: berkasnya tidak memuat blok",
-            "  `synthetic`, jadi naskah ini tidak mengarang pengakuan apa pun tentangnya.",
-        ]
+        lines = []
+        if not shaped_ids:
+            lines = [
+                "  asal-usul envelope di fixture ini TIDAK DINYATAKAN: berkasnya tidak memuat blok",
+                "  `synthetic`, jadi naskah ini tidak mengarang pengakuan apa pun tentangnya.",
+                "  tidak ada satu pun envelope di sini yang berbentuk padam, jadi tidak ada yang",
+                "  seharusnya diakui.",
+            ]
         lines.extend(provenance_lines(provenance, label, indent="    ", lead="yang TIDAK dibentuk: "))
-        lines.extend(_disclosure_mismatch(shaped_ids, claimed))
+        lines.extend(_disclosure_mismatch(shaped_ids, claimed, declared=False))
         return lines
     rewritten = [f"{_safe(snapshot.tool)} (source_id {snapshot.source_id})" for snapshot in shaped]
     lines = [
@@ -468,7 +489,7 @@ def _step2_disclosure(path: str | Path, fixture: DemoFixture) -> list[str]:
             "    `status: unavailable`, bentuk ini wajib dibandingkan ulang (api-verifier).",
         ]
     )
-    lines.extend(_disclosure_mismatch(shaped_ids, claimed))
+    lines.extend(_disclosure_mismatch(shaped_ids, claimed, declared=True))
     return lines
 
 
@@ -891,7 +912,8 @@ def _step2_summary(step2_fixture: str | Path | None) -> str:
 def _mismatched(step2_fixture: str | Path) -> bool:
     """`True` bila berkas berselisih dengan dirinya sendiri — dua cara, keduanya dihitung.
 
-    1. klaim `synthetic` tidak cocok dengan envelope yang benar-benar dimuat (BENTUK), dan
+    1. klaim `synthetic` tidak cocok dengan envelope yang benar-benar dimuat (BENTUK) — termasuk
+       berkas yang tidak memuat blok `synthetic` sama sekali padahal envelopenya berbentuk padam, dan
     2. isi sebuah envelope yang menjawab tidak cocok dengan sha256 baris asalnya (ISI).
 
     Yang kedua ada karena yang pertama tidak pernah menyentuh angka di dalam envelope: berkas
@@ -902,10 +924,12 @@ def _mismatched(step2_fixture: str | Path) -> bool:
     except DemoFixtureError:
         return False
     raw = _fixture_json(step2_fixture)
+    note = _synthetic_note(step2_fixture)
     shaped = {snapshot.source_id for snapshot in fixture.snapshots if _is_shaped(snapshot)}
     if verify_provenance(raw).mismatched:
         return True
-    return bool(_disclosure_mismatch(shaped, _claimed_synthetic_ids(raw, _synthetic_note(step2_fixture))))
+    mismatch = _disclosure_mismatch(shaped, _claimed_synthetic_ids(raw, note), declared=note is not None)
+    return bool(mismatch)
 
 
 def build_parser() -> argparse.ArgumentParser:
