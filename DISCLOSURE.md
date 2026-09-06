@@ -1,71 +1,72 @@
-# DISCLOSURE — sesuai Official Rules §5 "Original Work and Third-Party Materials"
+# DISCLOSURE — per Official Rules §5 "Original Work and Third-Party Materials"
 
-Status: **lengkap per 6 Sep 2026** untuk isi `uv.lock` saat ini (32 paket di luar `tenko` sendiri).
-Diperbarui pada commit yang sama dengan setiap penambahan dependency, aset, dataset, atau sumber eksternal
+Status: **complete as of 6 Sep 2026** for the current contents of `uv.lock` (32 packages besides `tenko` itself).
+Updated in the same commit as every added dependency, asset, dataset or external source
 (`docs/rules-compliance.md`).
 
-Aturan tulis di berkas ini: **lebih baik menulis "belum" daripada menyiratkan "sudah".** Paket yang terkunci di
-`uv.lock` tetapi belum dipanggil satu baris kode pun tetap didaftarkan (ia ada di environment), dengan status apa
-adanya. Aset yang baru direncanakan tidak ditulis seolah sudah disalin ke repo.
+The writing rule for this file: **better to write "not yet" than to imply "already done".** A package pinned in
+`uv.lock` but not yet called by a single line of code is still listed (it exists in the environment), with its status
+as it is. An asset that is merely planned is not written up as though it had already been copied into the repo.
 
 ## AI tools
-- Claude Code (Anthropic) — pembuatan & refactor kode, dokumentasi, tes. Semua kode direview manusia sebelum commit.
-  Riwayat keputusan, temuan tinjauan yang mengubah kode, dan utang yang belum ditutup dicatat di `LOG.md`.
+- Claude Code (Anthropic) — code generation & refactoring, documentation, tests. All code is reviewed by a human
+  before commit. Decision history, review findings that changed the code, and debt that is still open are recorded in
+  `LOG.md`.
 
 ## Pre-existing materials
-- Tidak ada. Seluruh kode dibuat untuk hackathon ini.
+- None. All code was written for this hackathon.
 
-## Cara memverifikasi daftar di bawah
-Sumber kebenaran = `uv.lock`. Dua tabel Python di bawah berada di antara penanda
-`<!-- python-deps:start -->` dan `<!-- python-deps:end -->`; kolom pertama tiap baris adalah nama paket persis seperti
-di `uv.lock`. `tests/test_disclosure.py` membandingkan kedua himpunan tersebut dua arah (tidak ada yang hilang, tidak
-ada nama yang tidak dikenal lock). Daftar mentahnya:
+## How to verify the list below
+The source of truth is `uv.lock`. The two Python tables below sit between the markers
+`<!-- python-deps:start -->` and `<!-- python-deps:end -->`; the first column of each row is the package name exactly
+as it appears in `uv.lock`. `tests/test_disclosure.py` compares the two sets in both directions (nothing missing,
+no name the lock does not know). The raw list:
 
 ```bash
-grep '^name = ' uv.lock          # 33 baris = 32 dependency + paket "tenko" sendiri
+grep '^name = ' uv.lock          # 33 lines = 32 dependencies + the "tenko" package itself
 ```
 
-**Batas daftar ini: paket yang di-ship/diimpor, bukan perkakas sistem.** `scripts/chaos.sh` memanggil `openssl` untuk
-membuat sertifikat self-signed berumur 1 hari bagi server fixture di 127.0.0.1 (`openssl req -x509` di
-`scripts/chaos.sh`; sertifikat lahir di `mktemp -d` dan tidak pernah masuk repo) — sama
-kelasnya dengan `bash`, `git`, atau `sqlite3` CLI: tidak di-ship, tidak diimpor kode, tidak masuk `uv.lock`, dan hanya
-hidup di dalam harness tes. Karena sumber kebenaran tabel di bawah adalah `uv.lock` dan `tests/test_disclosure.py`
-membandingkan kedua himpunan **dua arah**, menambahkan baris non-lock justru merusak invarian yang menjaga daftar ini
-tetap lengkap. Versi perkakas runtime tercatat di `docs/versions.md`.
+**The boundary of this list: packages that are shipped/imported, not system tooling.** `scripts/chaos.sh` calls
+`openssl` to create a 1-day self-signed certificate for the fixture server on 127.0.0.1 (`openssl req -x509` in
+`scripts/chaos.sh`; the certificate is born in `mktemp -d` and never enters the repo) — the same class as `bash`,
+`git` or the `sqlite3` CLI: not shipped, not imported by code, not in `uv.lock`, and it only lives inside the test
+harness. Because the source of truth for the table below is `uv.lock` and `tests/test_disclosure.py` compares the two
+sets in **both directions**, adding a non-lock row would break the very invariant that keeps this list complete.
+Runtime tooling versions are recorded in `docs/versions.md`.
 
-## Open-source dependencies — Python (dari `uv.lock`)
+## Open-source dependencies — Python (from `uv.lock`)
 
 <!-- python-deps:start -->
 
-### Langsung (disebut di `pyproject.toml`)
+### Direct (named in `pyproject.toml`)
 
-| Paket | Versi | Lisensi | Peran & status |
+| Package | Version | License | Role & status |
 |---|---|---|---|
-| httpx | 0.28.1 | BSD-3-Clause | klien HTTP ke tool RYO — dipakai di `core/ryo_client.py` |
-| pydantic | 2.13.5 | MIT | kontrak & validasi `SkillResult` — dipakai di `core/skill.py` |
-| pyyaml | 6.0.3 | MIT | baca `sources.yaml` — dipakai di `core/sources.py` |
-| anthropic | 1.2.0 | MIT | narasi kartu (di luar jalur keputusan, ADR-003) — **dipakai kode**: hanya di `preflight/narrate.py`, satu panggilan `messages.create` per kartu, model `claude-opus-5`, setelah keputusan final; kredensial hanya dari env, tanpa kredensial tidak ada request sama sekali |
-| fastapi | 0.141.1 | MIT | route JSON + dua layar HTML — **dipakai kode**: `ui/app.py` mendeklarasikan **delapan route `GET`** (`/`, `/api/health`, `/api/watchlist`, `/api/decisions`, `/api/decision/{id}`, `/api/preflight/{symbol}`, `/ui`, `/ui/decision/{id}`) ditambah satu aset `GET`/`HEAD` `/ui/tenko.css` yang dibangkitkan dari `ui/screens.py` — nol berkas statis, nol CDN, nol npm. **Layar A/B sekarang ADA** dan dirender di server tanpa satu pun `<script>` (`Content-Security-Policy: default-src 'none'; style-src 'self'`); baris ini menggantikan bunyi sebelumnya "enam route GET … Layar A/B belum ada" (6 Sep 2026). Hanya membaca store (`Store(..., read_only=True)`); tidak ada `httpx`/`anthropic` di `ui/`, `/api/health` melaporkan `calls_ryo_tools: false` dan `calls_llm: false`. Setiap respons — termasuk 400/404/405/422/500/503 — membawa `simulated: true` + banner SIMULATED |
-| uvicorn | 0.52.4 | BSD-3-Clause | server `make ui` — **dipakai**, dijalankan dari `Makefile` (`uv run uvicorn ui.app:app --port $UI_PORT`), bukan diimpor kode; tanpa extra `[standard]` (`docs/versions.md`) |
-| pytest | 9.1.1 | MIT | dev — menjalankan `make test` |
+| httpx | 0.28.1 | BSD-3-Clause | HTTP client to the RYO tools — used in `core/ryo_client.py` |
+| pydantic | 2.13.5 | MIT | `SkillResult` contract & validation — used in `core/skill.py` |
+| pyyaml | 6.0.3 | MIT | reads `sources.yaml` — used in `core/sources.py` |
+| anthropic | 1.2.0 | MIT | card narration (outside the decision path, ADR-003) — **used by code**: only in `preflight/narrate.py`, one `messages.create` call per card, model `claude-opus-5`, after the final decision; credentials from env only, and with no credentials there is no request at all |
+| fastapi | 0.141.1 | MIT | JSON routes + two HTML screens — **used by code**: `ui/app.py` announces **eleven routes** in `ROUTE_INDEX` (`ui/app.py`, symbol `ROUTE_INDEX` — line numbers in `ui/` move, names do not): `/`, `/ui`, `/ui/decision/{id}`, `/ui/tenko.css`, `/ui/app.js`, `/api/routes`, `/api/health`, `/api/watchlist`, `/api/decisions`, `/api/decision/{id}`, `/api/preflight/{symbol}`. **Two** of those are assets, served from **two tracked static files** — `ui/static/app.css` and `ui/static/app.js`, both built by esbuild from `frontend/` (ADR-020, landed in commit `ed77a8c`) and both committed to git. Each screen carries **one** `<script src="/ui/app.js" defer>` from its own origin (`ui/screens.py`, emitted by `_shell()`); still **zero CDN and zero npm packages served at runtime** (`package.json` → `"dependencies": {}`). The CSP sent with every **HTML** response (`ui/app.py` `HTML_HEADERS`; the `/api/…` JSON responses carry no such header — what protects them is `ui/app.py` `SafeJSONResponse`) names no third-party host and permits neither `unsafe-inline` nor `unsafe-eval`; scripts, styles and `fetch` targets are confined to this origin. Read the header there rather than from this file, which is not the place that defines it — a pasted copy here is how the previous version of this row became false. This row replaces two earlier wordings, "six GET routes … Screens A/B do not exist yet" and "eight GET routes … zero static files … no `<script>` at all", both of which are now false (corrected 6 Sep 2026). It only reads the store (`Store(..., read_only=True)`); there is no `httpx`/`anthropic` in `ui/`, and `/api/health` reports `calls_ryo_tools: false` and `calls_llm: false`. Every response — including 400/404/405/422/500/503 — carries `simulated: true` + the SIMULATED banner |
+| uvicorn | 0.52.4 | BSD-3-Clause | the `make ui` server — **used**, launched from the `Makefile` (`uv run uvicorn ui.app:app --port $UI_PORT`), not imported by code; without the `[standard]` extra (`docs/versions.md`) |
+| pytest | 9.1.1 | MIT | dev — runs `make test` |
 | ruff | 0.16.5 | MIT | dev — lint & format (`make lint`) |
 
-### Transitif (ditarik resolver, dikunci di `uv.lock`)
+### Transitive (pulled by the resolver, pinned in `uv.lock`)
 
-| Paket | Versi | Lisensi | Ditarik oleh |
+| Package | Version | License | Pulled by |
 |---|---|---|---|
 | annotated-doc | 0.0.5 | MIT | fastapi |
 | annotated-types | 0.8.0 | MIT | pydantic |
 | anyio | 4.14.2 | MIT | httpx / starlette |
-| certifi | 2026.7.22 | MPL-2.0 | httpx — lihat catatan lisensi di bawah |
+| certifi | 2026.7.22 | MPL-2.0 | httpx — see the license note below |
 | click | 8.5.0 | BSD-3-Clause | uvicorn |
-| colorama | 0.4.6 | BSD (dari classifier PyPI) | pytest (dan click) — marker `sys_platform == 'win32'`, **tidak terpasang di Linux** |
+| colorama | 0.4.6 | BSD (from the PyPI classifier) | pytest (and click) — marker `sys_platform == 'win32'`, **not installed on Linux** |
 | docstring-parser | 0.18.0 | MIT | anthropic |
 | h11 | 0.16.0 | MIT | httpcore / uvicorn |
 | httpcore | 1.0.9 | BSD-3-Clause | httpx |
 | httpcore2 | 2.12.0 | BSD-3-Clause | httpx2 |
-| httpx2 | 2.12.0 | BSD-3-Clause | anthropic — juga dipakai `starlette.testclient.TestClient` (`docs/versions.md`) |
-| httpx2-jsfetch | 1.0 | tidak diverifikasi — **tidak terpasang** | httpx2 — marker `sys_platform == 'emscripten'` (`uv.lock`), tidak pernah terpasang di lingkungan ini |
+| httpx2 | 2.12.0 | BSD-3-Clause | anthropic — also used by `starlette.testclient.TestClient` (`docs/versions.md`) |
+| httpx2-jsfetch | 1.0 | not verified — **not installed** | httpx2 — marker `sys_platform == 'emscripten'` (`uv.lock`), never installed in this environment |
 | idna | 3.19 | BSD-3-Clause | anyio / httpx |
 | iniconfig | 2.3.0 | MIT | pytest |
 | jiter | 0.16.0 | MIT | anthropic |
@@ -75,92 +76,147 @@ tetap lengkap. Versi perkakas runtime tercatat di `docs/versions.md`.
 | pygments | 2.21.0 | BSD-2-Clause | pytest |
 | sniffio | 1.3.1 | MIT OR Apache-2.0 | anyio |
 | starlette | 1.6.0 | BSD-3-Clause | fastapi |
-| truststore | 0.10.4 | MIT | httpx2 (marker `sys_platform != 'emscripten'`, `uv.lock`); juga dipakai uv sendiri |
+| truststore | 0.10.4 | MIT | httpx2 (marker `sys_platform != 'emscripten'`, `uv.lock`); also used by uv itself |
 | typing-extensions | 4.16.0 | PSF-2.0 | pydantic |
 | typing-inspection | 0.4.4 | MIT | pydantic |
 
 <!-- python-deps:end -->
 
-### Catatan lisensi: `certifi` adalah satu-satunya copyleft-lemah di daftar
-`certifi` 2026.7.22 berlisensi **MPL-2.0** — satu-satunya lisensi copyleft (lemah, per-berkas) di antara 32 paket;
-sisanya permisif (MIT / BSD / Apache-2.0 / PSF-2.0). Konsekuensi praktis untuk proyek ini: **nihil**. Paket dipakai
-apa adanya sebagai CA bundle oleh `httpx` saat verifikasi TLS; tidak ada berkas certifi yang dimodifikasi, di-fork,
-atau disalin ke dalam kode proyek, sehingga kewajiban MPL-2.0 §3.2 (menyediakan sumber berkas yang diubah) tidak
-pernah terpicu. Paket tetap terpasang utuh dari PyPI melalui `uv.lock`.
+### License note: `certifi` is the only weak-copyleft entry in the list
+`certifi` 2026.7.22 is licensed **MPL-2.0** — the only copyleft license (weak, per-file) among the 32 packages; the
+rest are permissive (MIT / BSD / Apache-2.0 / PSF-2.0). Practical consequence for this project: **none**. The package
+is used as-is as a CA bundle by `httpx` during TLS verification; no certifi file is modified, forked or copied into
+the project's code, so the MPL-2.0 §3.2 obligation (providing the source of modified files) is never triggered. The
+package stays installed intact from PyPI via `uv.lock`.
 
-## Aset frontend JS — direncanakan (ADR-014), BELUM di-vendor
+## Frontend build tooling (ADR-020) — BUILD-ONLY, zero runtime dependencies
 
-**Status jujur per 6 Sep 2026: direktori `ui/static/` tetap tidak ada di repo** (`ls ui/static` → tidak ditemukan;
-isi `ui/` hanya `__init__.py`, `app.py`, `screens.py`, `README.md`). Layar A/B **sudah mendarat** — dan
-mendarat **tanpa** satu pun library JS: nol `<script>`, satu-satunya aset adalah `/ui/tenko.css` yang dibangkitkan
-dari `ui/screens.py`, dan satu-satunya ikon adalah SVG tertanam di HTML. Tidak satu pun berkas three/GSAP/Lenis pernah
-disalin ke repo ini.
+ADR-020 (ACCEPTED 6 Sep 2026) narrows ADR-001 and ADR-014: Node/npm become a **build** tool for the presentation
+layer (TypeScript + esbuild), the build output (`ui/static/app.js`) is tracked in git and shipped, and **running**
+Tenko still needs no Node at all. **Runtime npm dependencies: zero.** The rows below were verified against the npm
+registry and against the LICENSE file inside each package on 6 Sep 2026. **The rewrite has landed** (commit `ed77a8c`):
+`package.json`, `package-lock.json`, `frontend/` (7 `.ts` sources + `frontend/styles/app.css`) and `ui/static/`
+(`app.css`, `app.js`) are all tracked in git — `git ls-files ui/static frontend package.json package-lock.json`.
+An earlier version of this paragraph said none of them existed; that was true when it was written and is false now.
+The rows below still describe the toolchain **on the build machine**, which is a smaller set than the lock (see below).
 
-Rencananya (ADR-014): saat layar dibangun, ketiga library **di-vendor lokal** ke `ui/static/vendor/<paket>/`, tanpa
-build step, tanpa npm, tanpa CDN saat runtime (ADR-001; `make demo` wajib jalan offline dari fixture dan chaos test
-mematikan host). Versi, lisensi, format berkas, dan hash sudah diverifikasi terhadap sumber primer dan tercatat di
-`docs/versions.md` §"Aset frontend JS"; pin-nya sendiri masih menunggu pemakaian nyata. **Layar yang benar-benar
-dikirim tidak memakai satu pun dari ketiganya**, jadi rencana ini tetap rencana; bila suatu saat dipakai, berkas ini
-berubah pada commit yang sama.
-
-Baris di bawah adalah **rencana**, bukan laporan tentang berkas yang ada di repo. Berkas ini diperbarui pada commit
-yang sama saat vendoring benar-benar terjadi (termasuk salinan LICENSE per paket dan header copyright yang
-dipertahankan utuh).
-
-| Paket (rencana) | Versi | Lisensi | Peran | Status di repo |
+| Package | Version | License | Role | Status |
 |---|---|---|---|---|
-| three | 0.170.0 | MIT | WebGL 3D | BELUM di-vendor |
-| lenis | 1.1.0 | MIT | smooth scroll | BELUM di-vendor |
+| node (Node.js) | 24.15.0 (LTS "Krypton", released 2026-04-15) | MIT for core; its LICENSE also carries the licenses of bundled components (OpenSSL, ICU, libuv, undici, V8 and others) | runs tsc + esbuild to build `ui/static/app.js` | **BUILD-ONLY** (not needed to run Tenko) |
+| npm | 11.12.1 (bundled with Node 24.15.0) | Artistic-2.0 | installs the build devDependencies from `package-lock.json` | BUILD-ONLY |
+| typescript | 7.0.2 | Apache-2.0 | type-checks the `frontend/` sources (strict) | BUILD-ONLY (devDependency) |
+| @typescript/typescript-linux-x64 | 7.0.2 | Apache-2.0 | native tsc binary for this linux-x64 build machine (optionalDependency of typescript 7) | BUILD-ONLY |
+| vscode-jsonrpc | 9.0.0 | MIT | vendored INSIDE the typescript 7.0.2 package (`vendor/vscode-jsonrpc`), not a separate install | BUILD-ONLY |
+| esbuild | 0.28.2 | MIT | bundles and minifies the TypeScript into `ui/static/app.js` | BUILD-ONLY (devDependency) |
+| @esbuild/linux-x64 | 0.28.2 | MIT | esbuild binary for this linux-x64 build machine (optionalDependency of esbuild) | BUILD-ONLY |
 
-GSAP sengaja **tidak** ada di tabel ini — lihat bagian berikutnya.
+Two things stated plainly, because smoothing them over would be dishonest:
 
-## Third-party proprietary (no-charge license) — juga BELUM di-vendor
-Dipisahkan dari tabel open-source di atas karena **GSAP bukan perangkat lunak open source** (konsekuensi ADR-014).
+1. **`package-lock.json` records the entire platform matrix** — measured, not predicted: `lockfileVersion` 3, and
+   `packages` holds **49 entries = 1 root entry + 48 packages**, of which **48/48 are `dev: true`** and 46 are also
+   `optional: true` (20 `@typescript/*` + 26 `@esbuild/*` platform binaries). Only `esbuild` and `typescript` are
+   non-optional. That is lock metadata, not files that are installed: on this build machine **4** of the 48 are
+   actually on disk. Full per-package list, counts and commands: `docs/versions.md` §"LOCK REPO SUDAH DIBACA".
+2. **The build is not guaranteed to be offline.** `esbuild` has a `postinstall` step that downloads the platform
+   tarball when the binary is not already present. What *is* guaranteed offline is **running** Tenko: the build output
+   is tracked in git (ADR-020 item 2), so a clean clone with no Node and no network still runs `make ui`, `make test`
+   and `make demo`.
 
-| Paket (rencana) | Versi | Lisensi | Peran | Status di repo |
+Status note, 6 Sep 2026: the contents of `package-lock.json` **have been verified**, line by line, against the lock
+itself, against `node_modules` on disk, and against the npm registry — `docs/versions.md` §"LOCK REPO SUDAH DIBACA"
+(commit `ed77a8c`). Three results from that check belong here rather than being left in a versions file:
+
+- **Zero npm runtime dependencies is a measurement now, not an intention**: `package.json` carries the literal
+  `"dependencies": {}`, and every one of the 48 locked packages is marked `dev`.
+- **Every locked entry has both `resolved` and `integrity`**, all from `registry.npmjs.org`; no other host appears.
+  **8 of the 48** entries were re-fetched from the registry and compared field by field — **8/8 matched** on
+  integrity, tarball URL and license — plus a byte-level check of the `typescript` 7.0.2 tarball whose
+  self-computed sha512 equals the lock's `integrity` (`docs/versions.md`). The remaining 40 entries are **not**
+  individually re-fetched, and this file does not pretend otherwise.
+- **One package is invisible to the lock**: `vscode-jsonrpc` 9.0.0 ships **vendored inside** the `typescript` 7.0.2
+  package (`node_modules/typescript/vendor/vscode-jsonrpc`, MIT, License.txt included) and `grep -ci jsonrpc
+  package-lock.json` → **0**. It is in the table above for exactly that reason: a disclosure built from the lock
+  alone would have missed it.
+
+This file is corrected in the same commit if any of that changes.
+
+## Frontend JS assets — planned (ADR-014), NOT vendored
+
+**Honest status as of 6 Sep 2026: `ui/static/` now EXISTS and holds exactly two files** — `app.css` and `app.js`,
+both esbuild output from `frontend/`, both tracked (`git ls-files ui/static`). An earlier version of this paragraph
+said the directory did not exist; that is corrected here. What has **not** changed is the point this section is
+about: **not one three/GSAP/Lenis file has ever been copied into this repo**, and the shipped bundle uses none of
+them. That is now a measurement, not a plan — a search for `three`, `gsap`, `lenis` and `ScrollTrigger` across
+`core preflight grading agent ui frontend` returns **zero** hits (case-insensitive). The only icon on either screen
+is still an SVG embedded in the HTML.
+
+The plan (ADR-014): when the screens were built, the three libraries would be **vendored locally** into
+`ui/static/vendor/<package>/`, with no build step, no npm, no CDN at runtime (ADR-001; `make demo` must run offline
+from fixtures and the chaos test kills the host). Versions, licenses, file formats and hashes have already been
+verified against primary sources and recorded in `docs/versions.md` §"Aset frontend JS"; the pins themselves still
+await real use. **The screens actually shipped use none of the three**, so this plan remains a plan; if any of them is
+ever used, this file changes in the same commit. Note that ADR-020 narrows the "no build step, no npm" part of
+ADR-014 for the presentation layer (see the section above); it does not vendor any of the three libraries below.
+
+The rows below are a **plan**, not a report about files present in the repo. This file is updated in the same commit
+in which vendoring actually happens (including a per-package copy of LICENSE and copyright headers kept intact).
+
+| Package (planned) | Version | License | Role | Status in repo |
 |---|---|---|---|---|
-| gsap (core + ScrollTrigger) | 3.15.0 | GSAP Standard "No Charge" License (Webflow) | animasi & scroll-trigger | BELUM di-vendor |
+| three | 0.170.0 | MIT | WebGL 3D | NOT vendored |
+| lenis | 1.1.0 | MIT | smooth scroll | NOT vendored |
 
-- Lisensi: GSAP Standard "No Charge" License (Webflow), efektif 30 April 2025 —
-  https://gsap.com/community/standard-license/ (diambil 1 Sep 2026, `docs/versions.md`).
-- **Gratis untuk proyek ini** karena pengguna akhir tidak ditagih biaya apa pun untuk memakai produk ini atau
-  mengakses bagian mana pun darinya. **ScrollTrigger termasuk**: plugin yang dulu "members-only" kini gratis.
-- **Tidak ada kewajiban atribusi**, tetapi bagian III lisensi melarang menghapus atau mengubah proprietary
-  notice/branding — jadi bila nanti di-vendor, header hak cipta di dalam berkas `.js` wajib dipertahankan utuh.
-- Grant (bagian II) berbunyi "use, reproduce, display, and implement" — **tanpa kata "distribute" atau "sublicense"**.
-  Menyalin berkas untuk dijalankan sebagai bagian aplikasi ini tercakup; meredistribusikan GSAP sebagai paket tidak.
-- Upstream **tidak menyertakan berkas lisensi sama sekali** (paket npm nol berkas LICENSE; repo GitHub
-  `license: None`). Karena itu, saat vendoring nanti proyek ini harus membuat sendiri
-  `ui/static/vendor/gsap/LICENSE.txt` berisi salinan teks resmi + catatan provenans (URL sumber dan tanggal
-  pengambilan). Berkas tersebut **belum ada** karena vendoring-nya belum terjadi.
+GSAP is deliberately **not** in this table — see the next section.
 
-## Reference material (tidak di-ship, tidak dieksekusi)
-- `references/awwwards-3d/` — skill panduan desain 3D scroll-driven, **MIT** (Copyright (c) 2026 awwwards-3d skill
-  authors). Dipakai sebagai acuan gaya visual (ADR-014). Tidak ada kodenya yang masuk ke produk; library yang
-  dirujuknya (three.js, GSAP, Lenis) hanya akan dipakai bila di-vendor eksplisit — status vendoring ada di dua bagian
-  di atas.
+## Third-party proprietary (no-charge license) — also NOT vendored
+Kept separate from the open-source table above because **GSAP is not open source software** (a consequence of
+ADR-014).
+
+| Package (planned) | Version | License | Role | Status in repo |
+|---|---|---|---|---|
+| gsap (core + ScrollTrigger) | 3.15.0 | GSAP Standard "No Charge" License (Webflow) | animation & scroll trigger | NOT vendored |
+
+- License: GSAP Standard "No Charge" License (Webflow), effective 30 April 2025 —
+  https://gsap.com/community/standard-license/ (retrieved 1 Sep 2026, `docs/versions.md`).
+- **Free for this project** because end users are not charged anything to use this product or to access any part of
+  it. **ScrollTrigger is included**: the plugin that used to be "members-only" is now free.
+- **No attribution obligation**, but part III of the license forbids removing or altering proprietary
+  notices/branding — so if it is ever vendored, the copyright headers inside the `.js` files must be kept intact.
+- The grant (part II) reads "use, reproduce, display, and implement" — **without the words "distribute" or
+  "sublicense"**. Copying the files to run them as part of this application is covered; redistributing GSAP as a
+  package is not.
+- Upstream **ships no license file at all** (the npm package has zero LICENSE files; the GitHub repo says
+  `license: None`). So when vendoring happens, this project must itself create
+  `ui/static/vendor/gsap/LICENSE.txt` containing a copy of the official text plus a provenance note (source URL and
+  retrieval date). That file **does not exist yet**, because the vendoring has not happened.
+
+## Reference material (not shipped, not executed)
+- `references/awwwards-3d/` — a 3D scroll-driven design guidance skill, **MIT** (Copyright (c) 2026 awwwards-3d skill
+  authors). Used as a visual style reference (ADR-014). None of its code enters the product; the libraries it refers
+  to (three.js, GSAP, Lenis) will only be used if explicitly vendored — vendoring status is in the two sections
+  above.
 
 ## Datasets
-- Tidak ada dataset pihak ketiga di runtime. Referensi sitasi (bukan komponen): RED-PUMP-2026-v1 (CC BY 4.0) — hanya
-  bila dipakai; MELT (CC BY-NC 4.0) — **TIDAK dipakai** (klausa NonCommercial ditolak).
+- No third-party dataset at runtime. Citation references (not components): RED-PUMP-2026-v1 (CC BY 4.0) — only if
+  used; MELT (CC BY-NC 4.0) — **NOT used** (the NonCommercial clause was rejected).
 
-## External services (read-only) — hanya yang `approved: true` di `sources.yaml`
-| Sumber | Untuk | ToS | Status izin |
+## External services (read-only) — only those with `approved: true` in `sources.yaml`
+| Source | For | ToS | Permission status |
 |---|---|---|---|
-| RYO-CHAN tools (MCP/REST, app-ryochan.com/api/mcp) | semua data pasar | disediakan penyelenggara | approved |
-| Anthropic Claude API (`claude-opus-5`, SDK `anthropic` 1.2.0) | narasi kartu per item dari data terstruktur; **tidak pernah menyentuh keputusan** (tes menjaga `decision_hash`) | https://www.anthropic.com/legal/commercial-terms | "your own AI model" — landing page RYO |
+| RYO-CHAN tools (MCP/REST, app-ryochan.com/api/mcp) | all market data | provided by the organisers | approved |
+| Anthropic Claude API (`claude-opus-5`, SDK `anthropic` 1.2.0) | per-item card narration from structured data; **never touches the decision** (tests guard `decision_hash`) | https://www.anthropic.com/legal/commercial-terms | "your own AI model" — RYO landing page |
 
-Output tool RYO adalah data RYO: dipakai hanya di dalam submission, tidak dipublikasikan di post sosial
+RYO tool output is RYO data: used only inside the submission, not published in social posts
 (ADR-008, `docs/rules-compliance.md`).
 
-**Fixture di repo = salinan output RYO, bukan bahan pihak ketiga yang baru.** `docs/samples/*.json` (6 envelope live,
-1 Sep 2026), `agent/fixtures/*.json`, dan `preflight/fixtures/*.json` semuanya disalin dari respons tool RYO di atas
-dan tercakup oleh baris RYO-CHAN; tidak ada dataset atau sumber baru yang masuk lewat berkas itu, jadi tidak ada baris
-tambahan di sini. Satu pengecualian yang wajib disebut: di
-`preflight/fixtures/outage-one-tool-2026-09-05.json` satu envelope **dibentuk** menjadi `status: "unavailable"` karena
-RYO belum pernah mengeluarkan status itu (0 dari 3645 snapshot, `docs/api-facts.md` §A). Berkasnya mengaku sendiri di
-blok `synthetic`, dan naskah `make demo` mencetak pengakuan itu — lihat README §6.
+**Fixtures in the repo = copies of RYO output, not new third-party material.** `docs/samples/*.json` (6 live
+envelopes, 1 Sep 2026), `agent/fixtures/*.json` and `preflight/fixtures/*.json` are all copied from the responses of
+the tool above and are covered by the RYO-CHAN row; no dataset or new source enters through those files, so there is
+no extra row here. One exception that must be named: in
+`preflight/fixtures/outage-one-tool-2026-09-05.json` one envelope is **shaped** into `status: "unavailable"` because
+RYO has never emitted that status (0 out of 3645 snapshots, `docs/api-facts.md` §A). The file declares this itself in
+a `synthetic` block, and the `make demo` script prints that declaration — see README §6.
 
 ## Simulation notice
-Semua posisi adalah practice/simulated. Tidak ada dana nyata, wallet, atau eksekusi. Swap yang dianalisis (bila ada)
-adalah transaksi on-chain publik pihak ketiga yang diamati, bukan trade kami.
+All positions are practice/simulated. No real funds, no wallet, no execution. Any swap analysed is a public
+third-party on-chain transaction that was observed, not a trade of ours.

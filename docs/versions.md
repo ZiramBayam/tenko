@@ -7,8 +7,144 @@ Aturan: pin persis. Jangan upgrade/downgrade tanpa ADR. "BELUM DIVERIFIKASI" →
 | Python | **3.12** (`.python-version`; lokal 3.12.3) | evaluator pakai 3.13 lewat uv; di sini pin 3.12 = interpreter sistem, nol instalasi tambahan |
 | uv | 0.12.7 (lokal) | pengelola env & lock |
 | SQLite | 3.45.1 (stdlib `sqlite3`) | tidak perlu server DB |
-| Node/pnpm | TIDAK DIPAKAI (ADR-001) | |
+| Node/npm | **ALAT BUILD SAJA** (ADR-020, 6 Sep 2026) — node **v24.15.0**, npm **11.12.1** | Menggantikan baris lama "Node/pnpm TIDAK DIPAKAI (ADR-001)": ADR-020 mempersempit ADR-001/ADR-014, Node/npm TIDAK PERNAH runtime. pnpm tetap TIDAK DIPAKAI. Detail pin + bukti: bagian "Frontend build (Node/npm — ALAT BUILD SAJA, ADR-020)" di bawah |
 | openssl (binary sistem) | **3.0.13** (30 Jan 2024; `openssl version`, diverifikasi verifikasi API 6 Sep 2026) | HANYA di `scripts/chaos.sh:304` untuk sertifikat self-signed umur 1 hari (`RyoClient` menolak base_url non-https, jadi server fixture 429 harus TLS). Bukan dependency Python: tidak ada di `uv.lock`/`pyproject.toml`, tidak diimpor, tidak di-vendor; sertifikat lahir di `mktemp -d` dan tidak pernah masuk repo. Sekelas `git`/`curl`/`make`/`bash`. Skrip sudah gagal-tertutup bila tidak ada (`record rate_limit_429 DILEWATI`), jadi ia tidak wajib terpasang. **Keputusan baris `DISCLOSURE.md` bukan milik berkas ini** — lihat rekomendasi verifikasi API ke `penulisan dokumen` |
+
+## Frontend build (Node/npm — ALAT BUILD SAJA, ADR-020) — diverifikasi verifikasi API 6 Sep 2026
+Dasar: **ADR-020** (DITERIMA 6 Sep 2026, `docs/decisions.md`). Yang berlaku dan wajib tetap benar:
+- **Runtime tetap Python murni.** Node/npm hanya dipanggil untuk membangun `ui/static/app.js` + `ui/static/app.css`.
+  Hasil build **dilacak git**; clone bersih **tanpa Node sama sekali** harus tetap bisa `make ui`/`make test`/`make demo`.
+- **Nol dependency runtime npm.** Semua paket npm masuk `devDependencies`; tidak ada satu pun byte npm yang dikirim ke browser
+  selain hasil bundel kode kita sendiri. Tanpa framework runtime, tanpa CDN (larangan CDN di bagian "Aset frontend JS" tetap berlaku).
+- **`node_modules/` wajib masuk `.gitignore`; `ui/static/` wajib TIDAK di-gitignore.** ✓ **TERPENUHI per 6 Sep 2026**
+  (commit `ed77a8c`): `grep -n node_modules .gitignore` → satu baris `node_modules/` di blok "artefak build"; `.gitignore`
+  memuat komentar eksplisit bahwa `ui/static/` sengaja TIDAK diabaikan; `git ls-files ui/static` → `ui/static/app.css`,
+  `ui/static/app.js` (keduanya dilacak). Catatan lama "`.gitignore` belum memuat entri Node sama sekali" sudah **usang**.
+
+| Alat/Paket | Pin | Lisensi | Bukti (URL/perintah, 6 Sep 2026) |
+|---|---|---|---|
+| Node.js | **v24.15.0** (rilis 2026-04-15) | **MIT** untuk inti Node.js; berkas `LICENSE` (156.926 byte) juga memuat 44 blok lisensi komponen yang di-bundle (Acorn, c-ares, ICU, libuv, llhttp, undici, OpenSSL, V8/ittapi, amaro/swc, corepack, …) | `node --version` → `v24.15.0` (lokal, `/home/zirambayam/.nvm/versions/node/v24.15.0/bin/node`); `head -20 $(dirname $(which node))/../LICENSE`; `curl -sS https://nodejs.org/dist/index.json` → entri `v24.15.0`: `date 2026-04-15`, `lts "Krypton"`, `npm 11.12.1`, `v8 13.6.233.17` |
+| — baris rilis Node | **LTS (bukan Current)** — v24 = LTS *Krypton* | — | `node -p "process.release.lts"` → `Krypton` (dinyatakan oleh binary itu sendiri). Jadwal resmi `https://raw.githubusercontent.com/nodejs/Release/main/schedule.json` → `v24: {start 2025-05-06, lts 2025-10-28, maintenance 2026-10-20, end 2028-04-30, codename Krypton}`. Per 6 Sep 2026 baris **Current** adalah v26.x (rilis terbaru `v26.8.1`, 2026-08-26, `lts:false`; v26 baru jadi LTS 2026-10-28) → v24.15.0 masih **Active LTS**, masuk maintenance 20 Okt 2026 |
+| npm | **11.12.1** (ikut bundel Node v24.15.0) | **Artistic-2.0** | `npm --version` → `11.12.1`; `node_modules/npm/package.json` terpasang → `"license":"Artistic-2.0"`; `LICENSE`-nya: *"The npm application … Licensed on the terms of The Artistic License 2.0"*. Cocok dengan field `npm` di `nodejs.org/dist/index.json` untuk v24.15.0. (npm mengabarkan 12.0.2 tersedia — **jangan** naikkan: pin = yang ikut Node LTS) |
+| typescript | **7.0.2** (rilis 2026-07-08T15:55:18Z, `dist-tags.latest`, tidak deprecated) | **Apache-2.0** (`versions["7.0.2"].license` + berkas `LICENSE` di paket = teks Apache License 2.0) | `curl -sS https://registry.npmjs.org/typescript`; `engines.node` = **`>=16.20.0`** (Node 24.15.0 ✓); `bin.tsc`; integrity `sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==` |
+| @typescript/typescript-linux-x64 | **7.0.2** (transitif wajib typescript 7 di mesin ini) | **Apache-2.0** (berkas `LICENSE` di paket) | Lihat catatan "typescript 7.0.2" di bawah |
+| esbuild | **0.28.2** (rilis 2026-08-08T20:00:55Z, `dist-tags.latest`, tidak deprecated) | **MIT** (`LICENSE.md`: *"MIT License / Copyright (c) 2020 Evan Wallace"*) | `curl -sS https://registry.npmjs.org/esbuild`; `engines.node` = `>=18` (✓); **nol `dependencies`**, hanya 26 `optionalDependencies` binary per-platform; integrity `sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA==` |
+| @esbuild/linux-x64 | **0.28.2** (satu-satunya binary esbuild yang terpasang di mesin ini) | **MIT** (`package.json` → `"license":"MIT"`; **tidak ada berkas LICENSE** di dalam paket binary) | `os:["linux"]`, `cpu:["x64"]`, `engines.node >=18`; integrity `sha512-4xTZr1FUmSoQW4XIWmit3tzQrUTZM+N3P0XV8xROKYF50XfI7xeO90+1bZvNwxIufQ9hDQVRJH5YhgPVF8A/HQ==` |
+
+**Bukti instalasi nyata (bukan pembacaan registry saja).** `npm install --save-dev typescript@7.0.2 esbuild@0.28.2` di direktori scratch
+(bukan repo), Node v24.15.0 / npm 11.12.1, `linux x64` (`node -p "[process.platform,process.arch].join(' ')"`), 6 Sep 2026 →
+`added 4 packages`. Yang **benar-benar ada di disk** hanya empat: `typescript`, `@typescript/typescript-linux-x64`, `esbuild`,
+`@esbuild/linux-x64`. `package-lock.json` (lockfileVersion 3) tetap **mencatat seluruh matriks** 20 binary `@typescript/*` +
+26 binary `@esbuild/*` sebagai `"dev": true, "optional": true` — itu metadata lock, bukan berkas terpasang; `DISCLOSURE.md`
+cukup menyebut yang terpasang. Semua entri lock bertanda `dev` → **nol dependency runtime**, sesuai ADR-020 §3.
+Smoke test di env yang sama: `tsc -p tsconfig.json` (strict, `noEmit`) → lolos; `esbuild src/a.ts --bundle --minify --format=iife`
+→ `out.js` 141 byte, `⚡ Done in 6ms`. Keduanya jalan di Node 24.15.0.
+
+**typescript 7.0.2 — baca sebelum memakai.** Paket `typescript` 7.0.2 **bukan lagi kompiler JavaScript murni**: ia mendeklarasikan
+20 paket `@typescript/typescript-<os>-<arch>` (native, port Go) sekaligus di `dependencies` **dan** di `optionalDependencies`
+dengan versi `7.0.2` persis, dan `bin/tsc` hanya `import "../lib/tsc.js"` yang menemukan executable lewat `lib/getExePath.js`.
+Konsekuensinya: build butuh binary per-platform, jadi **mesin build berbeda arsitektur menarik paket berbeda** — sebutkan di
+`DISCLOSURE.md` yang terpasang di mesin build kita (`linux-x64`). Paket juga mem-*vendor* `vendor/vscode-jsonrpc` **9.0.0 (MIT,
+`License.txt` ikut)** dan menyertakan `NOTICE.txt` Microsoft untuk material pihak ketiga (mis. DefinitelyTyped) — `NOTICE.txt` dan
+`LICENSE` **wajib tidak dihapus** bila isi paket pernah disalin. Baris 5.x/6.x masih ada bila ADR ingin turun versi:
+`5.9.3` (2025-09-30) dan `6.0.3` (2026-04-16); 7.0.2 adalah satu-satunya rilis stabil 7.x per 6 Sep 2026.
+
+**esbuild 0.28.2 — `postinstall` bisa menyentuh jaringan.** `scripts.postinstall` = `node install.js`. Jalur normal (binary
+platform sudah terpasang lewat `optionalDependencies`) **tidak** mengunduh apa pun. Tetapi bila `@esbuild/<platform>` tidak
+ditemukan (mis. dipasang dengan `--no-optional`), `install.js` mencoba `npm install` lalu **mengunduh langsung**
+`https://registry.npmjs.org/@esbuild/<platform>/-/<platform>-0.28.2.tgz` (fungsi `downloadDirectlyFromNPM`, diverifikasi dengan
+membaca `node_modules/esbuild/install.js` baris 244–255) dengan cek `sha256` terhadap `esbuild.binaryHashes` di package.json-nya.
+Ini **langkah build**, bukan runtime, jadi tidak melanggar larangan sumber eksternal runtime — tapi jangan pernah menjalankan
+`npm install --no-optional`, dan `npm ci` untuk build wajib memakai lock. Fakta ini juga berarti **build tidak dijamin offline**;
+yang dijamin offline oleh ADR-020 adalah **menjalankan** Tenko (hasil build dilacak git).
+
+**LOCK REPO SUDAH DIBACA — daftar terkunci (verifikasi 6 Sep 2026, `package-lock.json` commit `ed77a8c`).**
+Ini menggantikan catatan lama "`package.json`/`package-lock.json` BELUM ADA di repo → BELUM DIVERIFIKASI"; berkas itu **sekarang ada**
+dan sudah dibaca baris demi baris. Perintah yang dipakai:
+`python3 -c "import json;d=json.load(open('package-lock.json'));print(d['lockfileVersion'],len(d['packages']))"` → `3 49`.
+
+- `lockfileVersion` **3**; `packages` berisi **49 entri = 1 entri akar (`""`) + 48 paket**. Angka "48" yang dilaporkan
+  `frontend-engineer` **BENAR** bila dibaca sebagai paket non-akar.
+- Entri akar: `name tenko-frontend`, `version 0.0.0`, `license UNLICENSED`, hanya `devDependencies {esbuild 0.28.2, typescript 7.0.2}`.
+- `package.json` → **`"dependencies": {}`** (literal, kosong). **KONFIRMASI: nol dependency runtime npm.**
+- Ke-48 paket **semuanya bertanda `"dev": true`**; 46 di antaranya juga `"optional": true`. Hanya **dua** entri non-opsional:
+  `node_modules/esbuild` dan `node_modules/typescript`.
+- Semua 48 entri punya `resolved` (semuanya `https://registry.npmjs.org/...`) **dan** `integrity` — nol entri tanpa hash,
+  nol entri dari host selain registry npm resmi.
+- Distribusi lisensi menurut field `license` di lock: **MIT 27** (esbuild + 26 binary `@esbuild/*`), **Apache-2.0 21**
+  (typescript + 20 binary `@typescript/*`), **UNLICENSED 1** (entri akar, paket kita sendiri, `private: true`).
+
+**Daftar lengkap 48 paket + versi + lisensi (tidak ada yang lain):**
+
+| Paket | Versi | Lisensi | Sifat |
+|---|---|---|---|
+| `esbuild` | 0.28.2 | MIT | dev, **non-opsional** — `hasInstallScript: true` |
+| `typescript` | 7.0.2 | Apache-2.0 | dev, **non-opsional** |
+| `@esbuild/<platform>` × **26** | 0.28.2 | MIT (ke-26-nya) | dev + optional, dibatasi `os`/`cpu` |
+| `@typescript/typescript-<platform>` × **20** | 7.0.2 | Apache-2.0 (ke-20-nya) | dev + optional, dibatasi `os`/`cpu` |
+
+- 26 `@esbuild/*` (**KONFIRMASI angka 26**): `aix-ppc64`, `android-arm`, `android-arm64`, `android-x64`, `darwin-arm64`, `darwin-x64`, `freebsd-arm64`, `freebsd-x64`, `linux-arm`, `linux-arm64`, `linux-ia32`, `linux-loong64`, `linux-mips64el`, `linux-ppc64`, `linux-riscv64`, `linux-s390x`, `linux-x64`, `netbsd-arm64`, `netbsd-x64`, `openbsd-arm64`, `openbsd-x64`, `openharmony-arm64`, `sunos-x64`, `win32-arm64`, `win32-ia32`, `win32-x64`
+- 20 `@typescript/typescript-*` (**KONFIRMASI angka 20**): `aix-ppc64`, `darwin-arm64`, `darwin-x64`, `freebsd-arm64`, `freebsd-x64`, `linux-arm`, `linux-arm64`, `linux-loong64`, `linux-mips64el`, `linux-ppc64`, `linux-riscv64`, `linux-s390x`, `linux-x64`, `netbsd-arm64`, `netbsd-x64`, `openbsd-arm64`, `openbsd-x64`, `sunos-x64`, `win32-arm64`, `win32-x64`
+
+**Yang benar-benar terpasang di mesin ini: 4 paket (KONFIRMASI angka 4) — plus 1 yang di-vendor dan TIDAK ada di lock.**
+`find node_modules -name package.json -not -path "*/lib/*"` (6 Sep 2026, `linux x64`, Node v24.15.0 / npm 11.12.1) →
+
+| Di disk | Versi | Lisensi | Ada di lock? |
+|---|---|---|---|
+| `node_modules/esbuild` | 0.28.2 | MIT | ya |
+| `node_modules/typescript` | 7.0.2 | Apache-2.0 | ya |
+| `node_modules/@esbuild/linux-x64` | 0.28.2 | MIT | ya |
+| `node_modules/@typescript/typescript-linux-x64` | 7.0.2 | Apache-2.0 | ya |
+| `node_modules/typescript/vendor/vscode-jsonrpc` | **9.0.0** | **MIT** | **TIDAK** |
+
+`find node_modules -mindepth 2 -name node_modules -type d` → **nol** (tidak ada pohon bersarang); satu-satunya direktori
+`vendor/` di seluruh `node_modules` adalah `node_modules/typescript/vendor`.
+
+**`vscode-jsonrpc` 9.0.0 — di-vendor di dalam paket typescript, TIDAK muncul di lock (dikonfirmasi, dan ini penting).**
+- `grep -ci jsonrpc package-lock.json` → **0**. Lock tidak menyebutnya sama sekali.
+- `node_modules/typescript/vendor/vscode-jsonrpc/package.json` → `"version": "9.0.0"`, `"license": "MIT"`,
+  `"author": "Microsoft Corporation"`; `License.txt` ikut terkirim (diawali `Copyright (c) Microsoft Corporation` … `MIT License`).
+- **Ini datang dari upstream, bukan disuntik lokal.** Tarball resmi diunduh ulang dari registry dan diperiksa isinya:
+  `curl -sS -o ts.tgz https://registry.npmjs.org/typescript/-/typescript-7.0.2.tgz` (365.612 byte) →
+  sha512 hasil hitung sendiri = `sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==`
+  = **persis** `integrity` typescript di lock; `tar tzf ts.tgz | grep jsonrpc` → berisi `package/vendor/vscode-jsonrpc/...`;
+  `tar xzf ts.tgz package/vendor/vscode-jsonrpc/package.json -O` → `version 9.0.0`, `license MIT`.
+- **Konsekuensi audit yang harus dicatat:** audit yang hanya membaca `package-lock.json` (atau `npm ls`) **AKAN MELEWATKAN**
+  `vscode-jsonrpc` 9.0.0. Daftar lisensi/disclosure **tidak boleh** dibuat dari lock saja; harus ditambah pemindaian
+  `find node_modules -name package.json` (atau isi tarball) untuk menangkap paket ter-vendor.
+
+**Integrity lock diperiksa terhadap registry npm (bukti lock tidak dikarang) — 8 dari 48 entri, 8/8 COCOK.**
+Perintah: untuk tiap `<pkg>`, `curl -sS https://registry.npmjs.org/<pkg>` lalu bandingkan
+`versions["<ver>"].dist.integrity` / `.dist.tarball` / `.license` dengan nilai di lock. Hasil 6 Sep 2026:
+
+| Entri lock diuji | integrity | tarball URL | field `license` | deprecated |
+|---|---|---|---|---|
+| `typescript` 7.0.2 | COCOK | COCOK | COCOK (Apache-2.0) | tidak |
+| `esbuild` 0.28.2 | COCOK | COCOK | COCOK (MIT) | tidak |
+| `@esbuild/linux-x64` 0.28.2 | COCOK | COCOK | COCOK (MIT) | tidak |
+| `@typescript/typescript-linux-x64` 7.0.2 | COCOK | COCOK | COCOK (Apache-2.0) | tidak |
+| `@esbuild/win32-x64` 0.28.2 | COCOK | COCOK | COCOK (MIT) | tidak |
+| `@esbuild/openharmony-arm64` 0.28.2 | COCOK | COCOK | COCOK (MIT) | tidak |
+| `@typescript/typescript-darwin-arm64` 7.0.2 | COCOK | COCOK | COCOK (Apache-2.0) | tidak |
+| `@typescript/typescript-aix-ppc64` 7.0.2 | COCOK | COCOK | COCOK (Apache-2.0) | tidak |
+
+Ditambah pemeriksaan byte-level di atas untuk tarball `typescript` 7.0.2 (sha512 dihitung sendiri = integrity lock).
+Kesimpulan: **lock ini asli hasil resolusi npm terhadap registry resmi, bukan karangan.**
+
+**Sanity check daftar optionalDependencies terhadap registry.** `versions["7.0.2"]` typescript di registry mendeklarasikan
+20 paket `@typescript/*` **sekaligus** di `dependencies` **dan** `optionalDependencies` (mengonfirmasi catatan
+"typescript 7.0.2 — baca sebelum memakai" di atas; npm memperlakukan dep yang ada di kedua tempat sebagai opsional, itulah
+sebabnya lock menandainya `"optional": true`). `versions["0.28.2"]` esbuild: `dependencies` **kosong**, 26 `optionalDependencies`.
+Kedua daftar registry cocok satu-satu dengan entri lock.
+
+**Build memakai `npm ci` (bukan `npm install`).** `Makefile` target `frontend` baris 36: `npm ci` dengan komentar
+"ci, bukan install: lockfile yang menentukan, bukan rentang versi" — KONFIRMASI. Target itu juga gagal-lunak bila `npm`
+tidak ada (`command -v npm || echo … >&2`), dan `make ui`/`make test`/`make demo` tidak menyentuh npm sama sekali.
+
+**Nol byte pihak ketiga di hasil build.** `ui/static/app.js` 34.616 byte, `ui/static/app.css` 7.687 byte;
+`grep -ciE "jsonrpc|esbuild|typescript|MIT License" ui/static/app.js` → **0**. Bundel hanya berisi kode `frontend/src/` kita
+sendiri (esbuild dipanggil dengan `--legal-comments=none` dan tidak ada satu pun paket npm yang di-`import`).
+
 
 ## Python (pyproject.toml)
 | Paket | Versi | Status |
@@ -115,6 +251,16 @@ teknologi machine learning, *"human reviewers may read, annotate, and process yo
 verifikasi API tidak menyimpulkan aman/tidak aman; keputusannya milik pemilik repo.
 
 ## Aset frontend JS (di-vendor lokal, TANPA CDN, TANPA npm) — diverifikasi verifikasi API 1 Sep 2026
+**STATUS 6 Sep 2026: judul "TANPA npm" sudah usang untuk npm** — ADR-020 mengizinkan npm sebagai alat BUILD
+(lihat bagian "Frontend build" di atas). Yang TETAP berlaku dari bagian ini: **nol CDN saat runtime** dan **nol framework runtime**.
+three/gsap/lenis di bawah **tidak pernah ber-ADR dan tidak dipakai** (ADR-020 §3: "TypeScript + DOM apa adanya", nol dependency
+runtime npm) — fakta versi/lisensi/hash di bawah dipertahankan sebagai arsip verifikasi, bukan rencana.
+**DIPERIKSA ULANG 6 Sep 2026 setelah penulisan ulang frontend (`ed77a8c`) mendarat — "tidak dipakai" masih BENAR, nol:**
+`grep -rniE "three|gsap|lenis|scrolltrigger|importmap|jsdelivr|unpkg|esm\.sh|cdn\." core preflight grading agent ui frontend`
+(atas `*.py *.ts *.js *.css *.html`) → **nol baris**; `ls ui/static/` → hanya `app.js` + `app.css`, **tidak ada `ui/static/vendor/`**;
+`package.json` → `"dependencies": {}` dan `devDependencies` hanya `esbuild`+`typescript`; nol entri three/gsap/lenis di
+`package-lock.json`. Jadi kewajiban lisensi GSAP (proprietary) dan MIT three/lenis **tidak pernah aktif** — tidak ada satu byte pun
+dari ketiganya yang dikirim. Baris DISCLOSURE untuk ketiganya harus tetap berstatus "NOT vendored".
 Konteks: gaya awwwards (3D + GSAP + smooth scroll) untuk semua layar Fase 3.2. Runtime TIDAK boleh menyentuh CDN
 (`make demo` harus jalan offline dari fixture dengan dua run identik — spec §7; chaos test TASKS 4.5 mematikan host;
 docs/rules-compliance.md membatasi endpoint eksternal). Semua file disalin apa adanya ke `ui/static/vendor/<paket>/`

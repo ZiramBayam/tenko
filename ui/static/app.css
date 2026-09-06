@@ -436,3 +436,125 @@ button:focus-visible {
   color: var(--warn);
   font-weight: 700;
 }
+:root {
+  --t-fig: clamp(38px, 7vw, 64px);
+  --t-head: clamp(19px, 2.4vw, 25px);
+}
+.hero {
+  padding: var(--s6) 0 var(--s5);
+  border-bottom: 1px solid var(--line);
+}
+.kicker {
+  margin: 0 0 var(--s4);
+  font: 700 13px/1.4 var(--mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.hero h1 {
+  margin: 0 0 var(--s4);
+  max-width: 18ch;
+  font-size: var(--t-fig);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+.lede {
+  margin: 0 0 var(--s5);
+  max-width: 68ch;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  margin: 0 0 var(--s4);
+}
+.cta a {
+  display: inline-block;
+  padding: 13px var(--s4);
+  border-radius: var(--r1);
+  font: 700 15px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-decoration: none;
+}
+.cta .go {
+  border: 2px solid var(--go);
+  background: var(--panel);
+  color: var(--go);
+}
+.cta .alt {
+  border: 1px solid var(--line);
+  color: var(--dim);
+}
+.why,
+.proofs,
+.board {
+  padding: var(--s5) 0;
+  border-bottom: 1px solid var(--line);
+}
+.why h2,
+.proofs h2,
+.board h2 {
+  margin: 0 0 var(--s4);
+  font-size: var(--t-head);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.why .answer {
+  max-width: 72ch;
+}
+.figs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--s4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.figs li {
+  padding: var(--s4);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r2);
+}
+.fig {
+  margin: 0;
+  font: 700 var(--t-fig) / 0.95 var(--mono);
+  letter-spacing: -0.03em;
+}
+.fig-label {
+  margin: var(--s2) 0 var(--s3);
+  font-weight: 700;
+  line-height: 1.35;
+}
+.lb {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.lb caption {
+  margin-bottom: var(--s3);
+  text-align: left;
+}
+.lb th,
+.lb td {
+  padding: 11px var(--s3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: baseline;
+}
+.lb thead th {
+  font: 700 12px/1.4 var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.lb tbody th {
+  font: 700 17px/1.3 var(--mono);
+  letter-spacing: 0.02em;
+}
+.lb tbody tr:nth-child(even) {
+  background: var(--row);
+}

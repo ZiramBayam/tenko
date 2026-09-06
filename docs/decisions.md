@@ -389,3 +389,56 @@ ulang jadi tes yang memaku CSP baru — jangan dihapus, jangan dilonggarkan).
 Risiko yang diterima sadar: laporan juri 5.2 menilai UI lama, jadi skor T2 85 **tidak lagi berlaku** sampai
 `hackathon-judge` dijalankan ulang atas UI baru. Bila penulisan ulang tidak selesai sebelum 8 Sep, jalan
 mundurnya adalah `git revert` commit-commit UI — bukan mengirim layar setengah jadi.
+
+## ADR-021 (DITERIMA 6 Sep 2026) `/` menjadi landing page; aplikasi pindah ke `/app`; `/ui` tetap hidup sebagai alias
+Konteks: pemilik repo meminta (6 Sep 2026, sesudah keberatan dicatat dan diulang) landing page yang menjual di `/`,
+dengan Layar A/B di `/app`. Ini MEMBUKA ULANG TASKS 3.5 — yang ditulis pemilik repo sendiri pada hari yang sama —
+dan karena itu butuh ADR, bukan perubahan diam-diam.
+
+Keberatan yang diajukan sebelum keputusan, dan yang tetap berlaku sebagai risiko yang diterima:
+1. Rubric resmi (spec §8) tidak memberi satu poin pun untuk landing page. 100 = 40 umum + 60 track; T2 =
+   Easy to read 25 · Sorted by importance 25 · Works for everyone 10. Daftar "Tidak dinilai" memuat
+   "tembok chart tanpa argumen" — hero section masuk kategori yang sama.
+2. Alasan TASKS 3.5 masih berlaku apa adanya: pemilik repo membuka `127.0.0.1:8000`, melihat indeks JSON, dan
+   mengira itu seluruh frontend. Landing di `/` memasang satu langkah lagi antara juri dan produk, dan juri
+   punya 30 detik tanpa siapa pun yang memandu.
+3. Sisa waktu (deadline 8 Sep) lebih dibutuhkan TASKS 4.6 (Works for everyone 10 — sepuluh poin rubric yang
+   belum diklaim) dan 5.0 (bekukan params; prasyarat rekaman video).
+Pemilik repo mengulang permintaannya sesudah membaca semua itu; ini keputusannya, bukan kelalaian.
+
+Keputusan:
+1. **`GET /` = landing page.** 200 HTML, BUKAN 3xx — alasan ADR-020/TASKS 3.5 tidak berubah: `curl` tanpa `-L`
+   menerima badan kosong dari 302, sehingga respons pertama yang dilihat pemanggil akan jadi respons tanpa
+   banner SIMULATED, dan `docs/rules-compliance.md` menuntut banner itu di layar yang dilihat orang.
+2. **`GET /app` = Layar A, `GET /app/decision/{id}` = Layar B — dan itu yang KANONIK.** Landing wajib membawa
+   tautan ke `/app` di atas lipatan, sebagai hal pertama yang bisa diklik; kalau juri hanya membaca satu layar,
+   ia harus sampai ke aplikasi dalam satu klik.
+3. **`GET /ui` dan `/ui/decision/{id}` TETAP dilayani** sebagai alias (bukan redirect), karena README,
+   `agent/demo.py`, dan `scripts/chaos.sh` menunjuk ke sana. Mematikannya berarti mengubah tiga berkas lain
+   plus laporan chaos di tengah minggu deadline, tanpa satu pun poin rubric sebagai imbalan.
+4. **Aset TIDAK dipindah**: `/ui/tenko.css` dan `/ui/app.js` tetap di tempatnya, dipakai landing dan aplikasi.
+   `/ui` dengan begitu berperan ganda (prefix aset + alias layar). Itu ketidakrapian yang DITERIMA SADAR:
+   memindahkannya menyentuh ~15 asersi tes dan dua berkas sumber, dan tidak mengubah apa pun yang dinilai.
+5. **Landing tidak punya gambar.** CSP `img-src 'none'` (ADR-020 butir 5) melarang setiap gambar, termasuk yang
+   di-host sendiri; melonggarkannya butuh ADR tersendiri dan TIDAK dilakukan di sini. Grafis landing karena itu
+   **inline SVG** — markup, bukan fetch — mengikuti preseden `BANNER_ICON`. Nol permintaan jaringan tetap utuh.
+6. **Landing adalah layar INERT bagi klien.** `data-screen="landing"`; `main.ts` berhenti di situ persis seperti
+   pada `error`: tidak mengambil apa pun, tidak menyegarkan apa pun, tanpa bar kontrol dan tanpa timer polling.
+   Tanpa butir ini `start()` akan jatuh ke cabang watchlist (`main.ts:338`) dan melukis Layar A di atas landing.
+7. **Banner SIMULATED tetap dirender server di landing**, sama seperti layar lain (ADR-020 butir 6). Landing
+   memakai `_shell` yang sama; ia tidak mendapat kerangka sendiri.
+8. **Gaya: papan informasi kereta Jepang** (rujukan pemilik repo, 6 Sep). Alasannya bukan selera: Tenko (点呼)
+   dan "tunjuk & sebut" ADALAH 指差喚呼, prosedur keselamatan kereta Jepang — jadi bahasa visualnya milik produk
+   ini, bukan tempelan. Aturan yang diambil: urutan kolom tetap, maksimal 4 ukuran teks, hijau/amber/merah
+   HANYA sebagai status, warna jenuh di bawah ~20% area. Yang TIDAK diambil: rotasi bahasa tiap beberapa detik —
+   ia menyembunyikan informasi di balik timer dan akan menggagalkan uji 30 detik spec §8.
+
+Konsekuensi: `ui/app.py` (route `/`, `/app`, `/app/decision/{id}`; `/api/routes` menyebut `/app`) ·
+`ui/screens.py` (`render_landing`, `LANDING_CLIENT_NOTE`) · `frontend/src/main.ts` (layar inert) ·
+`tests/test_ui.py` (tes yang memaku `/` sebagai Layar A dan `screens.A_watchlist == "/"` WAJIB ditulis ulang
+jadi tes yang memaku niat baru — jangan dihapus, jangan dilonggarkan) · README (peta route) · TASKS 3.5 (AC
+diamandemen). Nol dependency baru, nol baris `DISCLOSURE.md`, nol perubahan `sources.yaml`.
+
+Risiko yang diterima sadar: laporan juri 5.2 menilai `/` sebagai Layar A. Bila landing tidak selesai sebelum
+8 Sep, jalan mundurnya `git revert` commit landing — `/app` dan `/ui` sudah berdiri sendiri, jadi revert itu
+mengembalikan `/` ke Layar A tanpa menyentuh apa pun yang lain.

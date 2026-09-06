@@ -29,3 +29,19 @@ export const UNVERIFIED_ENVELOPE = "this API response did not say `simulated: tr
 export const LOADING = "loading from the API…";
 export const OFFLINE_KEPT = "the last successful response is still on screen and it is OLD; nothing was invented to replace it";
 export const STALE_SCREEN = "the screen below is the PREVIOUS one, not this URL; it was kept on purpose because a blank screen answers nothing, and nothing was invented to replace it";
+
+// --- umur isi di layar: jam pengambilan SUKSES terakhir, tidak pernah jam melukis -----------
+//
+// `paint()` berjalan setiap ketikan di kotak saring dan setiap perubahan urutan; ia tidak
+// mengambil apa pun. Kalimat di bawah ada supaya baris status yang ditulis ulang oleh ketikan
+// tetap menyebut umur yang BENAR — jam pengambilan terakhir yang sukses, dan pengakuan bahwa
+// pengambilan terakhir gagal — bukan `new Date()` saat melukis.
+export const NEVER_FETCHED = "no fetch by this client has succeeded yet, so what is below is still the screen the server rendered";
+export const NOT_REFRESHED_SINCE = "and nothing on screen has been refreshed since";
+export const NO_CARD_ID = "this card page did not name a decision id, so the client asked for nothing and rendered nothing; what is below is the screen the server rendered";
+export const CLIENT_ATTACHED = "This screen was rendered by the server. The client is attached now: it will re-fetch the same JSON API, and it says here every time it does.";
+export const CLIENT_INERT = "This screen was rendered by the server. The client is attached but does nothing here: on a failure page it fetches nothing, refreshes nothing, and changes nothing on screen.";
+
+// --- judul jendela: kembaran `ui/screens.py:TITLE_WATCHLIST` / `TITLE_CARD` ------------------
+export const TITLE_WATCHLIST = "Tenko — watchlist (simulated)";
+export const TITLE_CARD = "Tenko — card #{id} (simulated)";

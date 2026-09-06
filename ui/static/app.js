@@ -130,6 +130,13 @@
   var LOADING = "loading from the API…";
   var OFFLINE_KEPT = "the last successful response is still on screen and it is OLD; nothing was invented to replace it";
   var STALE_SCREEN = "the screen below is the PREVIOUS one, not this URL; it was kept on purpose because a blank screen answers nothing, and nothing was invented to replace it";
+  var NEVER_FETCHED = "no fetch by this client has succeeded yet, so what is below is still the screen the server rendered";
+  var NOT_REFRESHED_SINCE = "and nothing on screen has been refreshed since";
+  var NO_CARD_ID = "this card page did not name a decision id, so the client asked for nothing and rendered nothing; what is below is the screen the server rendered";
+  var CLIENT_ATTACHED = "This screen was rendered by the server. The client is attached now: it will re-fetch the same JSON API, and it says here every time it does.";
+  var CLIENT_INERT = "This screen was rendered by the server. The client is attached but does nothing here: on a failure page it fetches nothing, refreshes nothing, and changes nothing on screen.";
+  var TITLE_WATCHLIST = "Tenko — watchlist (simulated)";
+  var TITLE_CARD = "Tenko — card #{id} (simulated)";
 
   // frontend/src/render.ts
   var CARD_COLUMNS = [
@@ -654,7 +661,19 @@
     shownScreen: "watchlist",
     shownId: null,
     /** Sudah pernahkah klien mengganti isi render server? Selama belum, yang di layar milik server. */
-    rendered: false
+    rendered: false,
+    /**
+     * Jam peramban pada pengambilan TERAKHIR YANG SUKSES — bukan jam melukis.
+     *
+     * `paint()` berjalan pada tiap ketikan saringan dan tiap perubahan urutan tanpa mengambil
+     * apa pun; versi sebelumnya memanggil `browserClock()` di sana dan mencetak "Fetched at
+     * <sekarang>" di atas data dari pengambilan sebelumnya. Satu ketikan karena itu menghapus
+     * pengakuan "layar ini basi" dan menggantinya dengan jam yang salah — persis kelas kesalahan
+     * yang produk ini ada untuk melawan. Jamnya sekarang disimpan sekali, saat responsnya tiba.
+     */
+    fetchedAt: null,
+    /** Kalimat kegagalan yang MASIH berlaku; `null` hanya bila pengambilan terakhir sukses. */
+    failure: null
   };
   var liveNode;
   var viewNode;
@@ -741,19 +760,26 @@
     }
     return rows;
   }
+  function age() {
+    if (state.failure !== null) return state.failure;
+    if (state.fetchedAt === null) return `${NEVER_FETCHED}.`;
+    return `Fetched at ${state.fetchedAt}.`;
+  }
   function paint() {
-    if (state.screen !== "watchlist" || !state.loaded) return;
+    if (state.screen !== "watchlist" || !state.loaded) return false;
     const rows = visible();
     renderWatchlist(state.payload, rows, viewNode);
     const sort = SORTS.find((entry) => entry.id === state.sort);
     const order = sort ? sort.label : state.sort;
     const filtered = state.filter ? `filter "${state.filter}": showing n=${rows.length} of n=${state.entries.length} symbols. ` : `showing all n=${rows.length} symbols. `;
-    say(`${filtered}Sorted by ${order}. Fetched at ${browserClock()}.`, "ok");
+    say(`${filtered}Sorted by ${order}. ${age()}`, state.failure === null ? "ok" : "error");
+    return true;
   }
   function shown() {
     state.shownScreen = state.screen;
     state.shownId = state.decisionId;
     state.rendered = true;
+    document.title = state.screen === "card" && state.decisionId !== null ? TITLE_CARD.replace("{id}", String(state.decisionId)) : TITLE_WATCHLIST;
   }
   function kept() {
     if (state.shownScreen !== state.screen || state.shownId !== state.decisionId) return STALE_SCREEN;
@@ -766,10 +792,12 @@
         const payload = await getJson(`/api/decision/${state.decisionId}`);
         state.payload = payload;
         state.loaded = true;
+        state.fetchedAt = browserClock();
+        state.failure = null;
         renderCard(payload, viewNode);
         shown();
         say(
-          `card #${state.decisionId} re-fetched from /api/decision/${state.decisionId} at ${browserClock()}; the replay verdict on it was recomputed by the server, not by this client.`,
+          `card #${state.decisionId} re-fetched from /api/decision/${state.decisionId} at ${state.fetchedAt}; the replay verdict on it was recomputed by the server, not by this client.`,
           "ok"
         );
       } else {
@@ -777,12 +805,14 @@
         state.payload = payload;
         state.entries = dicts(payload["symbols"]);
         state.loaded = true;
-        paint();
-        shown();
+        state.fetchedAt = browserClock();
+        state.failure = null;
+        if (paint()) shown();
       }
     } catch (error) {
       const message = error instanceof ApiError && error.message.includes("`simulated: true`") ? UNVERIFIED_ENVELOPE : `could not refresh: ${error instanceof Error ? error.message : "unknown failure"}`;
-      say(`${message} — ${kept()}.`, "error");
+      state.failure = `${message} — ${kept()}` + (state.fetchedAt === null ? "." : `; it was fetched at ${state.fetchedAt}, ${NOT_REFRESHED_SINCE}.`);
+      say(state.failure, "error");
     }
     schedule();
   }
@@ -822,19 +852,20 @@
     if (declared !== null && declared >= 1e3) pollMs = declared;
     viewNode = el("div", { id: "tenko-view" });
     while (main.firstChild) viewNode.appendChild(main.firstChild);
-    controlsNode = buildControls();
-    liveNode = el("p", { id: "tenko-live", class: "live state-ok", role: "status", "aria-live": "polite" });
-    liveNode.textContent = "This screen was rendered by the server. The client is attached now: it will re-fetch the same JSON API, and it says here every time it does.";
-    main.appendChild(controlsNode);
-    main.appendChild(liveNode);
-    main.appendChild(viewNode);
     const screen = body.dataset["screen"];
     state.screen = screen === "card" ? "card" : "watchlist";
     state.decisionId = screen === "card" ? Number(body.dataset["decisionId"] ?? "0") || null : null;
+    controlsNode = buildControls();
+    liveNode = el("p", { id: "tenko-live", class: "live state-ok", role: "status", "aria-live": "polite" });
+    const inert = screen === "error" || screen === "landing";
+    liveNode.textContent = inert ? CLIENT_INERT : CLIENT_ATTACHED;
+    main.appendChild(controlsNode);
+    main.appendChild(liveNode);
+    main.appendChild(viewNode);
     state.shownScreen = state.screen;
     state.shownId = state.decisionId;
-    controlsNode.hidden = state.screen !== "watchlist" || screen === "error";
-    if (screen === "error") return;
+    controlsNode.hidden = state.screen !== "watchlist" || inert;
+    if (inert) return;
     document.addEventListener("click", (event) => {
       if (event.defaultPrevented || event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -853,6 +884,10 @@
       paint();
       filterInput.focus();
     });
+    if (state.screen === "card" && state.decisionId === null) {
+      say(`${NO_CARD_ID}.`, "stale");
+      return;
+    }
     void load(false);
   }
   if (document.readyState === "loading") {

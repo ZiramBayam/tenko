@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import ui.app as ui_app
@@ -805,33 +806,92 @@ def test_health_states_that_nothing_is_called(client: TestClient) -> None:
     assert "MOST RECENT" in body["note"]  # cacah ≠ total tabel
 
 
-def test_index_serves_screen_a_and_the_route_list_is_still_discoverable(client: TestClient) -> None:
-    """TASKS 3.5, DITULIS ULANG dari `test_index_lists_the_routes_instead_of_being_a_landing_page`.
+def test_the_landing_board_shows_real_rows_or_no_board_at_all(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR-021: papan landing dirender dari store, dan TIDAK PERNAH diisi baris contoh.
 
-    Niat lama ("`/` adalah indeks route, bukan halaman") ditulis saat Layar A belum ada. Ia
-    berbalik menjadi cacat begitu layarnya ada: pemilik repo membuka `127.0.0.1:8000`, melihat
-    JSON, dan mengira itu seluruh frontend. Niat baru: `/` ADALAH Layar A — **200 HTML**, bukan
-    3xx, supaya `curl` tanpa `-L` pun menerima banner SIMULATED pada respons pertama.
+    Bug yang membuat tes ini ada: `index()` membaca `watchlist()["entries"]`, sedangkan badan
+    `/api/watchlist` menamainya `symbols`. Tidak ada yang merah — papannya hanya diam-diam
+    hilang di setiap kondisi, termasuk saat store penuh. Kegagalan yang KELIHATAN seperti
+    perilaku "store kosong" yang sah adalah kegagalan yang paling mudah dikirim.
 
-    Yang dijaga agar tidak hilang bersama perubahan itu: daftar route masih bisa DITEMUKAN.
-    Rumahnya `/api/routes`, dan tautannya tercetak di kaki setiap layar — jadi ia ditemukan
-    dengan mata, bukan ditebak. Tes ini menuntut ketiganya sekaligus: halaman, daftar, tautan.
+    Dua cabang dijaga bersama, karena masing-masing sendirian bisa dipuaskan oleh kode yang
+    salah: store berisi WAJIB memberi papan dengan simbol yang sama seperti `/api/watchlist`,
+    dan store yang tak terbaca WAJIB menghilangkan papannya tanpa menghilangkan halamannya.
+    """
+    payload = client.get("/api/watchlist").json()
+    symbols = [row["symbol"] for row in payload["symbols"]]
+    assert symbols, "prasyarat: store fixture ini harus punya keputusan"
+
+    page = client.get("/")
+    assert page.status_code == 200
+    assert '<section class="board"' in page.text, (
+        "papan hilang padahal store berisi — inilah bentuk bug `entries`/`symbols`"
+    )
+    for symbol in symbols[:5]:
+        assert symbol in page.text, f"{symbol} ada di /api/watchlist tapi tidak di papan landing"
+    # Angka pada caption adalah cacah SEBENARNYA, bukan cacah yang muat (COUNT_NAMING_RULE).
+    assert f"of {len(symbols)} symbols" in page.text
+
+    # Dan store yang tidak terbaca: halaman tetap 200 dan tetap berbanner, papannya yang pergi.
+    # Dimatikan di sumbernya (`watchlist()` melempar) supaya yang diuji adalah penanganan
+    # kegagalan `index()`, bukan kemampuan kita membuat berkas DB rusak.
+    def dead() -> dict[str, object]:
+        raise HTTPException(status_code=503, detail="the store cannot be read")
+
+    monkeypatch.setattr(ui_app, "watchlist", dead)
+    broken = client.get("/")
+    assert broken.status_code == 200, "landing tidak boleh 503 — itu kesan pertama yang salah"
+    assert BANNER in broken.text
+    assert '<section class="board"' not in broken.text
+    # Halaman itu sendiri utuh: yang hilang HANYA papannya.
+    assert "<h1>" in broken.text and 'href="/app"' in broken.text
+
+
+def test_index_serves_the_landing_and_the_app_is_one_click_away(client: TestClient) -> None:
+    """ADR-021, DITULIS ULANG dari `test_index_serves_screen_a_and_the_route_list_is_still_discoverable`.
+
+    Niat berubah dua kali, dan tes ini menyimpan alasan keduanya supaya tidak ada yang berputar
+    balik tanpa sadar. Niat pertama ("`/` adalah indeks route") ditulis saat Layar A belum ada;
+    ia berbalik jadi cacat begitu layarnya ada, karena pemilik repo membuka `127.0.0.1:8000`,
+    melihat JSON, dan mengira itu seluruh frontend. Niat kedua ("`/` adalah Layar A") diganti
+    ADR-021 atas permintaan pemilik repo: `/` menjadi landing, aplikasi pindah ke `/app`.
+
+    Yang TIDAK boleh hilang bersama perubahan itu adalah pelajaran dari cacat pertama — orang
+    yang membuka akar harus sampai ke produk tanpa menebak. Tes ini karena itu menuntut EMPAT
+    hal sekaligus: `/` adalah halaman (200 HTML, bukan 3xx, supaya `curl` tanpa `-L` pun
+    menerima banner SIMULATED pada respons pertama), landing menautkan `/app`, `/app` benar-benar
+    Layar A, dan daftar route masih bisa DITEMUKAN dengan mata.
     """
     page = client.get("/")
     assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
-    watchlist = client.get("/ui")
-    # Layar yang sama persis, bukan halaman kembar yang bisa menyimpang: satu-satunya beda yang
-    # diizinkan adalah jam render yang tercetak di kaki halaman.
-    assert page.text.count("<table id='watchlist'>") == watchlist.text.count("<table id='watchlist'>")
-    assert "<h1>Tenko 点呼 — pre-departure roll call (simulated)</h1>" in page.text
+    assert 'data-screen="landing"' in page.text
+    # Landing BUKAN Layar A: tabel watchlist tidak boleh ikut terbawa ke sini.
+    assert page.text.count("<table id='watchlist'>") == 0
+    # ...tetapi aplikasinya wajib satu klik jauhnya, dan tautan itu bagian dari kontrak.
+    assert '<a class="go" href="/app"' in page.text and "Open the board</a>" in page.text
+    assert 'aria-label="Open the watchlist board' in page.text, (
+        "tautan aksi landing tanpa label: pembaca layar hanya mendengar 'the board'"
+    )
     assert '<a href="/api/routes">/api/routes</a>' in page.text, "daftar route tidak bisa ditemukan"
+
+    # `/app` adalah Layar A yang kanonik, dan `/ui` melayani layar yang SAMA (ADR-021 butir 3):
+    # alias, bukan halaman kembar yang bisa menyimpang.
+    app_screen = client.get("/app")
+    assert app_screen.status_code == 200
+    assert "<h1>Tenko 点呼 — pre-departure roll call (simulated)</h1>" in app_screen.text
+    legacy = client.get("/ui")
+    assert app_screen.text.count("<table id='watchlist'>") == legacy.text.count("<table id='watchlist'>") == 1
 
     body = client.get("/api/routes").json()
     assert body["simulated"] is True
     assert "/api/watchlist" in body["routes"]
     assert "/api/decision/{id}" in body["routes"]
     assert "/" in body["routes"] and "/ui/app.js" in body["routes"]
-    assert body["screens"]["A_watchlist"] == "/"
+    assert "/app" in body["routes"] and "/app/decision/{id}" in body["routes"]
+    assert body["screens"]["A_watchlist"] == "/app"
+    assert body["screens"]["B_call_card"] == "/app/decision/{id}"
     assert body["calls_ryo_tools"] is False
     # Setiap route yang diumumkan benar-benar dijawab: daftar yang menyebut route mati adalah
     # penemuan yang menyesatkan, bukan penemuan.
@@ -2973,6 +3033,8 @@ SHARED_SENTENCES = {
     "NARRATION_NOTE": ui_screens.NARRATION_NOTE,
     "VETO_RANK_COLUMN": ui_screens.VETO_RANK_COLUMN,
     "AGE_NOTE": ui_screens.AGE_NOTE,
+    "TITLE_WATCHLIST": ui_screens.TITLE_WATCHLIST,
+    "TITLE_CARD": ui_screens.TITLE_CARD,
 }
 
 
@@ -3081,13 +3143,13 @@ def test_the_screens_declare_the_polling_interval_they_actually_use() -> None:
     kode. Kalau salah satunya bergeser, layar menjanjikan ritme yang tidak dijalankannya.
     """
     seconds = ui_screens.POLL_INTERVAL_MS // 1000
-    assert f"every {seconds} seconds" in ui_screens.CLIENT_NOTE
-    assert "a switch on screen turns that off" in ui_screens.CLIENT_NOTE
+    assert f"every {seconds} seconds" in ui_screens.WATCHLIST_CLIENT_NOTE
+    assert "a switch on screen turns that off" in ui_screens.WATCHLIST_CLIENT_NOTE
     main = (FRONTEND / "src" / "main.ts").read_text(encoding="utf-8")
     assert 'body.dataset["pollMs"]' in main, "klien harus membaca selangnya dari halaman"
     assert "aria-pressed" in main, "sakelar penyegaran harus mengumumkan keadaannya"
     # Dan angka CADANGAN di dalam klien harus angka yang sama. Tanpa baris ini tes di atas
-    # hanya membandingkan konstanta dengan dirinya sendiri: `CLIENT_NOTE` diturunkan dari
+    # hanya membandingkan konstanta dengan dirinya sendiri: `WATCHLIST_CLIENT_NOTE` diturunkan dari
     # `POLL_INTERVAL_MS`, jadi menggesernya menggeser keduanya sekaligus dan tidak ada yang
     # merah. Yang BISA menyimpang adalah bawaan klien — dan itulah yang dipatok di sini.
     (fallback,) = re.findall(r"^let pollMs = (\d+);$", main, re.M)
@@ -3105,15 +3167,27 @@ def test_every_screen_carries_the_hooks_the_client_needs_and_a_banner_without_it
     dipakai klien hanyalah dua atribut `data-*`. Kalau suatu hari server menyusut menjadi
     kerangka kosong, `<table>` di bawah hilang dan tes ini merah.
     """
-    for path, screen in (("/", "watchlist"), ("/ui", "watchlist"), ("/ui/decision/1", "card")):
+    for path, screen in (
+        ("/", "landing"),
+        ("/app", "watchlist"),
+        ("/ui", "watchlist"),
+        ("/app/decision/1", "card"),
+        ("/ui/decision/1", "card"),
+    ):
         html = client.get(path).text
         assert f'data-screen="{screen}"' in html
         assert f'data-poll-ms="{ui_screens.POLL_INTERVAL_MS}"' in html
         assert '<main id="isi">' in html
         assert BANNER in html
-        # Isi ADA sebelum satu baris JS pun jalan.
-        assert "<table" in html and "aria-label=" in html
-    card = client.get("/ui/decision/1").text
+        # Isi ADA sebelum satu baris JS pun jalan. Landing dikecualikan dari `<table>` karena
+        # papannya HILANG saat store kosong (ADR-021) — menuntut tabel di sini akan memaksa
+        # halaman ini mengarang baris, yang justru dilarang. Isinya tetap dituntut ada.
+        assert "aria-label=" in html
+        if screen == "landing":
+            assert "<h1>" in html and 'href="/app"' in html
+        else:
+            assert "<table" in html
+    card = client.get("/app/decision/1").text
     assert 'data-decision-id="1"' in card
 
 
@@ -3145,7 +3219,7 @@ def test_the_csp_names_connect_src_or_every_fetch_this_client_makes_is_blocked(
     `connect-src` adalah fetch-directive, dan fetch-directive yang tidak disebut jatuh ke
     `default-src` (CSP Level 3). `default-src 'none'` karena itu berarti `connect-src 'none'`:
     `fetch("/api/watchlist")` ditolak browser TERMASUK ke origin sendiri, muat pertama gagal,
-    auto-refresh tidak pernah berhasil, dan `CLIENT_NOTE` yang dirender server menjanjikan
+    auto-refresh tidak pernah berhasil, dan `WATCHLIST_CLIENT_NOTE` yang dirender server menjanjikan
     ritme 30 detik yang tidak mungkin ditepati. Tidak ada browser di jalur tes — jadi yang
     berdiri di tempat browser adalah tes ini.
 
@@ -3350,8 +3424,8 @@ def test_one_css_naming_rule_serves_both_renderers() -> None:
 #:
 #: Cara memperbaruinya: `make frontend` mencetak hash barunya. Menggantinya adalah perbuatan
 #: yang TERLIHAT di diff — dan itulah seluruh gunanya.
-BUNDLE_SHA256 = "d33a77f2343265e7c98bee7ce70616397c5e5b2dd34cc76bd04cd49b98fbe596"
-STYLESHEET_SHA256 = "71b692236b2721b505663887afdca7d1c4ab6213cde0e39dd7b7546d2d168702"
+BUNDLE_SHA256 = "a4e51736b3f9ef70cf13bc9270398b94dcfff67573fbff4a7eacc6b025a36a67"
+STYLESHEET_SHA256 = "358bbdd3c22d50b19889221bc90ffd968637e3e7cbc6325f00020babf44c25f1"
 
 
 def test_the_shipped_bundle_is_pinned_byte_for_byte() -> None:
@@ -3391,3 +3465,164 @@ def test_moving_to_another_screen_can_never_leave_a_blank_one() -> None:
     assert "STALE_SCREEN" in declared and "blank screen" in declared["STALE_SCREEN"]
     bundle = (STATIC / "app.js").read_text(encoding="utf-8")
     assert declared["STALE_SCREEN"] in bundle, "`make frontend` belum dijalankan?"
+
+
+# --- tinjauan keamanan ronde-2: umur yang benar, dan janji yang menyesuaikan layarnya --------
+
+
+def main_source() -> str:
+    """`frontend/src/main.ts` tanpa komentar — komentarnya menyebut justru kesalahan yang dilarang."""
+    return strip_comments((FRONTEND / "src" / "main.ts").read_text(encoding="utf-8"))
+
+
+def slice_of(source: str, start: str, end: str) -> str:
+    """Potongan satu fungsi. `start`/`end` harus ADA, supaya tesnya merah kalau namanya berubah."""
+    assert start in source and end in source, (start, end)
+    return source[source.index(start) : source.index(end)]
+
+
+def test_a_keystroke_in_the_filter_box_cannot_reset_the_age_of_what_is_on_screen() -> None:
+    """Temuan TINGGI: satu ketikan mengganti pengakuan "layar ini basi" dengan jam SEKARANG.
+
+    Urutan yang direproduksi peninjau pada bundel yang dikirim:
+
+    1. muat awal sukses → "... Fetched at 11:28:08 UTC (browser clock)."
+    2. API mati, poll   → "could not refresh: ... the last successful response is still on
+       screen and it is OLD ..."
+    3. ketik "S"        → "filter "S": ... Fetched at 11:28:08 UTC (browser clock)."
+
+    Langkah 3 memajang data dari pengambilan SEBELUMNYA, tetapi `paint()` memanggil
+    `browserClock()` saat MELUKIS dan menuliskannya dengan kata "Fetched" — dan `OFFLINE_KEPT`
+    lenyap tanpa jejak. Angka tanpa umur yang benar adalah persis kelas kesalahan yang produk
+    ini ada untuk melawan; kartu yang berbohong soal kapan datanya diambil lebih buruk daripada
+    kartu yang tidak menampilkan apa-apa.
+
+    Yang dipatok di sini adalah bentuk perbaikannya, karena tidak ada browser di jalur tes
+    (lihat "Batas yang belum tertutup" di `ui/README.md`): jam hanya dibaca saat respons TIBA,
+    `paint()` tidak boleh menyentuhnya, dan kalimat kegagalan DISIMPAN sehingga ia selamat dari
+    lukisan berikutnya.
+    """
+    main = main_source()
+    paint = slice_of(main, "function paint()", "function shown()")
+    assert "browserClock(" not in paint, (
+        "paint() menghitung ulang jam: satu ketikan di kotak saring akan mencetak jam MELUKIS "
+        "di atas data dari pengambilan sebelumnya"
+    )
+    assert "age()" in paint, "paint() harus meminjam kalimat umur, bukan mengarang satu"
+    assert 'state.failure === null ? "ok" : "error"' in paint, "kegagalan harus tetap berwarna gagal"
+
+    # Jamnya dibaca DI SATU JENIS TEMPAT saja: saat sebuah respons benar-benar tiba.
+    calls = [line.strip() for line in main.splitlines() if "browserClock()" in line]
+    assert calls, "prasyarat: kliennya memang mencatat jam"
+    for line in calls:
+        assert line in ("function browserClock(): string {", "state.fetchedAt = browserClock();"), line
+    assert calls.count("state.fetchedAt = browserClock();") == 2, "dua jalur sukses: watchlist dan kartu"
+
+    # Kalimat umur mendahulukan kegagalan yang BELUM digantikan respons sukses baru.
+    age = slice_of(main, "function age(): string {", "function paint()")
+    assert "if (state.failure !== null) return state.failure;" in age
+    assert "NEVER_FETCHED" in age, "belum pernah sukses ≠ 'Fetched at'"
+
+    # Dan kalimat kegagalan itu disimpan, bukan hanya diucapkan sekali.
+    load = slice_of(main, "async function load(", "function schedule()")
+    assert "state.failure =\n" in load or "state.failure =" in load
+    assert load.count("state.failure = null;") == 2, "sukses harus MENCABUT pengakuan basi"
+    assert "NOT_REFRESHED_SINCE" in load, "kegagalan harus menyebut kapan isi di layar diambil"
+
+    declared = client_constants()
+    bundle = (STATIC / "app.js").read_text(encoding="utf-8")
+    for name in ("NEVER_FETCHED", "NOT_REFRESHED_SINCE"):
+        assert name in declared, f"{name} tidak ada di frontend/src/text.ts"
+        assert declared[name] in bundle, f"{name} belum masuk bundel: `make frontend` belum dijalankan?"
+
+
+def test_every_screen_promises_only_the_rhythm_that_screen_actually_has(client: TestClient) -> None:
+    """Temuan SEDANG: satu kalimat klien untuk tiga layar menjanjikan ritme yang dua di antaranya
+    tidak punya.
+
+    `schedule()` memasang timer HANYA bila layarnya watchlist, bar kontrol (saring/urut/sakelar)
+    disembunyikan di luar watchlist, dan pada halaman gagal `start()` berhenti sebelum permintaan
+    pertamanya. Kalimat lama — "re-fetches ... every 30 seconds (a switch on screen turns that
+    off)" — tercetak di SETIAP halaman, termasuk kartu, yaitu layar yang paling mungkin dibuka
+    juri kedua.
+    """
+    seconds = ui_screens.POLL_INTERVAL_MS // 1000
+    watchlist = unescape(client.get("/app").text)
+    card = unescape(client.get("/app/decision/1").text)
+    failure = unescape(client.get("/app/decision/999999").text)
+    landing = unescape(client.get("/").text)
+    assert client.get("/app/decision/999999").status_code == 404, "prasyarat: ini halaman gagal"
+
+    # Layar A memang punya keempatnya; yang lain tidak boleh mengklaimnya. Diperiksa sebagai
+    # KALIMAT di halaman yang dilayani, bukan lewat konstanta, supaya yang merah adalah janjinya.
+    assert f"every {seconds} seconds" in watchlist and "a switch on screen turns that off" in watchlist
+    for page, name in ((card, "kartu"), (failure, "halaman gagal"), (landing, "landing")):
+        assert f"every {seconds} seconds" not in page, f"{name} menjanjikan ritme yang tidak dimilikinya"
+        assert "a switch on screen turns that off" not in page, f"{name} menjanjikan sakelar yang tidak ada"
+        assert "filters and sorts the rows" not in page, f"{name} menjanjikan saringan yang tidak ada"
+    assert ui_screens.WATCHLIST_CLIENT_NOTE in watchlist
+    assert ui_screens.CARD_CLIENT_NOTE in card
+    assert ui_screens.ERROR_CLIENT_NOTE in failure
+    assert ui_screens.LANDING_CLIENT_NOTE in landing
+
+    # Dan itu memang yang dilakukan kliennya — bukan hanya yang dikatakan kalimatnya.
+    main = main_source()
+    schedule = slice_of(main, "function schedule(): void {", "function go(")
+    assert 'state.polling && state.screen === "watchlist"' in schedule, "timer di luar Layar A?"
+    hidden = 'controlsNode.hidden = state.screen !== "watchlist"'
+    assert hidden in main, "bar kontrol tidak lagi disembunyikan di luar Layar A"
+    start = main[main.index("function start(): void {") :]
+    # ADR-021: `error` dan `landing` sama-sama layar INERT, jadi penjaganya kini satu
+    # nama — tetapi yang dituntut tetap sama, yaitu berhenti SEBELUM `load()` pertama.
+    assert 'const inert = screen === "error" || screen === "landing";' in start, (
+        "layar inert tidak lagi didefinisikan di satu tempat"
+    )
+    assert "if (inert) return;" in start, "layar inert harus berhenti sebelum load()"
+    assert start.index("const inert") < start.index("if (inert) return;")
+    assert "CLIENT_INERT" in start, "halaman gagal tidak boleh membuka dengan janji mengambil"
+
+
+def test_the_window_title_follows_the_screen_the_client_actually_rendered(client: TestClient) -> None:
+    """RENDAH-2: judul jendela tertinggal di layar sebelumnya sesudah perpindahan tanpa muat ulang.
+
+    Kelas yang sama dengan `kept()`: apa yang dikatakan TENTANG layar harus ikut layar yang
+    benar-benar ada. Judul karena itu ditulis di `shown()` — satu tempat, dan tempat itu hanya
+    dicapai sesudah render yang sungguh terjadi, jadi perpindahan yang GAGAL meninggalkan judul
+    yang masih cocok dengan layar yang tertinggal.
+    """
+    main = main_source()
+    assert main.count("document.title") == 1, (
+        "judul jendela tidak ditulis tepat satu kali: nol berarti ia tertinggal di layar "
+        "sebelumnya sesudah perpindahan tanpa muat ulang, lebih dari satu berarti ia bisa "
+        "menyimpang dari isi"
+    )
+    shown = slice_of(main, "function shown(): void {", "function kept()")
+    assert "document.title =" in shown, "judul tidak menyusul isi yang benar-benar dirender"
+    assert "TITLE_CARD.replace" in shown and "TITLE_WATCHLIST" in shown
+    # Dan judulnya adalah judul yang sama yang dicetak server — satu kalimat, dua perender.
+    assert f"<title>{ui_screens.TITLE_WATCHLIST}</title>" in client.get("/app").text
+    assert f"<title>{ui_screens.TITLE_CARD.format(id=1)}</title>" in client.get("/ui/decision/1").text
+
+
+def test_a_card_page_without_a_decision_id_makes_the_client_ask_for_nothing(
+    client: TestClient,
+) -> None:
+    """RENDAH-4: `state.rendered` bisa menjadi `true` tanpa klien merender apa pun.
+
+    Halaman kartu tanpa `data-decision-id` dulu jatuh ke cabang watchlist: `paint()` kembali
+    lebih awal (layarnya kartu), tetapi `shown()` tetap dipanggil — sehingga kegagalan
+    berikutnya berbunyi "isi klien yang tua" padahal yang di layar milik server. Jalurnya sempit
+    (server SELALU memancarkan atribut itu, dan baris terakhir tes ini menjaganya), tetapi
+    murah ditutup: klien tidak meminta apa pun, tidak melukis Layar A di atas URL kartu, dan
+    mengaku demikian.
+    """
+    main = main_source()
+    start = main[main.index("function start(): void {") :]
+    assert 'if (state.screen === "card" && state.decisionId === null) {' in start
+    assert "NO_CARD_ID" in start, "klien harus MENGAKU kenapa ia tidak meminta apa pun"
+    load = slice_of(main, "async function load(", "function schedule()")
+    assert "if (paint()) shown();" in load, "hanya render yang terjadi yang boleh diakui"
+    declared = client_constants()
+    bundle = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert declared["NO_CARD_ID"] in bundle, "`make frontend` belum dijalankan?"
+    assert 'data-decision-id="1"' in client.get("/ui/decision/1").text

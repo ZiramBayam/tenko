@@ -15,9 +15,25 @@ tautan lama tidak mati. Daftar route pindah ke `/api/routes`, dan tautannya terc
 setiap layar.
 
 Keduanya dirender **di server** — banner, tabel, dan tiap `aria-label` ada sebelum satu baris JS
-pun jalan (ADR-020 butir 6) — lalu **klien TypeScript menambah perilaku di atasnya**: pindah
-layar tanpa muat ulang, saring, urutkan, dan segarkan tiap 30 detik. Nol framework, nol CDN, nol
-dependency runtime npm. Dua aset, keduanya dari origin sendiri dan keduanya hasil build yang
+pun jalan (ADR-020 butir 6) — lalu **klien TypeScript menambah perilaku di atasnya**, dan tidak
+sama banyak di tiap layar:
+
+| Layar | Yang ditambahkan klien | Yang TIDAK ada di sini |
+|---|---|---|
+| A. Watchlist | pindah layar tanpa muat ulang, saring, urutkan, segarkan tiap 30 detik (dengan sakelar mati) | — |
+| B. Kartu | pindah layar tanpa muat ulang, ambil ulang kartu ini **sekali** saat tiba | tanpa auto-refresh, tanpa saring/urut/sakelar |
+| Halaman gagal | tidak ada: klien berhenti sebelum permintaan pertamanya | tanpa fetch, tanpa refresh, tanpa saring/urut |
+
+Kalimat di kaki halaman menyesuaikan diri dengan layarnya (`ui.screens.client_note`) — halaman
+yang tidak menyegarkan tidak boleh mengatakan ia menyegarkan.
+→ `test_every_screen_promises_only_the_rhythm_that_screen_actually_has`
+
+Umur yang tercetak di baris status adalah jam pengambilan **sukses terakhir**, bukan jam saat
+layar dilukis: menyaring dan mengurutkan tidak mengambil apa pun, jadi keduanya tidak boleh
+mengganti pengakuan "yang di layar ini tua" dengan jam sekarang.
+→ `test_a_keystroke_in_the_filter_box_cannot_reset_the_age_of_what_is_on_screen`
+
+Nol framework, nol CDN, nol dependency runtime npm. Dua aset, keduanya dari origin sendiri dan keduanya hasil build yang
 **dilacak git**: `/ui/tenko.css` (`ui/static/app.css`) dan `/ui/app.js` (`ui/static/app.js`).
 Satu `Content-Security-Policy` menutup sisanya; **nilainya tidak dikutip di sini** — ia hidup di
 satu tempat, `ui/app.py:HTML_HEADERS`, karena tiga berkas yang harus diperbarui serempak adalah
@@ -285,6 +301,12 @@ sebagai literal hanya akan membekukan laporan yang esok sudah berubah.
   memang keputusan produk seperti yang dicatat butir ini dulu. `EVIDENCE_LANG` (`lang="en"`
   per-span) DIPERTAHANKAN meski bingkainya tidak lagi berbeda: maknanya bukan "bahasa lain"
   melainkan "kalimat ini datang dari `preflight/`/RYO, bukan ditulis layar ini".
+- **Nol tes mengikat `ui/static/app.js` ke `frontend/src/`.** Mengubah sumber TypeScript tanpa
+  menjalankan `make frontend` tetap lolos hijau untuk kode yang tidak menyebut satu pun kalimat
+  yang dipatok. Yang menggigit di clone tanpa Node adalah pin `sha256` bundel
+  (`tests/test_ui.py:BUNDLE_SHA256`): bundelnya sendiri tidak bisa berubah diam-diam, tetapi
+  bundel yang BASI terhadap sumbernya hanya terdeteksi lewat kalimat yang dipatok. Utang yang
+  diterima sadar, dicatat di sini sebagai batas yang diketahui.
 - **Klien TypeScript tidak dijalankan oleh satu tes pun.** `tests/test_ui.py` adalah tes Python,
   dan jalur runtime repo ini tidak boleh memanggil Node — jadi yang bisa dipatok tentang
   `frontend/` hanyalah SUMBER dan BUNDEL sebagai teks: nol `innerHTML`/`eval`, nol host, nol

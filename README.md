@@ -1,103 +1,111 @@
 # Tenko (点呼) — RYO-CHAN Hackathon 2026
 
-> **SIMULATED — practice positions on read-only market intelligence.** Semua posisi di repo ini adalah *practice
-> trade*: tidak ada dana, wallet, kunci penandatangan, atau eksekusi nyata. Setiap envelope keluaran membawa
-> `simulated: true`, setiap respons UI membawanya juga (termasuk 404/405/422/503), dan setiap layar membawa banner
-> SIMULATED.
+> **SIMULATED — practice positions on read-only market intelligence.** Every position in this repo is a *practice
+> trade*: no funds, no wallet, no signing keys, no real execution. Every output envelope carries `simulated: true`,
+> every UI response carries it too (including 404/405/422/503), and every screen carries the SIMULATED banner.
 
-**Masalahnya:** trader ritel — dan hampir semua agen sinyal — bertindak atas satu verdict tanpa memeriksa seluruh bukti
-yang tersedia, dan (lebih berbahaya) tanpa tahu bukti mana yang **tidak tersedia**: data basi, seksi `unavailable`,
-plan yang tidak ada. Guardrail yang umum memperlakukan data hilang sebagai lolos atau sebagai nol (`PRD.md` §1).
-**Solusinya, satu produk untuk tiga track** (ADR-012 — maksimal satu BUIDL, `docs/api-facts.md` §E): sebelum tiap
-practice trade, Tenko memanggil sepuluh item bukti dari lima tool RYO satu per satu — menunjuk `tool.field`, menyebut
-nilainya dan `as_of`-nya — lalu **tidak berangkat** bila ada satu item merah **atau satu item yang tidak tersebut**;
-kartu panggilan itu adalah keputusan kelas satu yang bisa dibaca di dua layar keyboard-first, dikeluarkan sebagai skill
-ber-envelope RYO, dan bisa diputar ulang byte-per-byte.
+**The problem:** retail traders — and almost every signal agent — act on a single verdict without checking all the
+evidence that is available, and (more dangerously) without knowing which evidence is **not** available: stale data,
+`unavailable` sections, a plan that does not exist. Common guardrails treat missing data as a pass, or as a zero
+(`PRD.md` §1). **The solution, one product for three tracks** (ADR-012 — at most one BUIDL, `docs/api-facts.md` §E):
+before each practice trade, Tenko calls out ten pieces of evidence from five RYO tools one at a time — pointing at
+`tool.field`, speaking its value and its `as_of` — and then **does not depart** if there is one red item **or one item
+that goes unspoken**; that call card is a first-class decision, readable on two keyboard-first screens, emitted as a
+skill in a RYO envelope, and replayable byte for byte.
 
-**Apa yang berjalan hari ini (6 Sep 2026).** Naskah demo `docs/spec.md` §7 langkah 1–6 berjalan dari satu perintah dan
-dua run byte-identik; kedua layar berjalan; demo dua tanggal membalik keputusan SOL dari GO ke NO_GO; suite **1852
-passed, 1 skipped**; `make lint` bersih. Yang **belum** ada disebut sebagai belum ada di §7, §8, dan §11 — termasuk
-angka paling tidak menyenangkan di repo ini, yang mendapat bagiannya sendiri di §7.
+**What runs today (6 Sep 2026).** The demo script in `docs/spec.md` §7, steps 1–6, runs from a single command and two
+runs are byte-identical; both screens run; the two-date demo flips the SOL decision from GO to NO_GO; the suite is
+**1869 passed, 1 skipped** in 210.41 s and `make lint` is clean over 92 files (measured 6 Sep 2026 on this tree,
+after the ADR-020 frontend rewrite landed — `uv run pytest -q`). What is **not** there is stated as not being there in §7, §8 and §11 — including the most unpleasant number in
+this repo, which gets a section of its own in §7.
 
 ---
 
-## 1. Arsitektur (`docs/spec.md` §2) — semua kotak di bawah ini berjalan
+## 1. Architecture (`docs/spec.md` §2) — every box below runs
 
 ```
- RYO tools (6) ──► core.ryo_client (rate-limit, fixtures) ──► core.store (snapshot append-only, hash)
+ RYO tools (6) ──► core.ryo_client (rate limit, fixtures) ──► core.store (append-only snapshot, hash)
                                                                      │
                                             preflight.skill ◄────────┘  freeze(snapshot_ids)
-                                            10 item (spec §4) → GO | NO_GO + blocking
+                                            10 items (spec §4) → GO | NO_GO + blocking
                                                      │                      │
                                              agent (practice trade      preflight.narrate (LLM,
-                                              plan / declined)           tidak menyentuh keputusan)
+                                              plan / declined)           never touches the decision)
                                                      │                      │
-                                             agent.replay ID= (IDENTICAL | MISMATCH | 3 vonis "tidak tahu")
+                                             agent.replay ID= (IDENTICAL | MISMATCH | 3 "we don't know" verdicts)
                                                      │
-                                             ui: Layar A watchlist (/ui) · Layar B kartu panggilan
-                                                 (/ui/decision/{id}) · banner SIMULATED
- core.recorder (per siklus) ──► grading (make grade): outcome → reputasi item, hanya dengan n (§7)
+                                             ui: landing (/) · Screen A watchlist (/app) · Screen B call card
+                                                 (/app/decision/{id}) · SIMULATED banner
+ core.recorder (per cycle) ──► grading (make grade): outcome → item reputation, only with n (§7)
 ```
 
-Aturan yang mengikat arah panah: **tidak ada LLM di jalur keputusan** (ADR-003). Keputusan adalah fungsi deterministik
-atas snapshot beku; narasi hanya menerjemahkan hasilnya dan terbukti tidak menggeser `decision_hash` bahkan saat kartu
-diracuni dan narasinya bermusuhan (`preflight/narrate.py`, `tests/test_narrate.py`). Agen tidak pernah mengimpor klien
-live (`tests/test_agent.py::test_agent_package_never_imports_the_live_client`), dan `ui/` tidak memuat `httpx` maupun
-`anthropic` sama sekali — layar hanya membaca keputusan yang sudah tersimpan.
+The rule that binds those arrows: **no LLM in the decision path** (ADR-003). The decision is a deterministic function
+over frozen snapshots; the narration only translates the result, and it is proven not to move `decision_hash` even
+when the card is poisoned and the narration is adversarial (`preflight/narrate.py`, `tests/test_narrate.py`). The
+agent never imports the live client
+(`tests/test_agent.py::test_agent_package_never_imports_the_live_client`), and `ui/` does not contain `httpx` or
+`anthropic` at all — the screens only read decisions that are already stored.
 
 ---
 
-## 2. Cara menjalankan
+## 2. How to run it
 
-Prasyarat: Python 3.12 + [uv](https://docs.astral.sh/uv/) (`docs/versions.md`). Tanpa Node/npm (ADR-001).
-
-```bash
-make doctor    # python 3.12.3 · uv 0.12.7 · sqlite 3.45.1 · 2 sumber aktif
-make demo      # naskah spec §7 langkah 1-6, seluruhnya dari fixture offline
-make test      # 1852 passed, 1 skipped
-```
-
-**`make demo` tidak butuh jaringan, kredensial, maupun DB perekam.** Ia membangun DB SQLite baru di direktori
-sementara dari `agent/fixtures/*.json` + `preflight/fixtures/*.json` setiap run, dan memasang audit hook yang
-**mengukur** klaim itu; barisnya ikut tercetak: `penjaga: 0 berkas di data/ dibuka proses ini (sys.addaudithook atas
-open + sqlite3.connect)` (`agent/demo.py:186`). `.env` sengaja **tidak** dimuat, karena §7 langkah 4 memperagakan LLM
-yang mati (`scripts/demo.sh:15-18`). Dua run wajib byte-identik:
+Prerequisites: Python 3.12 + [uv](https://docs.astral.sh/uv/) (`docs/versions.md`). **Running Tenko needs no Node.**
+Node/npm are a build tool only, for the frontend, and the build output is tracked in git and shipped, so a clean clone
+with no Node at all can still run `make ui`, `make test` and `make demo` (ADR-020, which narrows ADR-001 instead of
+revoking it; zero npm runtime dependencies — `package.json` carries the literal `"dependencies": {}`). The build-time
+toolchain is listed in `DISCLOSURE.md`; the frontend rewrite it belongs to **has landed** (§5), its output
+(`ui/static/app.css`, `ui/static/app.js`) is tracked in git, and the build itself is not guaranteed to work offline —
+only running Tenko is.
 
 ```bash
-make demo > a; make demo > b; diff a b     # kosong (dipatok tests/test_agent_demo.py)
+make doctor    # python 3.12.3 · uv 0.12.7 · sqlite 3.45.1 · 2 sumber aktif (2 active sources)
+make demo      # spec §7 script, steps 1-6, entirely from offline fixtures
+make test      # 1869 passed, 1 skipped (210.41 s, 6 Sep 2026 — see §7)
 ```
 
-**Tidak ada satu pun DB perekam yang ikut dikirim.** `data/` ada di `.gitignore`, dan snapshot pasar ber-timestamp
-tidak bisa dibuat ulang oleh siapa pun kecuali perekam yang berjalan pada waktu itu — jadi mengirimkannya pun tidak
-akan membuatnya bisa diperiksa ulang. Yang Anda punya sesudah klon adalah nol snapshot; **DB itu lahir di mesin Anda
-sendiri saat `make record` berjalan**, dan `make demo`/`make test` tidak menunggunya. Konsekuensinya jujur, dan
-alat-alatnya tetap menjawab jujur, bukan dengan angka default:
+**`make demo` needs no network, no credentials and no recorder DB.** It builds a fresh SQLite DB in a temporary
+directory from `agent/fixtures/*.json` + `preflight/fixtures/*.json` on every run, and it installs an audit hook that
+**measures** that claim; the line is printed along with the rest: `penjaga: 0 berkas di data/ dibuka proses ini
+(sys.addaudithook atas open + sqlite3.connect)` — "guard: 0 files under `data/` were opened by this process"
+(`agent/demo.py:186`). `.env` is deliberately **not** loaded, because §7 step 4 demonstrates a dead LLM
+(`scripts/demo.sh:15-18`). Two runs must be byte-identical:
 
-| Perintah | Butuh apa | Sebelum perekam Anda menulis apa pun |
+```bash
+make demo > a; make demo > b; diff a b     # empty (pinned by tests/test_agent_demo.py)
+```
+
+**Not a single recorder DB is shipped.** `data/` is in `.gitignore`, and timestamped market snapshots cannot be
+recreated by anyone except the recorder that ran at that moment — so shipping them would not make them re-checkable
+either. What you have after cloning is zero snapshots; **that DB is born on your own machine when `make record`
+runs**, and `make demo` / `make test` do not wait for it. The consequence is stated honestly, and the tools keep
+answering honestly rather than with a default number:
+
+| Command | Needs what | Before your recorder has written anything |
 |---|---|---|
-| `make demo` · `make two-dates` · `make test` · `make lint` | tidak ada | berjalan penuh dari fixture |
-| `make ui` (`/ui`, `/ui/decision/{id}`) | store terbaca | **503 ber-banner SIMULATED**, bukan halaman kosong palsu |
-| `make skill ARGS="preflight SOL"` | snapshot di store | exit 0, envelope `status:"unavailable"`, `data:null` |
-| `make agent-tick` · `make replay ID=` · `make grade` · `uv run python -m preflight.veto_table` | ledger/snapshot lokal | menyatakan tidak ada bukti; tidak mengarang angka |
-| `make record` | kredensial RYO dari env | perintah inilah yang **membuat** store; ia menghormati rate limit (`docs/api-facts.md` §A) |
+| `make demo` · `make two-dates` · `make test` · `make lint` | nothing | runs in full from fixtures |
+| `make ui` (`/`, `/app`, `/app/decision/{id}`) | a readable store | **503 with a SIMULATED banner**, not a fake empty page |
+| `make skill ARGS="preflight SOL"` | a snapshot in the store | exit 0, envelope `status:"unavailable"`, `data:null` |
+| `make agent-tick` · `make replay ID=` · `make grade` · `uv run python -m preflight.veto_table` | a local ledger/snapshot | says there is no evidence; does not invent numbers |
+| `make record` | RYO credentials from env | this is the command that **creates** the store; it respects the rate limit (`docs/api-facts.md` §A) |
 
-Untuk **melihat kedua layar di browser tanpa perekam**, ada jalur fixture: `uv run python -m agent.demo_fixture --db
-/tmp/tenko-demo.db` menulis DB dari fixture yang sama dengan demo (`agent/demo_fixture.py:318`; penjaganya menolak
-tujuan di dalam `ROOT/data`, supaya baris fixture tidak pernah mencemari DB perekam), lalu
-`DB_PATH=/tmp/tenko-demo.db make ui` (env `DB_PATH` dibaca `ui/app.py`
-docstring butir 2, dan terbukti dipakai juri saat menjalankan server di atas salinan DB —
-`docs/judge-reports/fase-5.md` §tes destruktif b). **Yang kami jalankan hari ini sebagai satu resep adalah `make demo`
-langkah 5**, yang merender kedua layar dari aplikasi yang sama; dua perintah di atas belum kami jalankan berurutan dan
-tidak boleh dibaca sebagai sudah diuji.
+To **see both screens in a browser without a recorder** there is a fixture path: `uv run python -m agent.demo_fixture
+--db /tmp/tenko-demo.db` writes a DB from the same fixtures the demo uses (`agent/demo_fixture.py:318`; its guard
+refuses any destination inside `ROOT/data`, so fixture rows can never contaminate a recorder DB), then
+`DB_PATH=/tmp/tenko-demo.db make ui` (the `DB_PATH` env var is read by `ui/app.py`, docstring item 2, and it was
+demonstrably used by the judge when running the server against a copy of the DB —
+`docs/judge-reports/fase-5.md` §destructive test b). **What we do run today as a single recipe is `make demo` step
+5**, which renders both screens from the same application; the two commands above have not been run in sequence by us
+and must not be read as tested.
 
 ---
 
-## 3. "Tunjuk & sebut" sebagai kode — satu item tidak tersebut ⇒ NO_GO
+## 3. "Point and call" as code — one unspoken item ⇒ NO_GO
 
-Ini produknya. `make demo` §7 langkah 2 menjalankan fixture di mana **satu tool wajib menjawab `unavailable` dan empat
-lainnya menjawab** (`preflight/fixtures/outage-one-tool-2026-09-05.json`, dipakai bawaan oleh `scripts/demo.sh:28`).
-Kartunya — **cuplikan**; baris `status=`, `snapshot_ids=`, sepuluh baris panggilan, dan envelope kanoniknya dipotong
-di sini (`…` menandai potongan). `make demo` mencetak semuanya:
+This is the product. `make demo` §7 step 2 runs a fixture in which **one required tool answers `unavailable` and the
+other four answer** (`preflight/fixtures/outage-one-tool-2026-09-05.json`, used by default by `scripts/demo.sh:28`).
+The card — an **excerpt**; the `status=` line, `snapshot_ids=`, the ten call lines and the canonical envelope are cut
+here (`…` marks the cut). `make demo` prints all of it:
 
 ```
 === §7 langkah 2 — satu tool wajib unavailable, sisanya menjawab ===
@@ -108,328 +116,363 @@ n_items=10 (green 7, red 1, unspoken 2)
 …
 ```
 
-Sepuluh barisnya, per item (dipatok tes, bukan diketik ulang dari layar —
+The ten lines, item by item (pinned by a test, not retyped from a screen —
 `tests/test_preflight_outage.py::test_one_required_tool_unavailable_makes_item_two_red_and_the_envelope_partial`):
 
-| item | status | kenapa ia berarti apa |
+| item | status | why it means what it means |
 |---|---|---|
-| `01_freshness` `03_regime` `05_verdict_quick` `06_confluence` `07_verdict_deep` `09_plan` `10_relative` | **green** (7) | bukti ada, terbaca, dan tidak menentang plan |
-| `02_completeness` | **red** | satu tool wajib menjawab `unavailable`; `reason` menyebut nama toolnya, dan `source.tool` menunjuk tool itu |
-| `04_sentiment_shift` | **unspoken** | sumbernya hilang. Item wajib ⇒ **ikut ke `blocking`** meski tidak merah |
-| `08_derivatives` | **unspoken** | sumbernya hilang juga, tetapi item ini opsional (spec §4) ⇒ **tidak** memveto |
+| `01_freshness` `03_regime` `05_verdict_quick` `06_confluence` `07_verdict_deep` `09_plan` `10_relative` | **green** (7) | evidence exists, is readable, and does not contradict the plan |
+| `02_completeness` | **red** | one required tool answered `unavailable`; `reason` names that tool, and `source.tool` points at it |
+| `04_sentiment_shift` | **unspoken** | its source is gone. A required item ⇒ **it joins `blocking`** even though it is not red |
+| `08_derivatives` | **unspoken** | its source is gone too, but this item is optional (spec §4) ⇒ it does **not** veto |
 
-Yang membuat kedua baris `unspoken` itu bukan sekadar label: **item `unspoken` tidak boleh membawa nilai apa pun**, termasuk `0`
-dan `0.0` — bentuk kebohongan yang persis ingin kami cegah. Ditegakkan validator, bukan konvensi:
+What makes those two `unspoken` lines more than a label: **an `unspoken` item may not carry any value at all**,
+including `0` and `0.0` — exactly the kind of lie we set out to prevent. Enforced by a validator, not by convention:
 `core/skill.py::_unspoken_carries_no_value` · `tests/test_skill.py::test_unspoken_item_may_not_carry_a_value` ·
-`availability` wajib menandai `"unspoken"` **jika dan hanya jika** item itu unspoken
-(`::test_unspoken_item_must_be_marked_unspoken_in_availability`) · sekitar 30 tes `*_unspoken_*` di
-`tests/test_items.py` memaksa null / `unavailable` / kosakata tak dikenal / angka non-finit menjadi `unspoken`
-ber-`reason`, bukan nol. Jalankan `make demo` untuk melihat baris JSON kanoniknya utuh; kami tidak menempel salinan
-hasil sunting tangan di sini.
+`availability` must mark `"unspoken"` **if and only if** that item is unspoken
+(`::test_unspoken_item_must_be_marked_unspoken_in_availability`) · about 30 `*_unspoken_*` tests in
+`tests/test_items.py` force null / `unavailable` / unknown vocabulary / non-finite numbers to become `unspoken` with a
+`reason`, not zero. Run `make demo` to see the canonical JSON lines in full; we do not paste a hand-edited copy here.
 
-**Bentuknya sengaja bentuk RYO** (ADR-013/015). Tidak ada spec formal untuk skill T3 (`docs/api-facts.md` §E), jadi
-yang paling murah dipakai RYO adalah envelope tool mereka sendiri: `SkillResult` memuat **sepuluh field top-level yang
-sama** (`schema_version, tool, status, data_mode, as_of, request, data, summary, availability, warnings`) ditambah
-**tepat satu** field, `simulated`, yang diwajibkan `docs/rules-compliance.md`. Invarian itu diuji mekanis terhadap
-keenam sampel envelope nyata di `docs/samples/`
-(`tests/test_skill.py::test_top_level_invariant_holds_for_all_six_samples`). Yang **tidak** terjadi di envelope: tidak
-ada `data` karangan, tidak ada `as_of` yang dibuat dari `now()`, tidak ada nol sebagai pengganti "tidak tahu" —
-validator menolak `data` non-null saat `status="unavailable"` dan menolak `ok`/`partial` tanpa data
+**The shape is deliberately the RYO shape** (ADR-013/015). There is no formal spec for a T3 skill
+(`docs/api-facts.md` §E), so the cheapest thing for RYO to consume is their own tool envelope: `SkillResult` carries
+the **same ten top-level fields** (`schema_version, tool, status, data_mode, as_of, request, data, summary,
+availability, warnings`) plus **exactly one** field, `simulated`, which `docs/rules-compliance.md` requires. That
+invariant is tested mechanically against all six real envelope samples in `docs/samples/`
+(`tests/test_skill.py::test_top_level_invariant_holds_for_all_six_samples`). What does **not** happen in the envelope:
+no invented `data`, no `as_of` manufactured from `now()`, no zero standing in for "we don't know" — the validator
+rejects non-null `data` when `status="unavailable"` and rejects `ok`/`partial` without data
 (`core/skill.py::_honesty_invariants`).
 
 ---
 
-## 4. Replay: keputusan yang sama, atau tuduhan yang bernama
+## 4. Replay: the same decision, or a named accusation
 
 ```bash
-make demo                    # langkah 3 menjalankan replay + tamper di depan mata
-make replay ID=<trade_id>    # atas ledger lokal Anda sendiri
+make demo                    # step 3 runs replay + tamper in front of you
+make replay ID=<trade_id>    # against your own local ledger
 ```
 
-Di dalam `make demo` langkah 3 (fixture, jadi hasilnya sama di mesin siapa pun): tiga tick menulis 3 GO + 1 NO_GO,
-`replay ID=1` dan `ID=4` menjawab **IDENTICAL**, lalu satu byte `payload_json` diubah pada salinan DB dan vonisnya
-menjadi **MISMATCH yang menyebut `snapshot_id=1`** berikut kedua sha256 (`docs/judge-reports/fase-5.md`, tabel §7
-baris 3; dipatok `tests/test_agent_replay.py::test_one_tampered_byte_in_the_copy_gives_mismatch_naming_the_snapshot`).
+Inside `make demo` step 3 (fixtures, so the result is the same on anyone's machine): three ticks write 3 GO + 1 NO_GO,
+`replay ID=1` and `ID=4` answer **IDENTICAL**, then one byte of `payload_json` is changed on a copy of the DB and the
+verdict becomes **MISMATCH naming `snapshot_id=1`** together with both sha256 values (`docs/judge-reports/fase-5.md`,
+§7 table row 3; pinned by
+`tests/test_agent_replay.py::test_one_tampered_byte_in_the_copy_gives_mismatch_naming_the_snapshot`).
 
-Vonisnya **lima**, dan hanya **satu** yang berarti "terverifikasi": `IDENTICAL`
-(`VERIFIED_VERDICTS = frozenset({VERDICT_IDENTICAL})`, `agent/replay.py:126`). `MISMATCH` (exit 1) adalah **temuan** —
-bukti tidak mereproduksi keputusan. `STALE_ALGO`, `STALE_PARAMS`, dan `NO_EVIDENCE` adalah **pengakuan tidak tahu**,
-bukan kelulusan: empat dari lima keluar 0, dan exit 0 di sini berarti "perintah menghasilkan vonis", bukan "keputusan
-terverifikasi" (`agent/replay.py:132-134`).
+There are **five** verdicts, and only **one** of them means "verified": `IDENTICAL`
+(`VERIFIED_VERDICTS = frozenset({VERDICT_IDENTICAL})`, `agent/replay.py:126`). `MISMATCH` (exit 1) is a **finding** —
+the evidence does not reproduce the decision. `STALE_ALGO`, `STALE_PARAMS` and `NO_EVIDENCE` are **admissions of not
+knowing**, not passes: four of the five exit 0, and exit 0 here means "the command produced a verdict", not "the
+decision is verified" (`agent/replay.py:132-134`).
 
-Ledger yang perekam **kami** hasilkan memuat tiga generasi karena store hanya-tambah (ADR-006/016). DB itu tidak ikut
-dikirim, jadi id di bawah adalah laporan tentang mesin kami, bukan berkas yang bisa Anda buka; ledger yang perekam
-Anda hasilkan mulai dari satu generasi dan tidak akan menampilkan cabang ini sampai algoritma atau params bergeser.
-Baris yang ditulis implementasi yang sudah dihapus dilaporkan `STALE_ALGO` (id 1–19), baris dari generasi params
-sebelumnya `STALE_PARAMS` (id 20–27), sisanya generasi berjalan. Tidak satu pun dari baris lama itu kami sebut salah — kami menyatakan **tidak menilainya**.
-Menyembunyikannya akan lebih rapi dan lebih tidak jujur.
+The ledger **our** recorder produced contains three generations because the store is append-only (ADR-006/016). That
+DB is not shipped, so the ids below are a report about our machine, not a file you can open; the ledger your recorder
+produces starts with one generation and will not show this branching until the algorithm or the params move. Rows
+written by an implementation that has since been deleted are reported as `STALE_ALGO` (ids 1–19), rows from an earlier
+params generation as `STALE_PARAMS` (ids 20–27), the rest are the current generation. We do not call any of those old
+rows wrong — we state that we **are not judging them**. Hiding them would be tidier and less honest.
 
-**Params generasi berjalan dibekukan, dan angkanya ditempel di sini:**
+**The current generation's params are frozen, and the number is pasted here:**
 
 ```
 params_hash = 3d39fb1bd1a03b7f5269f53fec347d34645d2b402ff1c2de47e53f19d69616b7
 ```
 
-Nilai itu ikut ke setiap `decision_hash`, jadi mengubah ambang mana pun akan membuat setiap baris `decisions` yang
-sudah tersimpan dilaporkan `STALE_PARAMS` saat di-replay — perilaku yang benar, bukan bug, tetapi juga alasan kenapa
-pembekuannya bukan sekadar niat: ada tes yang **gagal** bila nilai ini bergeser
-(`tests/test_params.py:242` `CURRENT_PARAMS_HASH`). Penerimaan ADR-017 hari ini (§8) tidak menggesernya — yang berubah
-adalah docstring dan alasannya, dan materi hash hanya membaca nilai.
+That value goes into every `decision_hash`, so changing any threshold would make every stored `decisions` row report
+`STALE_PARAMS` on replay — the correct behaviour, not a bug, but also the reason the freeze is more than an intention:
+a test **fails** if this value moves (`tests/test_params.py:242` `CURRENT_PARAMS_HASH`). Today's acceptance of ADR-017
+(§8) does not move it — what changed is the docstring and the rationale, and the hash material only reads the value.
 
 ---
 
-## 5. Dua layar (T2) — `make ui`
+## 5. Two screens (T2) — `make ui`
 
-| Layar | Route | Pertanyaan yang dijawab ≤30 dtk | JSON yang sama persis |
+| Screen | Route | Question answered in ≤30 s | Exactly the same JSON |
 |---|---|---|---|
-| A. Watchlist | `/ui` | "simbol mana yang paling dekat GO, dan apa yang menahan yang lain?" | `/api/watchlist` |
-| B. Kartu panggilan | `/ui/decision/{id}` | "kenapa keputusan ini — bukti per baris dari tool/field mana, per kapan?" | `/api/decision/{id}` |
+| 0. Landing | `/` | "what is this, and why should the missing evidence matter?" | server-rendered board, no fetch |
+| A. Watchlist | `/app` | "which symbol is closest to GO, and what is holding the others back?" | `/api/watchlist` |
+| B. Call card | `/app/decision/{id}` | "why this decision — evidence per row, from which tool/field, as of when?" | `/api/decision/{id}` |
 
-Dirender di server, **nol `<script>`**, CSP `default-src 'none'; style-src 'self'`, satu-satunya aset adalah
-`/ui/tenko.css` yang lahir dari `ui/screens.py`. Semua interaksi navigasi `GET`, nol `tabindex`, cincin fokus 13.55:1,
-nol `:hover`, nol animasi; setiap baris kartu diumumkan sebagai satu kalimat "tunjuk → sebut" ber-`aria-label`, dan
-baris `unspoken` diumumkan "tidak disebut", tidak pernah sebagai 0. Checklist lengkap dengan **nama tes yang gagal bila
-janjinya dilanggar** ada di `ui/README.md`; angka kontrasnya dihitung dari CSS yang benar-benar dilayani, bukan
-ditaksir.
+Server-rendered, with **one** same-origin `<script src="/ui/app.js" defer>` per page since the ADR-020 rewrite landed
+(commit `ed77a8c`), and **two** assets — `/ui/tenko.css` and `/ui/app.js`, both esbuild output from `frontend/`,
+tracked in git as `ui/static/app.css` and `ui/static/app.js`. The CSP sent with every **HTML** response names **no
+third-party host** and permits neither `unsafe-inline` nor `unsafe-eval`; scripts, styles and `fetch` targets are all
+restricted to this origin, and framing, `base` and form submission are shut off entirely. The header itself lives in
+`ui/app.py` `HTML_HEADERS` and is **deliberately not retyped here** — a pasted copy is exactly how the previous
+version of this paragraph became false, and `ui/README.md` pins the header with a test. All navigation interaction is
+`GET`, zero `tabindex`, focus ring **13.55:1**, zero `:hover`, zero animation; every card row is announced as one
+"point → call" sentence via `aria-label`, and an `unspoken` row is announced as "not spoken", never as 0. The full
+checklist, with **the name of the test that fails if a promise is broken**, is in `ui/README.md`.
 
-Batas yang diakui, disalin dari `ui/README.md` §"Batas yang belum tertutup": **rekaman 30 detik Layar B belum dibuat**
-(artefak manusia; naskah adegannya ada di berkas yang sama, dan naskah video terpisah sengaja **tidak** dibuat atas
-permintaan pemilik repo — `LOG.md`) · nol pengujian dengan
-pembaca layar sungguhan · nol audit kontras pihak ketiga (ADR-001 melarang toolchain npm) · belum diuji zoom 200 %.
+**The contrast numbers are measured from the stylesheet the server actually hands out, not estimated** — and that is
+the claim, not a courtesy: `tests/test_ui.py:2503`
+`::test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed` fetches `/ui/tenko.css` over the app
+itself (so since ADR-020 it reads the esbuild output of `frontend/styles/app.css`, not any string that used to live
+in Python), parses every `--name: #rrggbb` in `:root`, and demands ≥4.5:1 for text pairs and ≥3:1 for non-text —
+**plus** that the colour list is exhausted by the measured pairs, so a new colour cannot slip in unmeasured. Three
+values are pinned exactly: focus ring `warn` on `bg` = **13.55**, the tightest text pair `nogo` on `panel` = **8.45**,
+the tightest non-text pair `line` on `panel` = **3.38**.
+
+The rewrite in TypeScript, bundled with esbuild and served as a separate same-origin script file, was accepted on
+6 Sep 2026 (ADR-020) and **landed the same day** (commit `ed77a8c`; sources in `frontend/src/*.ts`, output in
+`ui/static/`). The earlier wording here — "zero `<script>`" and a pasted CSP string — described the version before
+that commit and has been corrected above. What the rewrite did **not** change is the T2 score below, which was given
+to the pre-rewrite screens.
+
+Acknowledged limits, copied from `ui/README.md` §"Batas yang belum tertutup" (limits not yet closed): **the 30-second
+recording of Screen B has not been made** (a human artifact; the scene script is in the same file, and a separate
+video script was deliberately **not** written at the repo owner's request — `LOG.md`) · zero testing with a real
+screen reader · zero third-party contrast audit · 200 % zoom untested.
+
+The last third-party assessment scored T2 at 85/100 (`docs/judge-reports/fase-5-ulang.md`, cited in ADR-020). **That
+score judged the pre-rewrite UI, which is no longer the UI you get when you run `make ui`**: it was given before
+ADR-020 landed and it has **not** been re-scored since. So it is evidence about a version of the screens that this
+repo no longer serves, and ADR-020 records exactly that as a "consciously accepted risk".
 
 ---
 
-## 6. Naskah §7 langkah demi langkah — status hari ini
+## 6. The §7 script step by step — status today
 
-Satu perintah menjalankan keenamnya: `make demo`. Kolom "bukti" adalah keluaran run 6 Sep 2026 yang juga diverifikasi
-juri (`docs/judge-reports/fase-5.md`, tabel §7); jalankan sendiri untuk mendapatkan byte yang sama.
+One command runs all six: `make demo`. The "evidence" column is output from the 6 Sep 2026 run that a judge also
+verified (`docs/judge-reports/fase-5.md`, §7 table); run it yourself to get the same bytes.
 
-| # | Langkah §7 | Status | Bukti |
+| # | §7 step | Status | Evidence |
 |---|---|---|---|
-| 1 | `make skill ARGS="preflight SOL"` → 10 item, GO/NO_GO, blocking, snapshot_ids | ✔ | `status=partial data_mode=live decision=GO blocking=- snapshot_ids=[1,2,3,4,11] decision_hash=083d3ed0…`; 10 item, 10 hijau; envelope kanonik dicetak utuh |
-| 2 | fixture rusak → item merah + item tidak tersebut, tanpa exception | ✔ (envelope padamnya **SINTETIS**, lihat di bawah) | `decision=NO_GO blocking=02_completeness, 04_sentiment_shift`; `n_items=10 (green 7, red 1, unspoken 2)` (§3) |
-| 3 | 3 tick → ≥1 GO + ≥1 NO_GO; replay IDENTICAL; tamper → MISMATCH | ✔ | 3 GO + 1 NO_GO; `replay ID=1` & `ID=4` IDENTICAL; tamper → MISMATCH ber-`snapshot_id=1` |
-| 4 | narasi per item; LLM dimatikan → `narration_unavailable`, hash sama | ✔ | kartu 10 baris dari `decisions.card_json`; `narration_unavailable`, `n_lines=0`; hash sebelum = sesudah = `083d3ed0…` |
-| 5 | `make ui` Layar A/B, keyboard-first, banner SIMULATED | ✔ | `/ui` 200, `/ui/decision/9` 200, banner SIMULATED, `aria-label: 31 · tautan fokusable: 4 · handler hover/onclick: 0` |
-| 6 | dua tanggal, simbol sama → keputusan berbeda | ✔ | `make two-dates`: SOL **GO (2026-09-03) → NO_GO (2026-09-04)**, `03_regime` & `08_derivatives` hijau→merah, `params_hash` sama sehingga yang berubah **hanya buktinya** (`agent/two_dates.py:9-12`) |
+| 1 | `make skill ARGS="preflight SOL"` → 10 items, GO/NO_GO, blocking, snapshot_ids | ✔ | `status=partial data_mode=live decision=GO blocking=- snapshot_ids=[1,2,3,4,11] decision_hash=083d3ed0…`; 10 items, 10 green; canonical envelope printed in full |
+| 2 | broken fixture → red item + unspoken item, no exception | ✔ (the outage envelope is **SYNTHETIC**, see below) | `decision=NO_GO blocking=02_completeness, 04_sentiment_shift`; `n_items=10 (green 7, red 1, unspoken 2)` (§3) |
+| 3 | 3 ticks → ≥1 GO + ≥1 NO_GO; replay IDENTICAL; tamper → MISMATCH | ✔ | 3 GO + 1 NO_GO; `replay ID=1` & `ID=4` IDENTICAL; tamper → MISMATCH naming `snapshot_id=1` |
+| 4 | per-item narration; LLM switched off → `narration_unavailable`, same hash | ✔ | 10-line card from `decisions.card_json`; `narration_unavailable`, `n_lines=0`; hash before = after = `083d3ed0…` |
+| 5 | `make ui` Screen A/B, keyboard-first, SIMULATED banner | ✔ | `/app` 200, `/app/decision/9` 200, SIMULATED banner, `aria-label: 31 · tautan fokusable: 4 · handler hover/onclick: 0` (i.e. 31 `aria-label`s, 4 focusable links, 0 hover/onclick handlers). **Those counts were taken before the ADR-020 rewrite landed** (§5), so re-run `make demo` for today's numbers instead of quoting these |
+| 6 | two dates, same symbol → different decision | ✔ | `make two-dates`: SOL **GO (2026-09-03) → NO_GO (2026-09-04)**, `03_regime` & `08_derivatives` green→red, same `params_hash` so the only thing that changed is **the evidence** (`agent/two_dates.py:9-12`) |
 
-**Langkah 2 memakai envelope SINTETIS, dan naskahnya mengatakannya sendiri.** RYO **belum pernah** mengeluarkan
-`status: "unavailable"` dalam pengamatan kami — **0 dari 3645 snapshot** (`docs/api-facts.md` §A, sapuan 6 Sep 2026,
-`id <= 3645`). Karena itu satu envelope di fixture langkah 2 **dibentuk** menjadi `unavailable`; envelope yang lain
-adalah salinan apa adanya dari bukti nyata. Naskah menghitung sendiri envelope mana yang berbentuk dibentuk dan
-membandingkannya dengan pengakuan berkasnya: bila keduanya berselisih ia mencetak `KETIDAKCOCOKAN` (`agent/demo.py`
-`_disclosure_mismatch`). Lubang yang dilaporkan `docs/judge-reports/fase-5.md` — fixture yang blok `synthetic`-nya
-**dihapus seluruhnya** lolos diam-diam — **sudah ditutup**: ketiadaan blok itu adalah selisih ketiga, jadi berkas yang
-membawa envelope berbentuk padam tanpa menyatakan apa pun disebut "pemadaman yang TIDAK DIAKUI" (`agent/demo.py`
-`_disclosure_mismatch`, argumen `declared`). Pihak ketiga menyerangnya ulang dengan empat varian dan mendapat
-`KETIDAKCOCOKAN` **2×** pada varian penghapusan blok (`docs/judge-reports/fase-5-ulang.md`, tabel varian V3/V3b).
+**Step 2 uses a SYNTHETIC envelope, and the script says so itself.** RYO has **never** emitted `status:
+"unavailable"` in our observation — **0 out of 3645 snapshots** (`docs/api-facts.md` §A, sweep of 6 Sep 2026,
+`id <= 3645`). So one envelope in the step-2 fixture is **shaped** into `unavailable`; the other envelopes are
+verbatim copies of real evidence. The script counts for itself which envelopes are shaped and compares that with the
+file's own declaration: if the two disagree it prints `KETIDAKCOCOKAN` ("mismatch") (`agent/demo.py`
+`_disclosure_mismatch`). The hole reported in `docs/judge-reports/fase-5.md` — a fixture whose `synthetic` block is
+**deleted entirely** passing silently — is **closed**: the absence of that block is the third kind of disagreement, so
+a file carrying an outage-shaped envelope while declaring nothing is called "pemadaman yang TIDAK DIAKUI" ("an
+UNDECLARED outage") (`agent/demo.py` `_disclosure_mismatch`, argument `declared`). A third party attacked it again
+with four variants and got `KETIDAKCOCOKAN` **2×** on the block-deletion variant
+(`docs/judge-reports/fase-5-ulang.md`, variant table V3/V3b).
 
-Residu yang tersisa, dan kami menyebutnya karena ia nyata: bila baris fixture **tidak membawa `source_payload_hash`**,
-naskah tidak punya kunci untuk membandingkan dan turun dari tuduhan menjadi catatan lunak — ia mencetak "TIDAK
-DIVERIFIKASI di sini: barisnya tidak membawa `source_payload_hash`" alih-alih `KETIDAKCOCOKAN` (varian V5 di laporan
-yang sama). Itu jujur secara teknis; yang **belum** ada adalah aturan bahwa baris tak-terverifikasi tidak layak
-memerankan pemadaman.
+The residue that remains, and we name it because it is real: if a fixture row **carries no `source_payload_hash`**,
+the script has no key to compare against and falls from an accusation to a soft note — it prints "TIDAK DIVERIFIKASI
+di sini: barisnya tidak membawa `source_payload_hash`" ("NOT VERIFIED here: the row carries no
+`source_payload_hash`") instead of `KETIDAKCOCOKAN` (variant V5 in the same report). That is technically honest; what
+does **not** yet exist is a rule that an unverified row is not fit to play an outage.
 
-Selain demo dua tanggal, `make two-dates` membawa satu kasus yang lebih tajam: **DGAI NO_GO yang penyebabnya bukti
-HILANG, bukan angka jelek**. Pada 2026-09-03, dari enam penahan DGAI **lima `unspoken`** dan satu-satunya yang merah
-(`02_completeness`) merah justru karena lubang itu — `deep_analysis` menjawab tetapi menyebut
-`availability.trade_plan='unavailable'`, sehingga `09_plan` menjadi `unspoken` dan **ikut disebut** di `blocking`
-(`agent/two_dates.py:13-18`). Pasar yang sama, tool yang sama: satu simbol ditahan **angka**, satu simbol ditahan
-**jawaban yang tidak ada**, dan kartu menyebut yang mana yang mana.
+Besides the two-date demo, `make two-dates` carries one sharper case: **a DGAI NO_GO caused by MISSING evidence, not
+by bad numbers**. On 2026-09-03, of the six items holding DGAI back **five are `unspoken`** and the only red one
+(`02_completeness`) is red precisely because of that hole — `deep_analysis` answered but reported
+`availability.trade_plan='unavailable'`, so `09_plan` became `unspoken` and **was named** in `blocking`
+(`agent/two_dates.py:13-18`). Same market, same tools: one symbol held back by **a number**, one symbol held back by
+**an answer that does not exist**, and the card says which is which.
 
 ---
 
-## 7. Angka paling tidak menyenangkan di repo ini: k = 0
+## 7. The most unpleasant number in this repo: k = 0
 
-`make grade` menilai keputusan yang sudah berumur ≥24 j dan bertanya satu hal: **apakah veto ini menyelamatkan
-sesuatu?** Jawabannya hari ini, atas ledger lokal kami (6 Sep 2026, horizon 24 j, `grading/outcomes.py:68`):
+`make grade` judges decisions that are ≥24 h old and asks one thing: **did this veto save anything?** Today's answer,
+over our local ledger (6 Sep 2026, 24 h horizon, `grading/outcomes.py:68`):
 
-- **13 keputusan bisa dinilai. `k = 0`.** Nol kerugian terbukti dicegah oleh item mana pun.
-- **`target_first = 3`.** Tiga kali veto menahan plan yang justru **menyentuh target lebih dulu** — yaitu tiga kali
-  vetonya salah. Kalimat itu dicetak alat ukurnya sendiri, dengan penyebut yang sama:
-  `"yang justru menyentuh target lebih dulu (veto ini salah)"` (`grading/grader.py:100`).
-- **`n_efektif` 1–5 lawan ambang 30** (`grading/stats.py:80`) → **nol selang kepercayaan dicetak**, dan Bunryō
-  (ukuran posisi dari reliabilitas, spec §4 item 11) menutup dengan `TIDAK ada takaran yang dikeluarkan`
-  (`grading/grader.py:537`).
+- **13 decisions could be judged. `k = 0`.** Zero losses demonstrably prevented by any item.
+- **`target_first = 3`.** Three times a veto held back a plan that **hit its target first** — that is, three times the
+  veto was wrong. That sentence is printed by the measuring tool itself, with the same denominator:
+  `"yang justru menyentuh target lebih dulu (veto ini salah)"` — "which hit the target first instead (this veto was
+  wrong)" (`grading/grader.py:100`).
+- **`n_efektif` 1–5 against a threshold of 30** (`grading/stats.py:80`) → **zero confidence intervals printed**, and
+  Bunryō (position sizing from reliability, spec §4 item 11) closes with `TIDAK ada takaran yang dikeluarkan` ("NO
+  sizing is issued") (`grading/grader.py:537`).
 
-`n_efektif` bukan `n`: amatan di sini **tidak independen** — `market_overview` dan `monitor_market_sentiment_shift`
-dipanggil dengan argumen `{}`, jadi keempat simbol membaca baris yang sama dan satu peristiwa pasar bisa tercacah
-sampai 4×. `grading/stats.py` mengempiskan `n` ke `min(n, peristiwa bukti berbeda)` justru supaya selangnya tidak
-terlihat yakin karena duplikasi. Konsekuensinya: **kami tidak punya bukti bahwa sepuluh item ini menghasilkan
-keputusan yang lebih baik.** Yang kami punya adalah keputusan yang bisa ditunjuk, disebut, diputar ulang, dan
-dibantah — dan alat ukur yang mengatakan "belum cukup data" alih-alih mencetak angka kecil yang meyakinkan.
+`n_efektif` is not `n`: the observations here are **not independent** — `market_overview` and
+`monitor_market_sentiment_shift` are called with the argument `{}`, so all four symbols read the same row and one
+market event can be counted up to 4×. `grading/stats.py` deflates `n` to `min(n, number of distinct evidence events)`
+precisely so the interval does not look confident because of duplication. The consequence: **we have no evidence that
+these ten items produce better decisions.** What we have is a decision that can be pointed at, spoken, replayed and
+argued with — and a measuring tool that says "not enough data yet" instead of printing a small, convincing number.
 
-Sisanya, dengan `n` dan periodenya:
+The rest, with their `n` and period:
 
-| Pengukuran | Angka | n & periode | Perintah / laporan |
+| Measurement | Number | n & period | Command / report |
 |---|---|---|---|
-| Chaos (host mati · kill -9 · 429 · DB dihapus · kredensial dicabut · celah bukti) | **LULUS 8 / GAGAL 0**, nol traceback | 8 skenario, 5 Sep 2026 23:27–23:30 JST | `bash scripts/chaos.sh` → `docs/reports/chaos-2026-09-05.md` |
-| Celah bukti: `preflight()` atas bukti bolong | **0 melempar**; sebaran `{partial: 156, unavailable: 268}` | n = 424 panggilan | laporan yang sama, skenario `evidence_gap` |
-| Reputasi item dari outcome | **k = 0**, `target_first = 3`, nol selang | 13 keputusan dinilai, horizon 24 j, 6 Sep 2026 | `make grade` |
-| Daya veto empiris per item | `01_freshness` **0× merah**; `06_confluence` **82× merah** | n = 201 amatan (4 simbol inti × jangkar perekam, jendela 2026-09-01T06:29Z–09-05T12:15Z), atas salinan beku ber-**`max(snapshots.id) = 3608`**, 25 jangkar dibuang batas pindai | angka kolom kiri berasal dari DB yang perekam **kami** hasilkan (tidak ikut dikirim). Resep atas DB Anda sendiri: `cp <DB perekam Anda> /tmp/frozen.db` lalu `uv run python -m preflight.veto_table --db /tmp/frozen.db --until 2026-09-05T12:32:00Z`; tabel utuh per item di `preflight/items.py:94-105` |
-| ↑ ulangan pihak ketiga, salinan beku **lain** | `01_freshness` **0× merah**; `06_confluence` **75× merah** | n = 186, **`max(snapshots.id) = 3981`**, `--until` yang sama persis | `docs/judge-reports/fase-5-ulang.md` — `n` bergerak, arahnya tidak; inilah sebab `max(id)` harus ikut disebut |
-| Suite | **1852 passed, 1 skipped** | 6 Sep 2026, pohon kerja kami. Penilaian pihak ketiga mengukur **1848** sebelum ADR-017 mendarat (`docs/judge-reports/fase-5-ulang.md`); selisih 4 tes adalah tes yang ditambahkan bersama keputusan itu | `make test` (pada klon bersih angkanya lebih kecil: dua belas tes paritas untuk satu skrip lint/kepatuhan lokal **SKIP** dengan alasan terbaca — skrip itu perkakas kerja, bukan bagian aplikasi, dan sengaja tidak ikut dikirim; `LOG.md`) |
-| Envelope RYO yang pernah `unavailable` | **0 dari 3645** | sapuan 6 Sep 2026, `id <= 3645` | `docs/api-facts.md` §A |
+| Chaos (host down · kill -9 · 429 · DB deleted · credentials revoked · evidence gap) | **`LULUS=8 GAGAL=0`** (PASS 8 / FAIL 0), zero tracebacks | 8 scenarios, 5 Sep 2026 23:27–23:30 JST — **measured before the ADR-020 rewrite and deliberately not re-run** (see the note under this table) | `bash scripts/chaos.sh` → `docs/reports/chaos-2026-09-05.md` |
+| Evidence gap: `preflight()` over holed evidence | **0 raised**; distribution `{partial: 156, unavailable: 268}` | n = 424 calls | same report, `evidence_gap` scenario |
+| Item reputation from outcomes | **k = 0**, `target_first = 3`, zero intervals | 13 decisions judged, 24 h horizon, 6 Sep 2026 | `make grade` |
+| Empirical veto power per item | `01_freshness` **0× red**; `06_confluence` **82× red** | n = 201 observations (4 core symbols × recorder anchors, window 2026-09-01T06:29Z–09-05T12:15Z), over a frozen copy with **`max(snapshots.id) = 3608`**, 25 anchors dropped by the scan limit | the left-hand numbers come from the DB **our** recorder produced (not shipped). Recipe against your own DB: `cp <your recorder DB> /tmp/frozen.db` then `uv run python -m preflight.veto_table --db /tmp/frozen.db --until 2026-09-05T12:32:00Z`; the full per-item table is in `preflight/items.py:94-105` |
+| ↑ third-party repetition, a **different** frozen copy | `01_freshness` **0× red**; `06_confluence` **75× red** | n = 186, **`max(snapshots.id) = 3981`**, exactly the same `--until` | `docs/judge-reports/fase-5-ulang.md` — `n` moves, its direction does not; this is why `max(id)` must always be quoted |
+| Suite | **1869 passed, 1 skipped** (210.41 s) | 6 Sep 2026, our working tree, **after** the ADR-020 frontend rewrite and the security fixes landed; `make lint` clean over 92 files. An earlier README printed **1852**, which no run supported; a third party measured **1848** on the pre-rewrite tree (`docs/judge-reports/fase-5-ulang.md`) | `make test` = `uv run pytest -q` (on a clean clone the number is smaller: twelve parity tests for a local lint/compliance script **SKIP** with a readable reason — that script is a work tool, not part of the application, and is deliberately not shipped; `LOG.md`) |
+| RYO envelopes that were ever `unavailable` | **0 out of 3645** | sweep of 6 Sep 2026, `id <= 3645` | `docs/api-facts.md` §A |
 
-**Tiga peringatan yang menempel pada tabel itu, dan tidak boleh dilepas:**
+**The two chaos rows are the only numbers above that predate the ADR-020 rewrite, and they were not refreshed on
+purpose.** `scripts/chaos.sh` `kill -9`s the recorder mid-cycle, and nothing brings it back automatically — that is a
+known hole with a measured cost (TASKS 0.8c: eight manual restarts, a 387-minute gap). Re-running it two days before
+the deadline risks leaving the recorder dead and tearing a fresh, unrecreatable hole in the snapshot history, so the
+repo owner chose not to. Read those two rows as evidence about the pre-rewrite tree; every other row carries its own
+date, `n` and command.
 
-1. **`01_freshness` belum pernah menahan apa pun — 0× merah dalam n=201, dan 0× lagi dalam ulangan pihak ketiga
-   (n=186); sebabnya struktural.** Pemilih bukti sudah membatasi umur ke `params.max_age_min` **sebelum** item mana
-   pun dinilai (`preflight/skill.py:536`). Jadi baris itu adalah
-   **tanda terima**, bukan veto: ia menyatakan "bukti yang dipakai memang di dalam jendela", dan bukti yang di luar
-   jendela tidak pernah sampai kepadanya. Yang sudah dikerjakan atas temuan itu (`docs/judge-reports/fase-5.md`,
-   butir 11): **kalimatnya** yang mengaku, bukan namanya — `reason` hijau item 1 berbunyi sendiri "…so this says
-   nothing about how old the bundle itself is. Absolute age was already enforced when the evidence was picked …
-   which is why this line is a receipt and has never blocked a departure" (`preflight/items.py:677-684`), dan
-   `ItemDef.title`-nya kini "Envelope ages agree (absolute age enforced at selection)" (`preflight/items.py:1966`).
-   Yang **tidak** dikerjakan, sengaja: id `01_freshness` tidak diganti — id ikut ke `params_hash`/`decision_hash`,
-   jadi menggantinya akan menggeser hash setiap baris `decisions` yang sudah tersimpan. Yang **masih** utang: judul
-   itu tidak pernah sampai ke layar mana pun (§11 butir 5).
-2. **Urutan "daya veto" yang dipajang kedua layar adalah konstanta desain spec §4, belum divalidasi**
-   (`preflight/params.py:163` `ITEM_ORDER`). Alat ukur repo ini sendiri membantahnya: item peringkat 1 tidak pernah
-   merah, item peringkat 6 merah 82× (75× pada salinan pihak ketiga). Urutan itu berguna sebagai "mana yang lebih dulu
-   dibaca manusia", bukan sebagai klaim empiris — dan **kedua layar mengatakannya sendiri**: judul kolomnya berbunyi
-   `daya veto (spec §4, belum divalidasi)` di Layar A dan Layar B (`ui/screens.py:213`, `ui/app.py:196-212`).
-3. **Angka tabel veto tidak terulang dengan `--until` saja.** Perekam menambah baris tiap siklus, jadi jangkar yang
-   sama menghasilkan `n` yang berbeda beberapa hari kemudian (terukur 201 → 237 atas DB hidup). Yang mengulang
-   angkanya adalah `--db <salinan beku>`, dan **resepnya sudah berbunyi begitu**: `cp <DB perekam Anda> /tmp/frozen.db`
-   lalu `--db /tmp/frozen.db --until …` (`preflight/veto_table.py:66-69`, `preflight/items.py:63-66`). Alatnya juga memberi
-   tahu saat populasi jangkarnya bergeser (`scan_limited` naik, `n` turun, `max(snapshots.id)`, ketiganya di header).
-   Pihak ketiga membuktikan kenapa itu wajib: `--until` yang sama persis atas salinan lain
-   (`max(snapshots.id) = 3981`) memberi **n=186**, bukan 237 (`docs/judge-reports/fase-5-ulang.md`). Karena itu setiap
-   angka veto di README ini dikutip berikut keadaan DB salinannya.
+**Three warnings attached to that table, which may not be detached:**
 
----
-
-## 8. Apa yang TIDAK kami klaim
-
-- **Tidak ada klaim bahwa vetonya benar.** Lihat §7: `k = 0`, `target_first = 3`, nol selang kepercayaan. "Merah"
-  berarti item itu menahan keberangkatan, bukan bahwa menahan itu tepat.
-- **Tidak ada klaim performa perdagangan.** Semua posisi practice, nol P&L; ukuran posisi tetap
-  (`agent/trade.py` `"sizing": "fixed_notional"`) — tidak ada jalur di mana reliabilitas menggerakkan ukuran.
-- **GO tidak berarti "bukti mendukung".** Ia berarti "tidak ada item yang keberatan". Pada kartu GO live di ledger
-  kami (id 49), tiga item bersikap `neutral` dan tetap hijau: hijau di sini berarti "tidak ada keberatan", bukan
-  "mendukung" (`preflight/params.py:511` `neutral_stance_status`; **ADR-017, DITERIMA 6 Sep 2026** — kodenya sudah
-  menerapkannya sejak 2 Sep, jadi yang berubah hari ini adalah alasannya, bukan perilakunya, dan `params_hash` tidak
-  bergeser). Kartunya mengatakan itu dengan kalimat, bukan hanya dengan warna.
-- **Item 9 tidak menguji apa pun hari ini.** `risk_reward[0] ≥ min_rr` dengan `min_rr = 1.0` sementara
-  `risk_reward = [1.0, 2.0]` di **1476/1476** baris `deep_analysis` yang membawa `trade_plan` — dari 1496 baris; 20
-  sisanya `trade_plan=null` sehingga item 9 `unspoken`, bukan hijau. Sapuan atas **salinan beku** DB perekam kami
-  (tidak ikut dikirim) 6 Sep 2026, `id <= 3919`, baris terakhir `2026-09-06T00:13:23Z` (`preflight/items.py:1527-1541`
-  `RR_ROWS_WITH_PLAN`; `preflight/params.py:69-71`). Ambangnya tautologi pada bukti yang ada, jadi `reason` item 9
-  kini **membawa angka itu di dalam kalimatnya** (`RR_CONSTANT_NOTE`) alih-alih berhenti di "worth its risk". Catatan
-  yang menempel dan tidak boleh dilepas: store append-only, jadi kartu yang **sudah tersimpan tidak ikut berubah**
-  saat teks item diperbaiki — pemeriksaan pihak ketiga 6 Sep 2026 menemukan **0 dari 52** kartu di ledger kami memuat
-  kalimat baru dan **29** masih memuat kalimat lama, termasuk kartu terbaru (`docs/judge-reports/fase-5-ulang.md`,
-  temuan 2). Hanya tick baru yang menghasilkan kartu ber-kalimat baru; kartu lama sengaja tidak ditulis ulang.
-- **`as_of` yang segar tidak menjamin isi envelope segar, dan item 1 tidak menangkapnya.** Pada 47 baris
-  `monitor_market_sentiment_shift` nyata, 47/47 membawa `fear_greed`/`altseason` ber-`data_date` D-0 tetapi
-  `funding`/`liquidation` ber-`data_date` **D-1** (umur bukti 25,2–47,5 jam, median 35,8 jam; `docs/api-facts.md` §A,
-  sapuan 5 Sep 2026). Yang kami lakukan: kartu **mengucapkannya** — item 8 membawa `funding_data_date`
-  dan `liquidation_data_date` di `value`, dan `reason`-nya berbunyi "evidence dates: funding from … (1d before this
-  reading)" di setiap cabang, dengan "date not stated" bila tanggalnya null. Yang **tidak** kami lakukan, dan itu
-  keputusan tertulis: memveto atasnya — keadaan D-1 normal 47/47, jadi memvetonya akan memerahkan item 8 selamanya.
-  Jadi jangan membaca item 1 sebagai janji kesegaran isi envelope.
-- **Tidak ada angka keandalan tool RYO di dokumen publik mana pun.** Output tool RYO adalah data RYO: hanya di dalam
-  submission, tidak pernah di post sosial (ADR-008, `docs/rules-compliance.md`).
-- **Veto oleh item wajib yang `unspoken` baru pernah menyala di fixture.** Itu fitur andalan produk ini (§3, §9), dan
-  di ledger keputusan hidup kami ia belum pernah terjadi: pemeriksaan pihak ketiga menemukan **nol** penahan
-  berstatus `unspoken` pada 29 keputusan generasi berjalan (`docs/judge-reports/fase-5-ulang.md`, pertanyaan 1). Yang
-  memperagakannya — `make demo` langkah 2 dan kasus DGAI `make two-dates` — berjalan dari fixture beku, dan §3 & §6
-  menyebutkannya sebagai fixture.
-- **Tidak ada "production-ready", "teraudit", atau "100 %".** Yang ada: 1852 tes hijau — ukuran cakupan pemeriksaan
-  kami sendiri, bukan bukti bahwa keputusannya benar — dan daftar kegagalan yang bisa direproduksi yang ditulis pihak
-  ketiga di `docs/judge-reports/fase-5.md` + `fase-5-ulang.md`, termasuk residu pengakuan fixture yang masih terbuka
-  (§6) dan `ItemDef.title` yang tidak pernah sampai ke layar. Satu temuan juri sudah ditutup sesudah laporannya
-  ditulis: kartu **sejak keputusan 53** (tick 6 Sep 2026) mengucapkan kalimat item 9 dan item 1 yang baru — diperiksa
-  langsung di `decisions.card_json`. Kartu 1–52 tetap mengucapkan kalimat lama dan **akan selamanya begitu**: store
-  append-only (ADR-006), jadi artefak beku tidak ditulis ulang. Itu konsekuensi desain yang disengaja, bukan utang.
-- **Rekaman 30 detik Layar B belum ada** (§5).
+1. **`01_freshness` has never held anything back — 0× red in n=201, and 0× again in the third-party repetition
+   (n=186); the cause is structural.** The evidence picker already bounds age to `params.max_age_min` **before** any
+   item is evaluated (`preflight/skill.py:536`). So that row is a **receipt**, not a veto: it states "the evidence
+   used really was inside the window", and evidence outside the window never reaches it. What has been done about
+   that finding (`docs/judge-reports/fase-5.md`, item 11): **the sentence** confesses, not the name — item 1's green
+   `reason` says for itself "…so this says nothing about how old the bundle itself is. Absolute age was already
+   enforced when the evidence was picked … which is why this line is a receipt and has never blocked a departure"
+   (`preflight/items.py:677-684`), and its `ItemDef.title` is now "Envelope ages agree (absolute age enforced at
+   selection)" (`preflight/items.py:1966`). What was deliberately **not** done: the id `01_freshness` was not
+   renamed — ids go into `params_hash`/`decision_hash`, so renaming it would move the hash of every stored `decisions`
+   row. What is **still** owed: that title never reaches any screen (§11 item 5).
+2. **The "veto power" ordering shown on both screens is a spec §4 design constant, not validated**
+   (`preflight/params.py:163` `ITEM_ORDER`). This repo's own measuring tool contradicts it: the item ranked 1 has
+   never been red, the item ranked 6 was red 82× (75× on the third-party copy). The ordering is useful as "which one a
+   human reads first", not as an empirical claim — and **both screens say so themselves**: the column heading rendered
+   on Screen A and Screen B reads `veto power (spec §4, not validated)` (`ui/screens.py` `VETO_RANK_COLUMN`, and the
+   full screen note in `ui/app.py` `VETO_RANK_UNVALIDATED_SENTENCE`).
+3. **The veto-table numbers do not repeat with `--until` alone.** The recorder adds rows every cycle, so the same
+   anchor yields a different `n` a few days later (measured 201 → 237 against the live DB). What repeats the numbers
+   is `--db <frozen copy>`, and **the recipe already reads that way**: `cp <your recorder DB> /tmp/frozen.db` then
+   `--db /tmp/frozen.db --until …` (`preflight/veto_table.py:66-69`, `preflight/items.py:63-66`). The tool also tells
+   you when its anchor population has shifted (`scan_limited` up, `n` down, `max(snapshots.id)`, all three in the
+   header). A third party proved why this is mandatory: exactly the same `--until` over a different copy
+   (`max(snapshots.id) = 3981`) gives **n=186**, not 237 (`docs/judge-reports/fase-5-ulang.md`). That is why every
+   veto number in this README is quoted together with the state of the copied DB.
 
 ---
 
-## 9. Bedanya dengan agen sinyal + guardrail, dan dengan arena P&L
+## 8. What we do NOT claim
 
-- **Data hilang memveto, dan tidak pernah menjadi angka.** Guardrail yang umum memperlakukan field kosong sebagai
-  lolos (tidak ada aturan yang menyala) atau sebagai nol (aturan menyala atas angka karangan). Di sini item wajib yang
-  `unspoken` masuk ke `blocking` seperti item merah, dicatat **terpisah** dari merah, dan validator **menolak** item
-  `unspoken` yang membawa nilai — termasuk `0` (§3).
-- **NO_GO adalah keputusan kelas satu, bukan ketiadaan keputusan.** Ia punya baris ledger, kartu sepuluh baris,
-  `decision_hash`, dan halaman sendiri. Sebagian besar agen hanya mencatat apa yang mereka lakukan; di sini yang
-  **tidak** dilakukan juga punya alamat dan sebab yang bisa ditunjuk sampai `tool.field` + `snapshot_id` + `as_of`.
-- **Jejaknya bisa dibantah, bukan cuma dipamerkan.** `make replay` memvonis ulang dari snapshot beku; satu byte yang
-  diubah menghasilkan MISMATCH yang **menyebut snapshot-nya** (§4). Yang tidak bisa diverifikasi mendapat vonis
-  "tidak tahu" sendiri, bukan lulus diam-diam.
-- **Bukan arena P&L.** Rubric resmi tidak menilai P&L jangka pendek maupun volume panggilan API
-  (`docs/api-facts.md` §E), dan repo ini tidak mencetak satu angka P&L pun. Yang dipertaruhkan adalah kualitas
-  pembukuan keputusan — termasuk berani mencetak `k = 0` tentang dirinya sendiri (§7).
-- **Kartu publik adalah fakta, bukan penghakiman.** Kartu menyebut nilai, sumber, dan waktunya; ia tidak menyebut
-  siapa pun salah dan tidak menilai tool RYO di ruang publik (ADR-008).
+- **No claim that the veto is right.** See §7: `k = 0`, `target_first = 3`, zero confidence intervals. "Red" means
+  that item held back the departure, not that holding back was correct.
+- **No trading performance claim.** All positions are practice, zero P&L; position size is fixed
+  (`agent/trade.py` `"sizing": "fixed_notional"`) — there is no path in which reliability moves size.
+- **GO does not mean "the evidence supports it".** It means "no item objects". On the live GO card in our ledger
+  (id 49), three items were `neutral` and still green: green here means "no objection", not "support"
+  (`preflight/params.py:511` `neutral_stance_status`; **ADR-017, ACCEPTED 6 Sep 2026** — the code has behaved that way
+  since 2 Sep, so what changed today is the rationale, not the behaviour, and `params_hash` did not move). The card
+  says this in a sentence, not just with a colour.
+- **Item 9 tests nothing today.** `risk_reward[0] ≥ min_rr` with `min_rr = 1.0` while `risk_reward = [1.0, 2.0]` in
+  **1476/1476** `deep_analysis` rows that carry a `trade_plan` — out of 1496 rows; the other 20 have
+  `trade_plan=null`, so item 9 is `unspoken` there, not green. Sweep over a **frozen copy** of our recorder DB (not
+  shipped) on 6 Sep 2026, `id <= 3919`, last row `2026-09-06T00:13:23Z` (`preflight/items.py:1527-1541`
+  `RR_ROWS_WITH_PLAN`; `preflight/params.py:69-71`). The threshold is a tautology on the evidence that exists, so
+  item 9's `reason` now **carries that number inside its sentence** (`RR_CONSTANT_NOTE`) instead of stopping at "worth
+  its risk". An attached note that may not be detached: the store is append-only, so **already-stored cards do not
+  change** when item text is fixed — a third-party check on 6 Sep 2026 found **0 out of 52** cards in our ledger
+  carrying the new sentence and **29** still carrying the old one, including the most recent card
+  (`docs/judge-reports/fase-5-ulang.md`, finding 2). Only new ticks produce cards with the new sentence; old cards are
+  deliberately not rewritten.
+- **A fresh `as_of` does not guarantee a fresh envelope body, and item 1 does not catch that.** Across 47 real
+  `monitor_market_sentiment_shift` rows, 47/47 carry `fear_greed`/`altseason` with `data_date` D-0 but
+  `funding`/`liquidation` with `data_date` **D-1** (evidence age 25.2–47.5 hours, median 35.8 hours;
+  `docs/api-facts.md` §A, sweep of 5 Sep 2026). What we did: the card **speaks it** — item 8 carries
+  `funding_data_date` and `liquidation_data_date` in `value`, and its `reason` reads "evidence dates: funding from …
+  (1d before this reading)" in every branch, with "date not stated" when the date is null. What we did **not** do, and
+  that is a written decision: veto on it — the D-1 state is normal 47/47, so vetoing would make item 8 red forever. So
+  do not read item 1 as a promise about the freshness of an envelope's contents.
+- **No RYO tool reliability numbers in any public document.** RYO tool output is RYO data: inside the submission
+  only, never in a social post (ADR-008, `docs/rules-compliance.md`).
+- **A veto by a required `unspoken` item has so far only fired in fixtures.** That is this product's flagship feature
+  (§3, §9), and in our live decision ledger it has never happened: a third-party check found **zero** blockers with
+  status `unspoken` across 29 current-generation decisions (`docs/judge-reports/fase-5-ulang.md`, question 1). What
+  demonstrates it — `make demo` step 2 and the DGAI case in `make two-dates` — runs from frozen fixtures, and §3 and
+  §6 say so.
+- **No "production-ready", "audited" or "100 %".** What exists: 1869 green tests (§7) — a measure of our own
+  checking coverage, not proof that the decisions are right — and a list of reproducible failures written by a third party in
+  `docs/judge-reports/fase-5.md` + `fase-5-ulang.md`, including the still-open fixture-declaration residue (§6) and
+  the `ItemDef.title` that never reaches a screen. One judge finding was closed after the report was written: cards
+  **from decision 53 onward** (tick of 6 Sep 2026) speak the new item 9 and item 1 sentences — checked directly in
+  `decisions.card_json`. Cards 1–52 keep speaking the old sentences and **always will**: the store is append-only
+  (ADR-006), so frozen artifacts are not rewritten. That is a deliberate design consequence, not debt.
+- **The 30-second recording of Screen B does not exist yet** (§5).
 
 ---
 
-## 10. Track & kepatuhan
+## 9. How this differs from a signal agent + guardrail, and from a P&L arena
 
-Satu BUIDL, tiga track (`docs/api-facts.md` §E: maksimal satu BUIDL per tim; tiap track dinilai terpisah).
+- **Missing data vetoes, and never becomes a number.** Common guardrails treat an empty field as a pass (no rule
+  fires) or as zero (a rule fires on an invented number). Here a required `unspoken` item enters `blocking` just like
+  a red item, is recorded **separately** from red, and the validator **rejects** an `unspoken` item that carries a
+  value — including `0` (§3).
+- **NO_GO is a first-class decision, not the absence of one.** It has a ledger row, a ten-line card, a
+  `decision_hash` and a page of its own. Most agents only record what they did; here what was **not** done also has an
+  address and a cause that can be pointed at, down to `tool.field` + `snapshot_id` + `as_of`.
+- **The trail can be argued with, not merely displayed.** `make replay` re-judges from frozen snapshots; one changed
+  byte produces a MISMATCH that **names the snapshot** (§4). What cannot be verified gets its own "we don't know"
+  verdict rather than a silent pass.
+- **Not a P&L arena.** The official rubric does not score short-term P&L or API call volume (`docs/api-facts.md` §E),
+  and this repo does not print a single P&L number. What is at stake is the quality of the decision bookkeeping —
+  including the nerve to print `k = 0` about itself (§7).
+- **A public card is fact, not judgement.** The card states values, sources and times; it does not say anyone is
+  wrong, and it does not rate RYO tools in public (ADR-008).
 
-| Track | Yang dikirim | Bukti satu perintah |
+---
+
+## 10. Tracks & compliance
+
+One BUIDL, three tracks (`docs/api-facts.md` §E: at most one BUIDL per team; each track is judged separately).
+
+| Track | What is submitted | One-command evidence |
 |---|---|---|
-| **T1** agen | agen practice-trade + kartu panggilan 10 item + replay yang bisa membantah dirinya | `make demo` (langkah 1–4, 6), `make replay ID=` |
-| **T2** layar | Layar A watchlist + Layar B kartu, keyboard-first, banner SIMULATED, nol skrip | `make ui`, `make demo` langkah 5, `ui/README.md` |
-| **T3** skill | `preflight(symbol, intent)` ber-envelope RYO + satu field `simulated` | `make skill ARGS="preflight SOL"`, `make demo` langkah 1 |
+| **T1** agent | practice-trade agent + 10-item call card + a replay that can contradict itself | `make demo` (steps 1–4, 6), `make replay ID=` |
+| **T2** screens | Screen A watchlist + Screen B card, keyboard-first, SIMULATED banner, one same-origin script and zero third-party hosts since the ADR-020 rewrite landed (§5) | `make ui`, `make demo` step 5, `ui/README.md` |
+| **T3** skill | `preflight(symbol, intent)` in a RYO envelope + one `simulated` field | `make skill ARGS="preflight SOL"`, `make demo` step 1 |
 
-Kepatuhan (`docs/rules-compliance.md`):
+Compliance (`docs/rules-compliance.md`):
 
-- **Kredensial hanya dari env**, tidak pernah dilog, di-repr, atau muncul di tes/screenshot. Yang menegakkannya **di
-  dalam submission** adalah kode dan tesnya: klien meredaksi kredensial (`core/ryo_client.py`), CLI tidak pernah
-  mencetak pesan exception pihak lain (`core/skill_cli.py`), dan log hanya menulis `type(exc).__name__`. Satu kontrol
-  di luar kode ikut dikirim: **`scripts/guard.sh`**, yang memblokir perintah yang akan mencetak kredensial ke layar —
-  dan ia terbukti menggigit pada orang yang bukan kami: dua perintah pemeriksa pihak ketiga sendiri diblokir saat nama
-  variabel kunci disebut (`docs/judge-reports/fase-5.md` §tes destruktif d). Satu skrip lint/kepatuhan lokal **tidak**
-  ikut dikirim — ia perkakas kerja, bukan bagian aplikasi (`LOG.md`); klon bersih tidak memilikinya, dua belas tes
-  paritasnya SKIP dengan alasan terbaca, dan repo ini tidak boleh dinilai atas kontrol yang tidak ada di dalamnya.
-  Pemindaian juri nilai-per-nilai atas berkas terlacak + seluruh `logs/` → **0 kecocokan pada dua penilaian
-  berturut-turut** (125 berkas, `docs/judge-reports/fase-5.md`; 120 berkas, `docs/judge-reports/fase-5-ulang.md`).
-- **SIMULATED** di README (paragraf pertama), di banner kedua layar, di setiap envelope CLI, di setiap respons API
-  termasuk 400/404/405/422/503, dan di baris penutup `make demo`.
-- **Sumber eksternal hanya yang `enabled: true` DAN `approved: true`** di `sources.yaml` (ADR-005) — hari ini dua:
-  tool RYO dan satu LLM untuk narasi. `approved` LLM bersandar pada "your own AI model" di landing page, bukan jawaban
-  tertulis penyelenggara; itu satu-satunya `approved` yang ditegakkan sendiri, dan narasi berada di luar jalur
-  keputusan sehingga demo berjalan tanpanya.
-- **Dependency, aset, dan sumber pihak ketiga** didaftarkan di `DISCLOSURE.md` pada commit yang sama, dijaga dua arah
-  terhadap `uv.lock` oleh `tests/test_disclosure.py`.
-- **Output tool RYO tidak dipublikasikan** di post sosial (ADR-008); draf post ada di `docs/posts/`.
+- **Credentials come from env only**, are never logged, never `repr`-ed, and never appear in tests or screenshots.
+  What enforces this **inside the submission** is the code and its tests: the client redacts credentials
+  (`core/ryo_client.py`), the CLI never prints another party's exception message (`core/skill_cli.py`), and logs write
+  only `type(exc).__name__`. One control outside the code is shipped as well: **`scripts/guard.sh`**, which blocks
+  commands that would print credentials to the screen — and it demonstrably bit someone who is not us: two of a
+  third-party reviewer's own commands were blocked when the key variable name was mentioned
+  (`docs/judge-reports/fase-5.md` §destructive test d). One local lint/compliance script is **not** shipped — it is a
+  work tool, not part of the application (`LOG.md`); a clean clone does not have it, its twelve parity tests SKIP with
+  a readable reason, and this repo must not be judged on a control that is not inside it. Value-by-value judge scans
+  over tracked files + all of `logs/` → **0 matches on two consecutive assessments** (125 files,
+  `docs/judge-reports/fase-5.md`; 120 files, `docs/judge-reports/fase-5-ulang.md`).
+- **SIMULATED** in the README (first paragraph), in both screens' banners, in every CLI envelope, in every API
+  response including 400/404/405/422/503, and in the closing line of `make demo`.
+- **External sources only where `enabled: true` AND `approved: true`** in `sources.yaml` (ADR-005) — two today: the
+  RYO tools and one LLM for narration. The LLM's `approved` rests on "your own AI model" on the landing page, not on a
+  written answer from the organisers; it is the only self-asserted `approved`, and narration sits outside the decision
+  path so the demo runs without it.
+- **Dependencies, assets and third-party sources** are listed in `DISCLOSURE.md` in the same commit, guarded in both
+  directions against `uv.lock` by `tests/test_disclosure.py`.
+- **RYO tool output is not published** in social posts (ADR-008); post drafts are in `docs/posts/`.
 
 ---
 
-## 11. Roadmap jujur
+## 11. Honest roadmap
 
-Semua yang di bawah ini **belum ada** hari ini, dan ditulis sebagai belum ada. Dua yang pertama adalah fitur yang
-mungkin tidak akan pernah dibangun; sisanya adalah utang yang sudah kami sebut sendiri di atas.
+Everything below **does not exist** today, and is written as not existing. The first two are features that may never
+be built; the rest is debt we named ourselves above.
 
-1. **Reputasi item yang benar-benar memberi masukan ke keputusan.** Hari ini `grading/` adalah alat **ukur**, bukan
-   alat **putus**: tidak satu angka pun darinya masuk ke `preflight`. Syaratnya n ≥ 30 per kelas (spec §6); dengan
-   `n_efektif` 1–5 hari ini (§7), jawabannya "belum cukup data".
-2. **Item ke-11 Bunryō** (ukuran posisi dari reliabilitas bersyarat rezim, spec §4). `make grade` sudah mencetak
-   selnya dan sudah menolak mengeluarkan takaran. Selama gerbang 30 belum terlewati, item ini **tidak akan** muncul —
-   bukan diperkirakan, bukan dilonggarkan.
-3. **Menolak fixture pemadaman yang barisnya tidak membawa `source_payload_hash`** — residu V5 di §6: tanpa kunci itu
-   naskah hanya bisa mencatat "TIDAK DIVERIFIKASI", dan belum ada aturan yang menyatakan baris seperti itu tidak
-   layak memerankan pemadaman.
-4. **Membawa judul item ke layar, atau menghapus `ItemDef.title`.** Hari ini judul item punya tepat satu pemakai —
-   sebuah assertion di tes — dan nol kali muncul di `make demo` maupun HTML kedua layar
-   (`docs/judge-reports/fase-5-ulang.md`, temuan 1). Yang benar-benar dibaca manusia adalah ekor `reason`, jadi judul
-   baru item 1 (§7 butir 1) belum pernah dilihat siapa pun. Id `01_freshness` sendiri **tidak akan** diganti: id ikut
-   ke `decision_hash` (§7 butir 1).
-5. **Rekaman 30 detik Layar B** (artefak manusia; naskah adegannya ada di `ui/README.md`. Naskah video terpisah
-   **tidak dibuat dan tidak akan dibuat** — dilewatkan atas permintaan pemilik repo, `LOG.md`).
+1. **Item reputation that actually feeds back into the decision.** Today `grading/` is a **measuring** tool, not a
+   **deciding** one: not a single number from it enters `preflight`. The requirement is n ≥ 30 per class (spec §6);
+   with `n_efektif` at 1–5 today (§7), the answer is "not enough data yet".
+2. **The 11th item, Bunryō** (position sizing from regime-conditional reliability, spec §4). `make grade` already
+   prints its cell and already refuses to issue a size. As long as the gate of 30 is not passed, this item **will
+   not** appear — not estimated, not loosened.
+3. **Refusing an outage fixture whose row carries no `source_payload_hash`** — the V5 residue in §6: without that key
+   the script can only note "NOT VERIFIED", and there is no rule yet stating that such a row is unfit to play an
+   outage.
+4. **Bringing item titles to a screen, or deleting `ItemDef.title`.** Today the item title has exactly one consumer —
+   an assertion in a test — and appears zero times in `make demo` or in either screen's HTML
+   (`docs/judge-reports/fase-5-ulang.md`, finding 1). What humans actually read is the tail of `reason`, so item 1's
+   new title (§7 warning 1) has never been seen by anyone. The id `01_freshness` itself **will not** be renamed: ids
+   go into `decision_hash` (§7 warning 1).
+5. **The 30-second recording of Screen B** (a human artifact; the scene script is in `ui/README.md`. A separate video
+   script **was not written and will not be written** — skipped at the repo owner's request, `LOG.md`).
 
-Tiga baris yang berdiri di daftar ini pada penilaian sebelumnya sudah **ditutup**, jadi mereka tidak lagi di sini —
-dan itu diverifikasi ulang pihak ketiga, bukan oleh kami sendiri (`docs/judge-reports/fase-5-ulang.md`): lubang
-pengakuan §7 langkah 2 (§6), status "belum divalidasi" pada kolom daya veto di **kedua** layar (`ui/screens.py:213`,
-`ui/app.py:196-212`), dan resep reproduksi tabel veto ber-`--db <salinan beku>` (`preflight/veto_table.py:66-69`).
+Three lines that stood on this list at the previous assessment are now **closed**, so they are no longer here — and
+that was re-verified by a third party, not by us (`docs/judge-reports/fase-5-ulang.md`): the §7 step 2 declaration
+hole (§6), the "not validated" status on the veto-power column on **both** screens (`ui/screens.py`
+`VETO_RANK_COLUMN`, `ui/app.py` `VETO_RANK_UNVALIDATED_SENTENCE`), and the veto-table reproduction recipe with `--db <frozen copy>` (`preflight/veto_table.py:66-69`).
 
-Riwayat keputusan, temuan tinjauan yang mengubah kode, dan utang yang belum ditutup: **`LOG.md`**. Penilaian pihak
-ketiga terakhir atas repo ini — termasuk skor per kategori, daftar kegagalan yang bisa direproduksi, dan lima
-pertanyaan yang belum semuanya terjawab — ada di `docs/judge-reports/fase-5.md` dan
+Decision history, review findings that changed the code, and debt that is still open: **`LOG.md`**. The latest
+third-party assessment of this repo — including per-category scores, a list of reproducible failures, and five
+questions that are not all answered yet — is in `docs/judge-reports/fase-5.md` and
 `docs/judge-reports/fase-5-ulang.md`.

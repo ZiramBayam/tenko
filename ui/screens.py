@@ -440,15 +440,72 @@ def _now_jst(now: datetime) -> str:
 #: tercetak di kalimat dan yang dipakai kode adalah SATU angka.
 POLL_INTERVAL_MS = 30_000
 
+#: Judul jendela tiap layar. Ia dipakai server DAN klien: sesudah perpindahan tanpa muat ulang,
+#: judul yang tertinggal di jendela adalah judul layar SEBELUMNYA — URL dan isi berkata kartu #N
+#: sementara tab berkata "watchlist". Kelas yang sama dengan pengakuan `kept()`: apa yang
+#: dikatakan tentang layar harus ikut layar yang benar-benar ada. Kembarannya di
+#: `frontend/src/text.ts` dipatok tes.
+TITLE_WATCHLIST = "Tenko — watchlist (simulated)"
+TITLE_CARD = "Tenko — card #{id} (simulated)"
+
 #: Kalimat yang menyatakan apa yang dilakukan klien — dan apa yang TIDAK dilakukannya.
-CLIENT_NOTE = (
-    "This screen is also served whole without JavaScript. When the client script does load, it "
-    f"adds four things and nothing else: it moves between screens without a reload, it filters "
-    "and sorts the rows you can already see, it re-fetches the same JSON API every "
-    f"{POLL_INTERVAL_MS // 1000} seconds (a switch on screen turns that off), and it says out "
-    "loud when it is loading or has failed. It computes no number of its own: every value on "
-    "screen comes from the API response, and `unspoken` stays `unspoken`."
+#:
+#: Ia BERBEDA per layar, dan itu bukan kerapian melainkan kejujuran: `main.ts:schedule()` hanya
+#: memasang timer bila layarnya watchlist, bar kontrol (saring/urut/sakelar) disembunyikan di
+#: luar watchlist, dan pada halaman gagal klien berhenti sebelum permintaan pertamanya. Satu
+#: kalimat untuk ketiganya berarti dua layar menjanjikan ritme 30 detik dan sakelar yang tidak
+#: mereka punya — persis di layar yang paling mungkin dibuka juri kedua (kartu).
+_CLIENT_NOTE_HEAD = "This screen is also served whole without JavaScript. "
+_CLIENT_NOTE_TAIL = (
+    "It computes no number of its own: every value on screen comes from the API response, and "
+    "`unspoken` stays `unspoken`."
 )
+
+WATCHLIST_CLIENT_NOTE = (
+    _CLIENT_NOTE_HEAD + "When the client script does load, this screen gets four things and "
+    "nothing else: it moves between screens without a reload, it filters and sorts the rows you "
+    "can already see, it re-fetches the same JSON API every "
+    f"{POLL_INTERVAL_MS // 1000} seconds (a switch on screen turns that off), and it says out "
+    "loud when it is loading or has failed. " + _CLIENT_NOTE_TAIL
+)
+
+CARD_CLIENT_NOTE = (
+    _CLIENT_NOTE_HEAD + "When the client script does load, this card gets two things and nothing "
+    "else: it moves between screens without a reload, and it re-fetches this one card once, when "
+    "you arrive. This screen does NOT auto-refresh and carries no filter, sort, or refresh "
+    "switch — those belong to the watchlist screen; reload the page to ask again. It says out "
+    "loud when it is loading or has failed, and how old what you see is. " + _CLIENT_NOTE_TAIL
+)
+
+ERROR_CLIENT_NOTE = (
+    _CLIENT_NOTE_HEAD + "The client script loads on this failure page too, and then stops: it "
+    "fetches nothing, refreshes nothing, and changes nothing on screen. There is no "
+    "auto-refresh, no filter, and no sort here, and every link works the ordinary way, with a "
+    "reload."
+)
+
+
+LANDING_CLIENT_NOTE = (
+    _CLIENT_NOTE_HEAD + "The client script loads on the landing page too, and then stops: it "
+    "fetches nothing, refreshes nothing, and changes nothing on screen. The board below is "
+    "rendered by the server from the same store the app reads, or it is left out entirely — it "
+    "is never filled with example numbers. Every link works the ordinary way, with a reload."
+)
+
+#: Layar → kalimatnya. Kunci di sini HARUS sama dengan `data-screen` yang dipancarkan `_shell`.
+CLIENT_NOTES = {
+    "watchlist": WATCHLIST_CLIENT_NOTE,
+    "card": CARD_CLIENT_NOTE,
+    "error": ERROR_CLIENT_NOTE,
+    "landing": LANDING_CLIENT_NOTE,
+}
+
+
+def client_note(screen: str) -> str:
+    """Kalimat klien untuk `screen`. Layar tak dikenal jatuh ke kalimat watchlist — karena
+    ITULAH yang dilakukan `main.ts`: apa pun yang bukan `card` dan bukan `error` mendapat bar
+    kontrol dan timer polling."""
+    return CLIENT_NOTES.get(screen, WATCHLIST_CLIENT_NOTE)
 
 
 def _shell(
@@ -456,7 +513,7 @@ def _shell(
     banner: str,
     body: str,
     now: datetime,
-    screen: str = "static",
+    screen: str,
     decision_id: int | None = None,
 ) -> str:
     """Kerangka halaman. Banner, isi, dan tiap `aria-label` ada SEBELUM satu baris JS pun jalan.
@@ -487,7 +544,7 @@ def _shell(
         "reads the store READ-ONLY; no RYO tool and no LLM is called to show this screen. "
         'Every route this app serves is listed at <a href="/api/routes">/api/routes</a>.</p>'
         f'<p class="sub">{escape(KEYBOARD_NOTE, quote=True)}</p>'
-        f'<p class="sub">{escape(CLIENT_NOTE, quote=True)}</p>'
+        f'<p class="sub">{escape(client_note(screen), quote=True)}</p>'
         "</footer></body></html>"
     )
 
@@ -687,7 +744,7 @@ def render_watchlist(payload: dict[str, Any], banner: str, now: datetime) -> str
         f"{table}"
         f"{_notes_list(payload.get('notes'))}"
     )
-    return _shell("Tenko — watchlist (simulated)", banner, body, now, screen="watchlist")
+    return _shell(TITLE_WATCHLIST, banner, body, now, screen="watchlist")
 
 
 # --- Layar B ------------------------------------------------------------------------------
@@ -1109,7 +1166,7 @@ def render_card(payload: dict[str, Any], banner: str, now: datetime) -> str:
         f"{_notes_list(payload.get('notes'))}"
     )
     decision_id = payload.get("decision_id")
-    title = f"Tenko — card #{decision_id} (simulated)"
+    title = TITLE_CARD.format(id=decision_id)
     return _shell(
         title,
         banner,
@@ -1130,3 +1187,123 @@ def render_error(status_code: int, message: str, banner: str, now: datetime) -> 
         "LLM was called.</p>"
     )
     return _shell(f"Tenko — {status_code} (simulated)", banner, body, now, screen="error")
+
+
+# --- landing (ADR-021) --------------------------------------------------------------------
+#: Tiga angka yang boleh berdiri di landing. Masing-masing PUNYA pemeriksanya di repo ini, dan
+#: kalimatnya menyebut perintah yang membuktikannya — bukan klaim pemasaran yang tidak bisa
+#: dijalankan. Kalau salah satu berhenti benar, tesnya merah sebelum landing-nya berbohong.
+LANDING_PROOFS = (
+    (
+        "10",
+        "pieces of evidence, called one at a time",
+        "Five RYO tools, ten items (docs/spec.md §4). Each one points at a tool.field, says its "
+        "value and its as_of, and gets a status you can read without colour.",
+    ),
+    (
+        "1",
+        "red item — or one unspoken — holds the departure",
+        "A field that is null or unavailable becomes unspoken, never 0 and never a pass. That is "
+        "the whole product: missing evidence is said out loud, not defaulted away.",
+    ),
+    (
+        "0",
+        "LLM calls in the decision path",
+        "The decision is a deterministic function over frozen snapshots (ADR-003). "
+        "`make replay ID=` reproduces it byte for byte, and tampering reports MISMATCH.",
+    ),
+)
+
+
+def _landing_board(entries: list[dict[str, Any]]) -> str:
+    """Papan keberangkatan: baris NYATA dari store, atau string kosong.
+
+    Kolomnya mengikuti urutan papan stasiun — waktu, tujuan, status, penahan — karena itu urutan
+    yang tidak perlu dipelajari ulang oleh orang yang baru pertama kali melihat layar ini.
+
+    Kalau store tidak terbaca atau belum ada keputusan, papan ini **tidak muncul**. Yang tidak
+    boleh terjadi adalah landing berisi baris contoh: `docs/spec.md` §8 menyebut "data
+    fabrikasi/placeholder sebagai nyata" sebagai hal yang tidak dinilai, dan `rules-compliance`
+    membacanya lebih keras dari itu.
+    """
+    if not entries:
+        return ""
+    shown = entries[:5]
+    rows = ""
+    for entry in shown:
+        decision = _plain(entry.get("decision"))
+        held = entry.get("n_blocking")
+        unspoken = entry.get("n_unspoken")
+        if not isinstance(held, int) or held == 0:
+            holder = "nothing holds it"
+        else:
+            holder = f"{held} held"
+            if isinstance(unspoken, int) and unspoken:
+                holder += f", {unspoken} unspoken"
+        tone = decision.lower() if _css_word(decision) else "unknown"
+        rows += (
+            "<tr>"
+            f'<td class="mono">{_bdi(entry.get("as_of_jst") or entry.get("ts_jst") or "—")}</td>'
+            f'<th scope="row">{_bdi(entry.get("symbol"))}</th>'
+            f'<td><span class="mark d-{tone}">{_bdi(decision)}</span></td>'
+            f'<td class="dim">{escape(holder, quote=True)}</td>'
+            "</tr>"
+        )
+    return (
+        '<section class="board" aria-labelledby="board-h">'
+        '<h2 id="board-h">The board, right now</h2>'
+        '<table class="lb"><caption class="sub">'
+        f"{len(shown)} of {len(entries)} symbols the store holds a current decision for, "
+        "rendered by the server from the same store the app reads. All clocks are JST."
+        "</caption>"
+        "<thead><tr><th>As of</th><th>Symbol</th><th>Call</th><th>Held by</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+        "</section>"
+    )
+
+
+def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | None = None) -> str:
+    """Landing page (ADR-021). `entries` = baris `/api/watchlist`, atau `None` bila tak terbaca.
+
+    Halaman ini TIDAK pernah 503: store yang mati menghilangkan PAPANnya, bukan halamannya —
+    landing yang gagal akan menjadi kesan pertama yang salah tentang produk yang justru dibangun
+    untuk tetap jujur saat sumbernya hilang.
+    """
+    proofs = "".join(
+        f'<li><p class="fig">{escape(figure, quote=True)}</p>'
+        f'<p class="fig-label">{escape(label, quote=True)}</p>'
+        f'<p class="sub">{escape(body, quote=True)}</p></li>'
+        for figure, label, body in LANDING_PROOFS
+    )
+    body = (
+        '<section class="hero">'
+        '<p class="kicker"><span lang="ja">点呼</span> · TENKO · RYO-CHAN Hackathon 2026</p>'
+        "<h1>Point at the evidence.<br>Say it out loud.<br>Then decide.</h1>"
+        '<p class="lede">Japanese train crews do not trust a signal they have only looked at. '
+        'They point at it and say it aloud — <span lang="ja">指差喚呼</span>, shisa kanko — and '
+        "the error rate collapses. Tenko runs that ritual over market evidence: before every "
+        "practice trade it calls out ten pieces of evidence from five RYO tools, one at a time, "
+        "and refuses to depart on one red item — or one that goes unspoken.</p>"
+        '<p class="cta"><a class="go" href="/app" aria-label="Open the watchlist '
+        'board — Screen A, every symbol with a current decision">Open the board</a>'
+        '<a class="alt" href="/api/routes" aria-label="See every route this app '
+        'serves, as JSON">See every route</a></p>'
+        '<p class="sub">Every position here is a <strong>practice</strong> trade: no funds, no '
+        "wallet, no signing keys, no real execution.</p>"
+        "</section>"
+        '<section class="why" aria-labelledby="why-h">'
+        '<h2 id="why-h">What goes wrong without it</h2>'
+        '<p class="answer">Almost every signal agent acts on a single verdict without checking '
+        "the evidence that is available — and, worse, without knowing which evidence is "
+        "<em>not</em> available: stale data, an <code>unavailable</code> section, a plan that "
+        "does not exist. The common guardrail treats missing data as a pass, or as a zero.</p>"
+        '<p class="sub">Tenko never does. A null is not a zero, and it is not silence either: it '
+        "is an <strong>unspoken</strong> item, printed on the card, and it is enough to hold the "
+        "departure on its own.</p>"
+        "</section>"
+        '<section class="proofs" aria-labelledby="proofs-h">'
+        '<h2 id="proofs-h">Three numbers you can check yourself</h2>'
+        f'<ol class="figs">{proofs}</ol>'
+        "</section>" + _landing_board(entries or [])
+    )
+    return _shell("Tenko (点呼) — simulated", banner, body, now, screen="landing")

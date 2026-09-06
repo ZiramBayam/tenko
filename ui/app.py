@@ -120,6 +120,7 @@ from ui.screens import (
     cut_note,
     render_card,
     render_error,
+    render_landing,
     render_watchlist,
 )
 
@@ -887,6 +888,7 @@ def client_script() -> Response:
     return Response(content=CLIENT_SCRIPT, media_type="text/javascript; charset=utf-8", headers=HTML_HEADERS)
 
 
+@app.api_route("/app", methods=["GET", "HEAD"])
 @app.api_route("/ui", methods=["GET", "HEAD"])
 def screen_watchlist() -> Response:
     """Layar A — HTML atas badan respons `/api/watchlist` yang sama persis.
@@ -905,6 +907,7 @@ def screen_watchlist() -> Response:
     return _html(render_watchlist(payload, BANNER, _now_jst()))
 
 
+@app.api_route("/app/decision/{decision_id}", methods=["GET", "HEAD"])
 @app.api_route("/ui/decision/{decision_id}", methods=["GET", "HEAD"])
 def screen_card(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> Response:
     """Layar B — kartu panggilan satu keputusan, dirender di server, tanpa satu pun skrip.
@@ -929,6 +932,8 @@ def screen_card(decision_id: int = PathParam(ge=1, le=MAX_DECISION_ID)) -> Respo
 #: bukan hanya dijanjikan docstring.
 ROUTE_INDEX = (
     "/",
+    "/app",
+    "/app/decision/{id}",
     "/ui",
     "/ui/decision/{id}",
     "/ui/tenko.css",
@@ -944,24 +949,29 @@ ROUTE_INDEX = (
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def index() -> Response:
-    """`/` ADALAH Layar A (TASKS 3.5) — halaman, bukan indeks JSON.
+    """`/` ADALAH landing page (ADR-021) — Layar A pindah ke `/app`.
 
-    Sebelumnya route ini menjawab daftar route, dan pemilik repo sendiri membuka
-    `127.0.0.1:8000`, melihat JSON, dan mengira itu seluruh frontend — layarnya ada di `/ui`.
-    Kalau pemilik repo terjebak, juri akan terjebak persis sama dan tidak ada yang memberi tahu
-    mereka.
-
-    **200 HTML, bukan 3xx ke `/ui`.** Alasannya satu dan bisa diperiksa: `curl` tanpa `-L`
+    **200 HTML, bukan 3xx ke `/app`.** Alasannya tidak berubah sejak ADR-020: `curl` tanpa `-L`
     menerima badan KOSONG dari sebuah 302, jadi respons PERTAMA yang dilihat pemanggil akan
     menjadi respons tanpa banner SIMULATED — dan `docs/rules-compliance.md` menuntut banner itu
-    ada di layar yang dilihat orang, bukan di layar berikutnya. Pengalihan juga menambah satu
-    langkah di demo 30 detik tanpa menambah satu pun informasi. `/ui` tetap dilayani apa adanya
-    supaya tautan lama (README, `agent/demo.py`, `scripts/chaos.sh`) tidak mati.
+    ada di layar yang dilihat orang, bukan di layar berikutnya.
 
-    Daftar route tidak hilang: ia pindah ke `GET /api/routes` (JSON ber-`simulated: true`), yang
-    DITAUTKAN di kaki setiap layar — jadi ia bisa ditemukan dengan mata, bukan hanya ditebak.
+    Halaman ini TIDAK pernah gagal. Papan keberangkatannya dirender dari store yang sama dengan
+    aplikasi; store yang tidak terbaca menghilangkan PAPANnya, bukan halamannya, dan tidak
+    pernah diganti baris contoh (spec §8: data placeholder sebagai nyata tidak dinilai). Itulah
+    kenapa `HTTPException` ditelan di sini, dan hanya di sini.
+
+    `/ui` dan `/ui/decision/{id}` tetap dilayani sebagai alias `/app` (ADR-021 butir 3) supaya
+    README, `agent/demo.py`, dan `scripts/chaos.sh` tidak mati di tengah minggu deadline.
     """
-    return screen_watchlist()
+    try:
+        entries = watchlist().get("symbols")
+    except HTTPException:
+        entries = None
+    except Exception:  # noqa: BLE001 — landing tidak boleh jatuh karena store yang aneh
+        entries = None
+    rows = entries if isinstance(entries, list) else None
+    return _html(render_landing(BANNER, _now_jst(), rows))
 
 
 @app.get("/api/routes")
@@ -971,7 +981,7 @@ def routes() -> dict[str, Any]:
         {
             "product": "Tenko (点呼)",
             "routes": list(ROUTE_INDEX),
-            "screens": {"A_watchlist": "/", "B_call_card": "/ui/decision/{id}"},
+            "screens": {"A_watchlist": "/app", "B_call_card": "/app/decision/{id}"},
             "calls_ryo_tools": False,
             "calls_llm": False,
         }
