@@ -1892,7 +1892,9 @@ def test_the_only_script_is_this_apps_own_bundle_and_the_csp_allows_nothing_else
       skrip sebaris tidak akan jalan — dan halaman yang mengandalkannya adalah halaman rusak);
     * CSP memuat `script-src 'self'` dan TIDAK memuat `unsafe-inline`, `unsafe-eval`, `data:`,
       `blob:`, `*`, maupun satu pun host;
-    * `default-src 'none'`, `img-src 'none'`, `base-uri 'none'` tetap seperti sebelumnya;
+    * `default-src 'none'` dan `base-uri 'none'` tetap seperti sebelumnya; `img-src`,
+      `font-src` dan `media-src` dibuka ADR-022 tetapi HANYA ke `'self'` — nol host asing,
+      nol `data:`, jadi janji "nol permintaan jaringan saat render" tetap berdiri;
     * nol atribut penangan kejadian sebaris (`onerror=`, `onclick=`, …) dan nol `javascript:`.
     """
     for path in ("/", "/ui", "/ui/decision/1", "/ui/decision/999999"):
@@ -1912,13 +1914,21 @@ def test_the_only_script_is_this_apps_own_bundle_and_the_csp_allows_nothing_else
         assert "connect-src 'self'" in csp, path
         for forbidden in ("unsafe-inline", "unsafe-eval", "data:", "blob:", "http", "*"):
             assert forbidden not in csp, f"{path}: CSP melonggar ke {forbidden}"
-        assert "default-src 'none'" in csp and "img-src 'none'" in csp and "base-uri 'none'" in csp
-        # Dua pelonggaran, DAN TIDAK LEBIH: tiap direktif lain yang disebut bernilai 'none'.
+        assert "default-src 'none'" in csp and "base-uri 'none'" in csp
+        # Pelonggarannya BERNAMA, dan tidak satu pun di luar daftar ini: tiap direktif lain
+        # yang disebut bernilai 'none'. Daftar yang tumbuh diam-diam adalah persis cara CSP
+        # berhenti menjaga apa pun.
         assert sorted(name for name, value in csp_directives().items() if value != ["'none'"]) == [
             "connect-src",
+            "font-src",
+            "img-src",
+            "media-src",
             "script-src",
             "style-src",
         ], csp
+        # ...dan setiap satunya `'self'`, bukan `*`, bukan `data:`, bukan satu host pun.
+        for name, value in csp_directives().items():
+            assert value in (["'none'"], ["'self'"]), f"{name}: {value}"
         assert response.headers["x-content-type-options"] == "nosniff"
 
 

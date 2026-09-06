@@ -135,9 +135,17 @@ BANNER = "SIMULATED — practice positions on read-only market intelligence. No 
 #: larangan total, supaya `/ui/app.js` (hasil build `frontend/`, dilayani dari origin ini
 #: sendiri) bisa berjalan. Yang TIDAK berubah, dan yang menjadikan pelonggaran itu sempit:
 #: `default-src 'none'` tetap menutup segalanya yang tidak disebut, `style-src 'self'` tetap
-#: hanya mengizinkan `/ui/tenko.css`, `img-src 'none'` tetap melarang gambar, dan TIDAK ADA
-#: `'unsafe-inline'`, TIDAK ADA `'unsafe-eval'`, serta nol host pihak ketiga — jadi skrip
-#: sebaris, `eval`, dan CDN mana pun tetap ditolak browser, bukan hanya oleh sopan santun.
+#: hanya mengizinkan `/ui/tenko.css`, dan TIDAK ADA `'unsafe-inline'`, TIDAK ADA
+#: `'unsafe-eval'`, serta nol host pihak ketiga — jadi skrip sebaris, `eval`, dan CDN mana
+#: pun tetap ditolak browser, bukan hanya oleh sopan santun.
+#:
+#: ADR-022 membuka TIGA direktif aset — `img-src`, `font-src`, `media-src` — atas permintaan
+#: pemilik repo, dan ketiganya ke `'self'`, BUKAN `*` dan BUKAN `data:`. Bedanya bukan gaya:
+#: `'self'` membiarkan aset yang KITA layani hidup sambil membuat setiap aset pihak ketiga
+#: tetap ditolak browser — dan itulah yang menjaga janji "nol permintaan jaringan saat
+#: render" (ADR-014 butir 4) yang membuat `make demo` bisa jalan tanpa jaringan (spec §7).
+#: `data:` sengaja TIDAK ditambahkan: ia menghidupkan kembali permukaan penyuntikan lewat
+#: nilai asal-RYO/DB yang seluruh modul `ui/screens.py` dibangun untuk menutup.
 #:
 #: `connect-src 'self'` adalah direktif KEDUA yang dilonggarkan, dan tanpa ia ADR-020 tidak ada
 #: gunanya: `connect-src` adalah fetch-directive yang fallback-nya `default-src`, jadi
@@ -148,7 +156,8 @@ BANNER = "SIMULATED — practice positions on read-only market intelligence. No 
 HTML_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
-        "img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        "img-src 'self'; font-src 'self'; media-src 'self'; "
+        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     ),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",

@@ -442,3 +442,38 @@ diamandemen). Nol dependency baru, nol baris `DISCLOSURE.md`, nol perubahan `sou
 Risiko yang diterima sadar: laporan juri 5.2 menilai `/` sebagai Layar A. Bila landing tidak selesai sebelum
 8 Sep, jalan mundurnya `git revert` commit landing — `/app` dan `/ui` sudah berdiri sendiri, jadi revert itu
 mengembalikan `/` ke Layar A tanpa menyentuh apa pun yang lain.
+
+## ADR-022 (DITERIMA 6 Sep 2026) `img-src`, `font-src`, `media-src` dibuka ke `'self'` — aset boleh, pihak ketiga tetap tidak
+Konteks: pemilik repo meminta (6 Sep 2026) larangan gambar, font, dan media dicabut supaya landing ADR-021 bisa
+memakai aset. Hari ini `img-src 'none'` melarang setiap gambar termasuk yang di-host sendiri, dan `font-src`
+maupun `media-src` tidak pernah disebut sehingga jatuh ke `default-src 'none'` — artinya webfont dan video ikut
+mati tanpa satu baris pun yang menyatakannya. ADR-020 butir 5 menetapkan CSP itu dan menyebut dirinya
+"dilonggarkan seminimal mungkin", jadi mengubahnya butuh ADR, bukan sunting diam-diam.
+
+Keputusan:
+1. **Tiga direktif dibuka, semuanya ke `'self'`**: `img-src 'self'`, `font-src 'self'`, `media-src 'self'`.
+2. **BUKAN `*` dan BUKAN `data:`.** Ini pembatas yang membuat butir 1 aman, dan alasannya dua:
+   (a) `'self'` menjaga janji **nol permintaan jaringan saat render** (ADR-014 butir 4) yang membuat `make demo`
+   bisa jalan tanpa jaringan (spec §7) dan yang menjauhkan repo ini dari CDN; aset pihak ketiga tetap ditolak
+   browser, bukan hanya oleh sopan santun. (b) `data:` menghidupkan kembali permukaan penyuntikan lewat nilai
+   asal-RYO/DB yang seluruh `ui/screens.py` dibangun untuk menutup.
+3. **`default-src 'none'` tetap**, dan setiap direktif yang disebut bernilai `'none'` atau `'self'` — tidak ada
+   nilai ketiga. Tes memaku daftar direktif yang dilonggarkan **beserta nilainya**, karena daftar yang boleh
+   tumbuh diam-diam adalah persis cara CSP berhenti menjaga apa pun.
+4. **Setiap aset yang benar-benar masuk repo tetap butuh barisnya sendiri di `DISCLOSURE.md`** pada commit yang
+   sama, dengan lisensi dan URL asalnya (CLAUDE.md). CSP yang terbuka bukan izin untuk aset tanpa asal-usul.
+5. **Aset dari repo pihak ketiga tidak diambil sebagai aset.** Yang boleh masuk hanya yang lisensinya menyebut
+   aset secara eksplisit (mis. SIL OFL untuk font, CC0/domain publik untuk piktogram) atau yang kita buat
+   sendiri. Repo bergaya awwwards umumnya MIT **hanya untuk kodenya**, sementara font, video, dan teksturnya
+   milik klien aslinya — dan submission hackathon adalah publikasi, sehingga ini urusan `rules-compliance`,
+   bukan selera.
+
+Konsekuensi: `ui/app.py` (`HTML_HEADERS`) · `tests/test_ui.py` (dua tes CSP ditulis ulang: daftar direktif yang
+dilonggarkan bertambah tiga, DAN asersi baru bahwa setiap nilai adalah `'none'`/`'self'`) · `ui/README.md` tetap
+tidak boleh mengutip nilai CSP harfiah (tes menjaganya). Nol dependency baru. Halaman yang ada tidak berubah
+sedikit pun: mereka memang tidak memuat gambar, font, atau media, jadi pelonggaran ini menambah kemampuan tanpa
+mengubah satu byte pun yang dirender hari ini.
+
+Risiko yang diterima sadar: permukaan serang bertambah tiga jenis sumber daya. Yang mengecilkannya adalah
+`'self'` — penyerang harus lebih dulu bisa menaruh berkas di `ui/static/`, dan siapa pun yang bisa melakukan itu
+sudah bisa mengganti `app.js`.
