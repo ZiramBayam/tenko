@@ -1309,8 +1309,20 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
     # halaman, jadi juri harus menggulir melewati prosa untuk melihat satu-satunya bagian yang
     # membuktikan produknya hidup. Papan sekarang berdiri langsung di bawah hero.
     body = (
+        # Rel dirender server pada 0%: halaman tanpa JS tetap punya rel utuh, hanya keretanya
+        # yang diam. `aria-hidden` karena posisi gulir sudah dibawa bilah gulir browser — ini
+        # kanal kedua, bukan satu-satunya.
+        '<div class="railbar" aria-hidden="true"><div class="track">'
+        '<span class="train"></span></div>'
+        '<ul class="stops"><li>Departure</li><li>The board</li><li>Proof</li><li>Why</li></ul>'
+        "</div>"
         '<section class="hero">'
         '<p class="kicker"><span lang="ja">点呼</span> · TENKO · RYO-CHAN Hackathon 2026</p>'
+        '<ul class="pills">'
+        '<li class="on">Simulated · no funds</li>'
+        "<li>5 RYO tools · 10 items</li>"
+        "<li>Replay byte-identical</li>"
+        "</ul>"
         "<h1>Point at the evidence.<br>Say it out loud.<br>Then decide.</h1>"
         '<p class="lede">Japanese train crews do not trust a signal they have only looked at. '
         'They point at it and say it aloud — <span lang="ja">指差喚呼</span>, shisa kanko — and '
@@ -1323,6 +1335,11 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         'serves, as JSON">See every route</a></p>'
         '<p class="sub">Every position here is a <strong>practice</strong> trade: no funds, no '
         "wallet, no signing keys, no real execution.</p>"
+        '<div class="rails">'
+        '<p><span class="rail-label">All clocks</span><span>JST — as the board reads them</span></p>'
+        '<p><span class="rail-label">Decision path</span><span>Deterministic · no LLM</span></p>'
+        '<p><span class="rail-label">Store</span><span>Read-only · append-only</span></p>'
+        "</div>"
         "</section>"
         f"{board}"
         '<section class="proofs" aria-labelledby="proofs-h">'

@@ -2586,7 +2586,7 @@ def test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed(clie
     css = client.get("/ui/tenko.css").text
     palette = dict(re.findall(r"--([a-z]+): (#[0-9a-f]{6})", css))
     assert palette.keys() >= {"bg", "panel", "line", "ink", "dim", "go", "nogo", "warn", "link"}
-    even, banner_bg, banner_ink = "#0c1523", "#4a0f14", "#ffe3e0"
+    even, banner_bg, banner_ink = "#e4eaf2", "#fdeaea", "#8c0b10"
     backgrounds = (palette["bg"], palette["panel"], even)
     text_pairs = [
         (palette[name], background)
@@ -2601,9 +2601,9 @@ def test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed(clie
     for front, back in non_text_pairs:
         assert contrast_ratio(front, back) >= 3.0, f"non-teks {front} di atas {back}"
     # Angka yang ditulis `ui/README.md` adalah angka yang sama, bukan angka lama:
-    assert round(contrast_ratio(palette["nogo"], palette["panel"]), 2) == 4.53  # teks paling ketat
-    assert round(contrast_ratio(palette["line"], palette["panel"]), 2) == 3.48  # garis paling ketat
-    assert round(contrast_ratio(palette["warn"], palette["bg"]), 2) == 8.53  # cincin fokus
+    assert round(contrast_ratio(palette["go"], palette["row"]), 2) == 4.55  # teks paling ketat
+    assert round(contrast_ratio(palette["line"], palette["row"]), 2) == 3.06  # garis paling ketat
+    assert round(contrast_ratio(palette["warn"], palette["bg"]), 2) == 4.94  # cincin fokus
     measured = {colour for pair in text_pairs + non_text_pairs for colour in pair}
     assert set(re.findall(r"#[0-9a-f]{6}", css)) == measured
 
@@ -2623,8 +2623,8 @@ def test_the_ui_readme_carries_the_a11y_checklist_and_admits_the_missing_recordi
         # Angka palet jalur JR (ADR-023), bukan palet abu-abu 4.6. Keduanya adalah pasangan
         # TERSEMPIT di masing-masing kategori, jadi tes ini merah begitu klaim README
         # tertinggal di belakang palet yang benar-benar dilayani.
-        "4.53:1",
-        "3.48:1",
+        "4.55:1",
+        "3.06:1",
     ):
         assert claim in readme, claim
     assert "- [ ] **Rekaman 30 detik**" in readme  # belum dicentang, dan itu memang jujur
@@ -2641,19 +2641,16 @@ def test_the_ui_readme_carries_the_a11y_checklist_and_admits_the_missing_recordi
 #: pasangannya menjadi angka lain yang kebetulan juga lulus. `--line` khususnya: ia baru saja
 #: dinaikkan dari #2c3442 (1.52:1, GAGAL 1.4.11) dan tidak boleh diredupkan kembali demi rasa.
 MEASURED_PALETTE = {
-    # Palet jalur JR (ADR-023). Empat warna status adalah warna jalur kereta Jepang yang
-    # sebenarnya; latarnya navy papan penunjuk stasiun. Setiap pasangan diukur di
-    # `test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`.
-    "bg": "#0a1220",
-    "panel": "#0f1829",
-    "line": "#5d6f8c",
-    "ink": "#f3f7fc",
-    "dim": "#b8c7dc",
-    "go": "#9acd32",  # Yamanote
-    "nogo": "#f62e36",  # Marunouchi
-    "warn": "#ff9500",  # Ginza
-    "link": "#00bfff",  # Keihin-Tohoku
-    "row": "#0c1523",
+    "bg": "#eef2f7",
+    "panel": "#ffffff",
+    "line": "#6c87a9",
+    "ink": "#0b1a2e",
+    "dim": "#586985",
+    "go": "#55721c",
+    "nogo": "#d20911",
+    "warn": "#995900",
+    "link": "#007197",
+    "row": "#e4eaf2",
 }
 
 
@@ -2675,14 +2672,14 @@ def test_the_palette_is_the_measured_jr_line_palette_and_nothing_else(client: Te
     palette = dict(re.findall(r"--([a-z]+): (#[0-9a-f]{6})", css))
     assert palette == MEASURED_PALETTE
     # Warna jalur, dengan namanya. Angka telanjang di sini akan kehilangan alasannya.
-    assert palette["go"] == "#9acd32", "Yamanote (JNR Yellow Green No.6)"
-    assert palette["nogo"] == "#f62e36", "Marunouchi"
-    assert palette["warn"] == "#ff9500", "Ginza"
-    assert palette["link"] == "#00bfff", "Keihin-Tohoku"
+    assert palette["go"] == "#55721c", "Yamanote, digelapkan agar lolos (ADR-024)"
+    assert palette["nogo"] == "#d20911", "Marunouchi, digelapkan (ADR-024)"
+    assert palette["warn"] == "#995900", "Ginza, digelapkan (ADR-024)"
+    assert palette["link"] == "#007197", "Keihin-Tohoku, digelapkan (ADR-024)"
     assert "#2c3442" not in css  # garis redup yang GAGAL 1.4.11, dan tidak boleh kembali
     assert set(re.findall(r"#[0-9a-f]{6}", css)) == set(MEASURED_PALETTE.values()) | {
-        "#4a0f14",
-        "#ffe3e0",
+        "#fdeaea",
+        "#8c0b10",
     }
 
 
@@ -3548,8 +3545,8 @@ def test_one_css_naming_rule_serves_both_renderers() -> None:
 #:
 #: Cara memperbaruinya: `make frontend` mencetak hash barunya. Menggantinya adalah perbuatan
 #: yang TERLIHAT di diff — dan itulah seluruh gunanya.
-BUNDLE_SHA256 = "a4e51736b3f9ef70cf13bc9270398b94dcfff67573fbff4a7eacc6b025a36a67"
-STYLESHEET_SHA256 = "324c6366d2fe776a128b5ce0a36c0c6699307157cab9a4c282dfcea43ab9f09b"
+BUNDLE_SHA256 = "9cd8331776d7edee415faa86d1518d6f0e867ceb4abd316d033388959c1a9e4e"
+STYLESHEET_SHA256 = "45b7497116a03533695b1f58f6f4d091c3b6557c0e520250ef96152ffe8ff566"
 
 
 def test_the_shipped_bundle_is_pinned_byte_for_byte() -> None:

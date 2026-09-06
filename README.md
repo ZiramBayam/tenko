@@ -200,7 +200,7 @@ third-party host** and permits neither `unsafe-inline` nor `unsafe-eval`; script
 restricted to this origin, and framing, `base` and form submission are shut off entirely. The header itself lives in
 `ui/app.py` `HTML_HEADERS` and is **deliberately not retyped here** — a pasted copy is exactly how the previous
 version of this paragraph became false, and `ui/README.md` pins the header with a test. All navigation interaction is
-`GET`, zero `tabindex`, focus ring **8.53:1**, zero `:hover`, zero animation; every card row is announced as one
+`GET`, zero `tabindex`, focus ring **4.94:1**, zero `:hover`, zero animation; every card row is announced as one
 "point → call" sentence via `aria-label`, and an `unspoken` row is announced as "not spoken", never as 0. The full
 checklist, with **the name of the test that fails if a promise is broken**, is in `ui/README.md`.
 
@@ -210,8 +210,8 @@ the claim, not a courtesy: `tests/test_ui.py:2503`
 itself (so since ADR-020 it reads the esbuild output of `frontend/styles/app.css`, not any string that used to live
 in Python), parses every `--name: #rrggbb` in `:root`, and demands ≥4.5:1 for text pairs and ≥3:1 for non-text —
 **plus** that the colour list is exhausted by the measured pairs, so a new colour cannot slip in unmeasured. Three
-values are pinned exactly: focus ring `warn` on `bg` = **8.53**, the tightest text pair `nogo` on `panel` = **4.53**,
-the tightest non-text pair `line` on `panel` = **3.48**.
+values are pinned exactly: focus ring `warn` on `bg` = **4.94**, the tightest text pair `go` on the even row = **4.55**,
+the tightest non-text pair `line` on the even row = **3.06**.
 
 The rewrite in TypeScript, bundled with esbuild and served as a separate same-origin script file, was accepted on
 6 Sep 2026 (ADR-020) and **landed the same day** (commit `ed77a8c`; sources in `frontend/src/*.ts`, output in

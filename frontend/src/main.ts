@@ -324,6 +324,40 @@ function isInternal(link: HTMLAnchorElement): boolean {
   return path === "/" || path === "/ui" || /^\/ui\/decision\/\d+$/.test(path);
 }
 
+
+/** Bilah gulir bergaya peta jalur (landing saja).
+ *
+ * Ia hanya menulis SATU custom property, `--p` (0..1), dan tidak menyentuh isi apa pun — jadi
+ * landing tetap layar INERT dalam arti yang penting: nol permintaan, nol perubahan isi. Rel
+ * sudah dirender server pada 0%, jadi kegagalan fungsi ini meninggalkan rel yang utuh dan diam,
+ * bukan halaman yang rusak.
+ *
+ * `requestAnimationFrame` menggandeng pembaruan ke frame: `scroll` menyala jauh lebih sering
+ * daripada layar menggambar, dan menulis gaya di setiap kejadian adalah cara membuat halaman
+ * yang mulus terasa berat.
+ */
+function railbar(): void {
+  const bar = document.querySelector(".railbar");
+  if (!(bar instanceof HTMLElement)) return;
+  let queued = false;
+  const paint = (): void => {
+    queued = false;
+    const doc = document.documentElement;
+    const span = doc.scrollHeight - doc.clientHeight;
+    // Halaman yang tidak bisa digulir sudah SELESAI dibaca, bukan belum dimulai.
+    const p = span > 0 ? Math.min(1, Math.max(0, doc.scrollTop / span)) : 1;
+    bar.style.setProperty("--p", p.toFixed(4));
+  };
+  const onScroll = (): void => {
+    if (queued) return;
+    queued = true;
+    window.requestAnimationFrame(paint);
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onScroll, { passive: true });
+  paint();
+}
+
 function start(): void {
   const body = document.body;
   const main = document.getElementById("isi");
@@ -345,6 +379,7 @@ function start(): void {
   // `landing` dan `error` sama-sama INERT (ADR-021 butir 6). Tanpa cabang ini keduanya jatuh ke
   // `state.screen = "watchlist"` di atas, dan klien akan melukis Layar A di atas halaman yang
   // bukan Layar A — landing kehilangan seluruh isinya beberapa milidetik setelah dibuka.
+  if (screen === "landing") railbar();
   const inert = screen === "error" || screen === "landing";
   liveNode.textContent = inert ? CLIENT_INERT : CLIENT_ATTACHED;
   main.appendChild(controlsNode);

@@ -521,3 +521,40 @@ status, bukan hanya nilainya) · `ui/README.md` (tabel kontras dihitung ulang se
 Catatan yang sengaja TIDAK dilakukan: `docs/judge-reports/fase-5.md` tetap menyebut angka lama. Itu catatan
 sejarah tentang UI yang dinilai saat itu; menyuntingnya akan membuat laporan juri berbohong tentang apa yang
 benar-benar dilihatnya.
+
+## ADR-024 (DITERIMA 7 Sep 2026) Badan shinkansen: palet TERANG, judul dot-matrix, bilah gulir peta jalur
+Konteks: pemilik repo meminta (7 Sep 2026, berturut-turut dalam satu sesi) tiga hal: hero bergaya ohmydesign.com,
+bilah gulir bergaya kereta di atas halaman, dan latar TERANG yang menggambarkan shinkansen alih-alih navy gelap
+ADR-023. Ini palet ketiga dalam satu hari; ongkosnya nyata (tiap perubahan menuntut hitung ulang seluruh tabel
+kontras, tes, dan dua dokumen) dan deadline 8 Sep. Diterima sebagai keputusan pemilik repo.
+
+Keputusan:
+1. **Palet dibalik menjadi TERANG**: `--bg` #eef2f7 (badan shinkansen), `--panel` #ffffff, `--row` #e4eaf2,
+   `--ink` #0b1a2e (JNR navy).
+2. **Warna jalur DIGELAPKAN, dan itu disebut apa adanya.** Di atas badan terang, keempat hex RESMI jalur GAGAL
+   4.5:1 — Yamanote 1.75:1, Ginza 2.04:1, Keihin-Tohoku 1.97:1, Marunouchi 3.64:1. Pilihannya adalah warna resmi
+   yang tidak terbaca sebagian orang, atau warna yang terbaca semua orang. Dipilih yang kedua: hue jalur
+   dipertahankan, lightness diturunkan sampai lolos — `--go` #55721c, `--nogo` #d20911, `--warn` #995900,
+   `--link` #007197. Klaim "warna jalur JR" di ADR-023 karena itu DIPERSEMPIT: sekarang hue-nya, bukan hex-nya,
+   dan `frontend/styles/app.css` menyatakannya di tempat warnanya didefinisikan.
+3. **Kasus terburuk berbalik.** Pada tema gelap, pasangan tersempit ada di latar TERTERANG; pada tema terang ia
+   ada di latar TERGELAP (baris genap). Itu kesalahan yang sempat dibuat saat menyetel palet ini dan ditangkap
+   oleh perhitungan, bukan oleh mata. Tersempit sekarang: `--go` di atas `--row` = **4.55:1**; garis 3.06:1.
+4. **Judul hero dot-matrix**, CSS murni (`radial-gradient` + `background-clip: text`), nol aset. DUA lapis: titik
+   di atas huruf PADAT, sehingga lantai kontras tetap `--ink` di atas `--bg` dan titiknya murni tekstur.
+   `@supports` wajib: tanpa dukungan `background-clip: text`, `color: transparent` akan MENGHILANGKAN judul.
+5. **Bilah gulir bergaya peta jalur** (landing saja). Ia dirender server pada 0% sehingga halaman tanpa JS tetap
+   punya rel utuh, `aria-hidden` karena posisi gulir sudah dibawa bilah gulir browser (ini kanal kedua, bukan
+   satu-satunya), dan klien hanya menulis satu custom property `--p` — landing tetap INERT dalam arti yang
+   penting: nol permintaan, nol perubahan isi. Pembaruan digandeng ke `requestAnimationFrame`.
+6. **Tidak ada blok `prefers-reduced-motion` untuk rel**, dan itu disengaja: seluruh repo nol animasi dan nol
+   transisi (dijaga tes), jadi kereta langsung berada di posisinya — tidak ada gerak untuk dikurangi.
+7. **Langit berawan ohmydesign.com TIDAK diambil.** Ia menuntut aset gambar atau gradien besar dan mengubah
+   halaman menjadi ilustrasi; yang diambil adalah keputusan bentuknya (dot-matrix, pil, label sudut).
+
+Konsekuensi: `frontend/styles/app.css` · `ui/screens.py` · `frontend/src/main.ts` (fungsi `railbar`) ·
+`tests/test_ui.py` (MEASURED_PALETTE, tiga angka dipatok, hash artefak) · `ui/README.md` (tabel kontras dihitung
+ulang skrip) · `README.md`. Nol dependency baru, nol aset baru, CSP tidak disentuh.
+
+Risiko yang diterima: tiga palet dalam satu hari berarti `docs/judge-reports/fase-5.md` dan checklist 4.6 makin
+jauh dari apa yang benar-benar dilayani. 4.6 HARUS dijalankan ulang atas UI ini sebelum video direkam.

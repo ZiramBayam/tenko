@@ -149,7 +149,7 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
       → `test_the_screens_declare_the_polling_interval_they_actually_use`
 - [x] **Fokus terlihat.** `a:focus, a:focus-visible { outline: 3px solid var(--warn) }` —
       `:focus` ikut disebut supaya cincin tidak bergantung dukungan `:focus-visible`.
-      Oranye Ginza `#ff9500` di atas latar tergelap = **8.53:1** (batas non-teks 3:1).
+      Oranye Ginza `#995900` di atas `--bg` = **4.94:1** (batas non-teks 3:1).
       Tautan "lompat ke tabel" memakai `:target` dengan cincin yang sama sehingga pemakai
       keyboard melihat di mana ia mendarat.
       → `test_the_stylesheet_has_no_animation_and_no_hover_only_information`
@@ -209,38 +209,38 @@ Dihitung dari warna yang benar-benar dilayani `/ui/tenko.css`. Batas: **4.5:1** 
 
 | Depan | Belakang | Rasio | |
 |---|---|---|---|
-| `--ink` #f3f7fc | `--bg` #0a1220 | **17.42:1** | PASS |
-| `--ink` #f3f7fc | `--panel` #0f1829 | **16.50:1** | PASS |
-| `--ink` #f3f7fc | baris genap #0c1523 | **17.02:1** | PASS |
-| `--dim` #b8c7dc | `--bg` #0a1220 | **10.93:1** | PASS |
-| `--dim` #b8c7dc | `--panel` #0f1829 | **10.35:1** | PASS |
-| `--dim` #b8c7dc | baris genap #0c1523 | **10.67:1** | PASS |
-| `--go` #9acd32 (Yamanote) | `--bg` #0a1220 | **9.96:1** | PASS |
-| `--go` #9acd32 (Yamanote) | `--panel` #0f1829 | **9.43:1** | PASS |
-| `--go` #9acd32 (Yamanote) | baris genap #0c1523 | **9.72:1** | PASS |
-| `--nogo` #f62e36 (Marunouchi) | `--bg` #0a1220 | **4.79:1** | PASS |
-| `--nogo` #f62e36 (Marunouchi) | `--panel` #0f1829 | **4.53:1** | PASS |
-| `--nogo` #f62e36 (Marunouchi) | baris genap #0c1523 | **4.67:1** | PASS |
-| `--warn` #ff9500 (Ginza) | `--bg` #0a1220 | **8.53:1** | PASS |
-| `--warn` #ff9500 (Ginza) | `--panel` #0f1829 | **8.07:1** | PASS |
-| `--warn` #ff9500 (Ginza) | baris genap #0c1523 | **8.33:1** | PASS |
-| `--link` #00bfff (Keihin-Tohoku) | `--bg` #0a1220 | **8.83:1** | PASS |
-| `--link` #00bfff (Keihin-Tohoku) | `--panel` #0f1829 | **8.37:1** | PASS |
-| `--link` #00bfff (Keihin-Tohoku) | baris genap #0c1523 | **8.63:1** | PASS |
-| teks banner #ffe3e0 | latar banner #4a0f14 | **12.64:1** | PASS |
-| `--ink` #f3f7fc | latar banner #4a0f14 | **14.25:1** | PASS |
+| `--ink` #0b1a2e | `--bg` #eef2f7 | **15.55:1** | PASS |
+| `--ink` #0b1a2e | `--panel` #ffffff | **17.48:1** | PASS |
+| `--ink` #0b1a2e | baris genap #e4eaf2 | **14.44:1** | PASS |
+| `--dim` #586985 | `--bg` #eef2f7 | **4.95:1** | PASS |
+| `--dim` #586985 | `--panel` #ffffff | **5.56:1** | PASS |
+| `--dim` #586985 | baris genap #e4eaf2 | **4.60:1** | PASS |
+| `--go` #55721c (Yamanote, digelapkan) | `--bg` #eef2f7 | **4.90:1** | PASS |
+| `--go` #55721c (Yamanote, digelapkan) | `--panel` #ffffff | **5.51:1** | PASS |
+| `--go` #55721c (Yamanote, digelapkan) | baris genap #e4eaf2 | **4.55:1** | PASS |
+| `--nogo` #d20911 (Marunouchi, digelapkan) | `--bg` #eef2f7 | **4.93:1** | PASS |
+| `--nogo` #d20911 (Marunouchi, digelapkan) | `--panel` #ffffff | **5.54:1** | PASS |
+| `--nogo` #d20911 (Marunouchi, digelapkan) | baris genap #e4eaf2 | **4.58:1** | PASS |
+| `--warn` #995900 (Ginza, digelapkan) | `--bg` #eef2f7 | **4.94:1** | PASS |
+| `--warn` #995900 (Ginza, digelapkan) | `--panel` #ffffff | **5.55:1** | PASS |
+| `--warn` #995900 (Ginza, digelapkan) | baris genap #e4eaf2 | **4.59:1** | PASS |
+| `--link` #007197 (Keihin-Tohoku, digelapkan) | `--bg` #eef2f7 | **4.90:1** | PASS |
+| `--link` #007197 (Keihin-Tohoku, digelapkan) | `--panel` #ffffff | **5.51:1** | PASS |
+| `--link` #007197 (Keihin-Tohoku, digelapkan) | baris genap #e4eaf2 | **4.56:1** | PASS |
+| teks banner #8c0b10 | latar banner #fdeaea | **8.35:1** | PASS |
+| `--ink` #0b1a2e | latar banner #fdeaea | **15.09:1** | PASS |
 
-Yang paling ketat: **4.53:1** (`--nogo` Marunouchi di atas `--panel`), yaitu 1.01x batas 4.5:1 — margin paling tipis di repo ini.
+Yang paling ketat: **4.55:1** (`--go` Yamanote di atas baris genap), yaitu 1.01x batas 4.5:1. Untuk teks GELAP kasus terburuk adalah latar TERGELAP, kebalikan dari tema gelap.
 
 | Pasangan non-teks | Latar | Rasio | Batas 3:1 |
 |---|---|---|---|
-| `--line` #5d6f8c | `--bg` #0a1220 | **3.68:1** | PASS |
-| `--line` #5d6f8c | `--panel` #0f1829 | **3.48:1** | PASS |
-| `--line` #5d6f8c | baris genap #0c1523 | **3.59:1** | PASS |
-| `--nogo` #f62e36 (garis banner) | latar banner #4a0f14 | **3.92:1** | PASS |
-| `--warn` #ff9500 (cincin fokus) | `--bg` #0a1220 | **8.53:1** | PASS |
-| `--warn` #ff9500 (cincin fokus) | `--panel` #0f1829 | **8.07:1** | PASS |
-| `--warn` #ff9500 (cincin fokus) | baris genap #0c1523 | **8.33:1** | PASS |
+| `--line` #6c87a9 | `--bg` #eef2f7 | **3.29:1** | PASS |
+| `--line` #6c87a9 | `--panel` #ffffff | **3.70:1** | PASS |
+| `--line` #6c87a9 | baris genap #e4eaf2 | **3.06:1** | PASS |
+| `--nogo` #d20911 (garis banner) | latar banner #fdeaea | **4.79:1** | PASS |
+| `--warn` #995900 (cincin fokus) | `--bg` #eef2f7 | **4.94:1** | PASS |
+| `--warn` #995900 (cincin fokus) | `--panel` #ffffff | **5.55:1** | PASS |
+| `--warn` #995900 (cincin fokus) | baris genap #e4eaf2 | **4.59:1** | PASS |
 
 `--line` sebelumnya `#2c3442` = **1.52:1**: cukup untuk hiasan, tidak cukup untuk garis yang
 memisahkan sembilan kolom di layar 1280×720. Ia dinaikkan ke `#646e84` pada TASKS 4.6, dan

@@ -7,9 +7,10 @@
    PALETNYA BERUBAH di ADR-023: dari abu-abu netral menjadi warna jalur JR (lihat `:root`).
    Kedua belas warna itu diukur ulang seluruhnya, bukan diasumsikan, dan angkanya dipatok
    `tests/test_ui.py::test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`:
-   teks terendah nogo #f62e36 di atas panel #0f1829 = 4.53:1 (batas 4.5:1); garis #5d6f8c di
-   atas panel = 3.48:1 (batas non-teks 3:1); cincin fokus #ff9500 di atas #0a1220 = 8.53:1.
-   Yang pertama adalah margin paling tipis di repo ini: 0.03 di atas batas.
+   teks terendah go #55721c di atas baris genap #e4eaf2 = 4.55:1 (batas 4.5:1); garis
+   #6c87a9 di atas baris genap = 3.06:1 (batas non-teks 3:1); cincin fokus #995900 di
+   atas #eef2f7 = 4.94:1. Kasus terburuk untuk teks GELAP adalah latar TERGELAP (baris
+   genap), bukan putih — kebalikan dari tema gelap, dan mudah tertukar.
 
    Warna tidak pernah membawa informasi sendirian: tiap lencana membawa teksnya, hijau-netral
    membawa kalimatnya, dan `unspoken` membawa "tidak disebut".
@@ -66,21 +67,27 @@
      ke makna yang sudah dipakai layar ini. Latarnya navy papan penunjuk stasiun, bukan abu-abu
      netral.
 
-       --go    #9acd32  Yamanote  (JNR Yellow Green No.6, ウグイス色)
-       --nogo  #f62e36  Marunouchi
-       --warn  #ff9500  Ginza
-       --link  #00bfff  Keihin-Tohoku
+       --go    #55721c  Yamanote  (JNR Yellow Green No.6, ウグイス色)
+       --nogo  #d20911  Marunouchi
+       --warn  #995900  Ginza
+       --link  #007197  Keihin-Tohoku
+
+       PENTING (ADR-024): keempatnya adalah HUE jalur itu, DIGELAPKAN — bukan hex
+       resminya. Di atas badan shinkansen yang terang, keempat nilai RESMI gagal 4.5:1
+       (Yamanote 1.75:1, Ginza 2.04:1, Keihin-Tohoku 1.97:1, Marunouchi 3.64:1).
+       Pilihannya: warna resmi yang tidak terbaca sebagian orang, atau warna yang
+       terbaca semua orang. ADR-024 memilih yang kedua DAN mengatakannya.
 
      Setiap pasangan DIUKUR, bukan diklaim — angkanya ada di
      `test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`, dan himpunan hex
      di berkas ini harus PERSIS sama dengan himpunan yang diukur di sana. Yang paling ketat:
      Marunouchi di atas panel = 4.53:1 terhadap batas 4.5:1. Itu batas SUNGGUHAN — menerangkan
      panel sedikit saja akan menjatuhkannya, jadi jangan sentuh --panel tanpa menghitung ulang. */
-  --bg: #0a1220; --panel: #0f1829; --line: #5d6f8c; --ink: #f3f7fc; --dim: #b8c7dc;
-  --go: #9acd32; --nogo: #f62e36; --warn: #ff9500; --link: #00bfff;
+  --bg: #eef2f7; --panel: #ffffff; --line: #6c87a9; --ink: #0b1a2e; --dim: #586985;
+  --go: #55721c; --nogo: #d20911; --warn: #995900; --link: #007197;
   /* Baris genap tabel. Dulu angka telanjang di satu aturan; sekarang bernama supaya ia ikut
      terbaca sebagai bagian palet yang diukur, bukan warna kelima belas yang menyelinap. */
-  --row: #0c1523;
+  --row: #e4eaf2;
   /* Satu tangga spasi dan dua radius, dipakai ulang di seluruh layar: jarak antarblok tidak
      lagi dikarang per tempat, dan itulah yang membuat halaman terbaca punya ritme. */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 18px; --s5: 28px; --s6: 44px;
@@ -126,9 +133,9 @@ a:focus, a:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; 
 .banner {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; gap: var(--s2);
-  background: #4a0f14; border: 2px solid var(--nogo); border-top: 0;
+  background: #fdeaea; border: 2px solid var(--nogo); border-top: 0;
   border-radius: 0 0 var(--r2) var(--r2);
-  color: #ffe3e0; padding: 10px var(--s3);
+  color: #8c0b10; padding: 10px var(--s3);
   margin: 0 calc(var(--s4) * -1) var(--s4);
   font: 700 14px/1.4 var(--mono); letter-spacing: .02em;
 }
@@ -327,6 +334,103 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   border: 0; padding: 0;
   max-width: 16ch;
 }
+/* --- judul dot-matrix ----------------------------------------------------------------------
+   Huruf diisi kisi titik, seperti papan LED peron. Ini CSS murni: `radial-gradient` sebagai
+   pola, `background-clip: text` sebagai masker. Nol gambar, nol berkas, nol permintaan
+   jaringan — jadi ia tetap muncul saat demo dijalankan tanpa jaringan (spec §7).
+
+   DUA lapis, dan urutannya yang menjaga aksesibilitas: titik oranye Ginza DI ATAS huruf padat
+   --ink. Titik saja akan menurunkan kontras efektif huruf (mata melihat rata-rata titik dan
+   celahnya); dengan lapis padat di bawahnya, lantai kontrasnya tetap --ink di atas --bg =
+   17.42:1, dan titiknya murni tekstur.
+
+   `@supports` bukan hiasan: tanpa dukungan `background-clip: text`, `color: transparent` akan
+   membuat JUDUL HALAMAN HILANG sama sekali. Warna padat adalah keadaan dasar; efeknya hanya
+   dipasang bila browser bisa menampilkannya. */
+@supports ((background-clip: text) or (-webkit-background-clip: text)) {
+  .hero h1 {
+    background-image:
+      radial-gradient(circle, var(--warn) 38%, transparent 40%),
+      linear-gradient(var(--ink), var(--ink));
+    background-size: 11px 11px, 100% 100%;
+    background-position: 2px 2px, 0 0;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+/* Mata yang peka gerak tidak terpengaruh (tidak ada animasi di sini), tetapi pola rapat adalah
+   beban visual; siapa pun yang meminta gerak dikurangi mendapat huruf padat tanpa kisi. */
+@media (prefers-reduced-motion: reduce) {
+  .hero h1 { background-image: none; color: var(--ink); }
+}
+
+/* --- bilah gulir bergaya peta jalur --------------------------------------------------------
+   Rel melintang di bawah banner, dengan kereta yang bergerak sepanjangnya seiring gulir.
+   Bentuknya diambil dari peta jalur (路線図) yang tergantung di atas pintu kereta: garis tipis,
+   titik stasiun di sepanjangnya, dan penanda posisi.
+
+   Dua hal yang membuatnya tidak melanggar apa pun:
+   * Ia dirender SERVER pada 0%, jadi halaman tanpa JS tetap punya rel yang utuh — hanya
+     keretanya yang tidak bergerak. Tidak ada informasi yang hanya hidup di JS.
+   * Ia BUKAN pembawa informasi: posisi gulir sudah dibawa bilah gulir browser sendiri. Rel ini
+     kanal kedua, jadi kehilangannya tidak menghilangkan apa pun. Karena itu `aria-hidden`.
+
+   `--p` (0..1) ditulis klien; CSS hanya membacanya. Tanpa JS ia tetap 0. */
+.railbar {
+  --p: 0;
+  position: sticky; top: 44px; z-index: 1;
+  margin: 0 calc(var(--s4) * -1) var(--s4);
+  padding: var(--s2) var(--s4) 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.railbar .track {
+  position: relative; height: 3px; background: var(--line); border-radius: 2px;
+}
+/* Bagian rel yang sudah dilewati. */
+.railbar .track::before {
+  content: ""; position: absolute; inset: 0 auto 0 0;
+  width: calc(var(--p) * 100%); background: var(--go); border-radius: 2px;
+}
+/* Keretanya: balok pendek di kepala jalur. */
+.railbar .train {
+  position: absolute; top: -4px; left: calc(var(--p) * 100%);
+  width: 26px; height: 11px; margin-left: -13px;
+  background: var(--go); border-radius: 2px;
+}
+/* Jendela kereta — dua celah gelap, cukup untuk membacanya sebagai kereta, bukan balok. */
+.railbar .train::after {
+  content: ""; position: absolute; top: 3px; left: 5px; width: 16px; height: 5px;
+  background: var(--bg);
+  border-radius: 1px;
+  box-shadow: none;
+}
+.railbar .stops {
+  display: flex; justify-content: space-between; margin: var(--s2) 0 0; padding: 0;
+  list-style: none;
+  font: 700 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
+}
+/* Tidak ada blok `prefers-reduced-motion` untuk rel ini, dan itu disengaja: seluruh repo nol
+   animasi dan nol transisi (dijaga tes), jadi kereta LANGSUNG berada di posisinya. Tidak ada
+   gerak yang perlu dikurangi. */
+
+/* --- pil & label sudut ---------------------------------------------------------------------
+   Pil membawa satu fakta pendek yang bisa diperiksa; label sudut membawa keterangan tetap.
+   Keduanya mono kecil ber-tracking lebar — bentuk yang sama dengan kepala kolom papan. */
+.pills { display: flex; flex-wrap: wrap; gap: var(--s2); margin: 0 0 var(--s4); padding: 0; list-style: none; }
+.pills li {
+  padding: 7px var(--s3); border: 1px solid var(--line); border-radius: 999px;
+  font: 700 var(--t-label)/1.4 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim);
+}
+.pills .on { border-color: var(--go); color: var(--go); }
+.rails {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s4);
+  margin: var(--s5) 0 0; padding: var(--s4) 0 0; border-top: 1px solid var(--line);
+}
+.rails p { margin: 0; }
+.rails .rail-label + span { display: block; color: var(--dim); font-size: 13px; margin-top: 2px; }
 .lede {
   margin: 0 0 var(--s5); max-width: 56ch;
   font-size: clamp(16px, 1.5vw, 19px); line-height: 1.55; color: var(--dim);
