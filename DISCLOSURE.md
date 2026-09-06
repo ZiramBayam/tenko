@@ -2,7 +2,7 @@
 
 Status: **lengkap per 6 Sep 2026** untuk isi `uv.lock` saat ini (32 paket di luar `tenko` sendiri).
 Diperbarui pada commit yang sama dengan setiap penambahan dependency, aset, dataset, atau sumber eksternal
-(`CLAUDE.md`, `docs/rules-compliance.md`).
+(`docs/rules-compliance.md`).
 
 Aturan tulis di berkas ini: **lebih baik menulis "belum" daripada menyiratkan "sudah".** Paket yang terkunci di
 `uv.lock` tetapi belum dipanggil satu baris kode pun tetap didaftarkan (ia ada di environment), dengan status apa
@@ -10,7 +10,7 @@ adanya. Aset yang baru direncanakan tidak ditulis seolah sudah disalin ke repo.
 
 ## AI tools
 - Claude Code (Anthropic) — pembuatan & refactor kode, dokumentasi, tes. Semua kode direview manusia sebelum commit.
-  Subagent & hook konfigurasi ada di `.claude/`.
+  Riwayat keputusan, temuan tinjauan yang mengubah kode, dan utang yang belum ditutup dicatat di `LOG.md`.
 
 ## Pre-existing materials
 - Tidak ada. Seluruh kode dibuat untuk hackathon ini.
@@ -44,9 +44,9 @@ tetap lengkap. Versi perkakas runtime tercatat di `docs/versions.md`.
 | httpx | 0.28.1 | BSD-3-Clause | klien HTTP ke tool RYO — dipakai di `core/ryo_client.py` |
 | pydantic | 2.13.5 | MIT | kontrak & validasi `SkillResult` — dipakai di `core/skill.py` |
 | pyyaml | 6.0.3 | MIT | baca `sources.yaml` — dipakai di `core/sources.py` |
-| anthropic | 1.2.0 | MIT | narasi kartu (di luar jalur keputusan, ADR-003) — **dipakai kode sejak TASKS 2.3**: hanya di `preflight/narrate.py`, satu panggilan `messages.create` per kartu, model `claude-opus-5`, setelah keputusan final; kredensial hanya dari env, tanpa kredensial tidak ada request sama sekali |
-| fastapi | 0.141.1 | MIT | route JSON + dua layar HTML — **dipakai kode sejak TASKS 3.1**: `ui/app.py` mendeklarasikan **delapan route `GET`** (`/`, `/api/health`, `/api/watchlist`, `/api/decisions`, `/api/decision/{id}`, `/api/preflight/{symbol}`, `/ui`, `/ui/decision/{id}`) ditambah satu aset `GET`/`HEAD` `/ui/tenko.css` yang dibangkitkan dari `ui/screens.py` — nol berkas statis, nol CDN, nol npm. **Layar A/B (TASKS 3.2) sekarang ADA** dan dirender di server tanpa satu pun `<script>` (`Content-Security-Policy: default-src 'none'; style-src 'self'`); baris ini menggantikan bunyi sebelumnya "enam route GET … Layar A/B belum ada" (6 Sep 2026). Hanya membaca store (`Store(..., read_only=True)`); tidak ada `httpx`/`anthropic` di `ui/`, `/api/health` melaporkan `calls_ryo_tools: false` dan `calls_llm: false`. Setiap respons — termasuk 400/404/405/422/500/503 — membawa `simulated: true` + banner SIMULATED |
-| uvicorn | 0.52.4 | BSD-3-Clause | server `make ui` — **dipakai sejak TASKS 3.1**, dijalankan dari `Makefile` (`uv run uvicorn ui.app:app --port $UI_PORT`), bukan diimpor kode; tanpa extra `[standard]` (`docs/versions.md`) |
+| anthropic | 1.2.0 | MIT | narasi kartu (di luar jalur keputusan, ADR-003) — **dipakai kode**: hanya di `preflight/narrate.py`, satu panggilan `messages.create` per kartu, model `claude-opus-5`, setelah keputusan final; kredensial hanya dari env, tanpa kredensial tidak ada request sama sekali |
+| fastapi | 0.141.1 | MIT | route JSON + dua layar HTML — **dipakai kode**: `ui/app.py` mendeklarasikan **delapan route `GET`** (`/`, `/api/health`, `/api/watchlist`, `/api/decisions`, `/api/decision/{id}`, `/api/preflight/{symbol}`, `/ui`, `/ui/decision/{id}`) ditambah satu aset `GET`/`HEAD` `/ui/tenko.css` yang dibangkitkan dari `ui/screens.py` — nol berkas statis, nol CDN, nol npm. **Layar A/B sekarang ADA** dan dirender di server tanpa satu pun `<script>` (`Content-Security-Policy: default-src 'none'; style-src 'self'`); baris ini menggantikan bunyi sebelumnya "enam route GET … Layar A/B belum ada" (6 Sep 2026). Hanya membaca store (`Store(..., read_only=True)`); tidak ada `httpx`/`anthropic` di `ui/`, `/api/health` melaporkan `calls_ryo_tools: false` dan `calls_llm: false`. Setiap respons — termasuk 400/404/405/422/500/503 — membawa `simulated: true` + banner SIMULATED |
+| uvicorn | 0.52.4 | BSD-3-Clause | server `make ui` — **dipakai**, dijalankan dari `Makefile` (`uv run uvicorn ui.app:app --port $UI_PORT`), bukan diimpor kode; tanpa extra `[standard]` (`docs/versions.md`) |
 | pytest | 9.1.1 | MIT | dev — menjalankan `make test` |
 | ruff | 0.16.5 | MIT | dev — lint & format (`make lint`) |
 
@@ -91,14 +91,14 @@ pernah terpicu. Paket tetap terpasang utuh dari PyPI melalui `uv.lock`.
 ## Aset frontend JS — direncanakan (ADR-014), BELUM di-vendor
 
 **Status jujur per 6 Sep 2026: direktori `ui/static/` tetap tidak ada di repo** (`ls ui/static` → tidak ditemukan;
-isi `ui/` hanya `__init__.py`, `app.py`, `screens.py`, `README.md`). Layar A/B **sudah mendarat** (TASKS 3.2) — dan
+isi `ui/` hanya `__init__.py`, `app.py`, `screens.py`, `README.md`). Layar A/B **sudah mendarat** — dan
 mendarat **tanpa** satu pun library JS: nol `<script>`, satu-satunya aset adalah `/ui/tenko.css` yang dibangkitkan
 dari `ui/screens.py`, dan satu-satunya ikon adalah SVG tertanam di HTML. Tidak satu pun berkas three/GSAP/Lenis pernah
 disalin ke repo ini.
 
 Rencananya (ADR-014): saat layar dibangun, ketiga library **di-vendor lokal** ke `ui/static/vendor/<paket>/`, tanpa
 build step, tanpa npm, tanpa CDN saat runtime (ADR-001; `make demo` wajib jalan offline dari fixture dan chaos test
-mematikan host). Versi, lisensi, format berkas, dan hash sudah diverifikasi api-verifier dan tercatat di
+mematikan host). Versi, lisensi, format berkas, dan hash sudah diverifikasi terhadap sumber primer dan tercatat di
 `docs/versions.md` §"Aset frontend JS"; pin-nya sendiri masih menunggu pemakaian nyata. **Layar yang benar-benar
 dikirim tidak memakai satu pun dari ketiganya**, jadi rencana ini tetap rencana; bila suatu saat dipakai, berkas ini
 berubah pada commit yang sama.

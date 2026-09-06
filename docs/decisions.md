@@ -282,3 +282,57 @@ kartu yang jujur berkata "tidak tahu" daripada demo yang berhenti 60 detik atau 
 DITOLAK manusia, yang dikembalikan bukan hanya `--client live` melainkan juga: satu resolusi path kunci
 yang dibagikan agen+perekam, log path kunci di kedua proses, dan `reason` yang membedakan "dipegang
 perekam" dari "kunci tidak bisa dibuka" (AC 2.0b lama (5)(6)).
+
+## ADR-019 (DITERIMA 6 Sep 2026) Narasi kartu pindah ke Google Gemini, dan berhenti mengirim nilai RYO
+Konteks: narasi kartu memakai satu LLM **di luar jalur keputusan** (ADR-003) — satu panggilan per kartu,
+sesudah keputusan final, menempel di `summary.narration` bukan `data`. Tanpa kredensial hasilnya
+`narration_unavailable` dan `decision_hash` tidak bergeser; `docs/spec.md` §7 langkah 4 memperagakan itu.
+Basis `approved` di `sources.yaml` adalah "your own AI model" (landing penyelenggara) — **netral-vendor**,
+jadi yang belum pernah dinilai bukan pilihan vendor melainkan **ketentuan penggunaan data**.
+
+Pemilik repo tidak memiliki kredensial Anthropic yang hidup (6 Sep 2026). Tanpa LLM apa pun, paruh pertama
+§7 langkah 4 ("kartu menampilkan panggilan per item") tidak bisa diperagakan sama sekali.
+
+Fakta terverifikasi dari sumber primer (6 Sep 2026, tercatat `docs/api-facts.md` §B2 dan `docs/versions.md`):
+* Paket yang benar **`google-genai` 2.22.0** (Apache-2.0). `google-generativeai` **DEPRECATED, EOL 30 Nov 2025** —
+  paket yang paling mungkin ditebak, dan salah.
+* Kredensial dibaca dari **dua** nama environment yang berbeda (tercatat di `docs/api-facts.md` §B2.2);
+  memeriksa satu saja akan tidak sinkron dengan SDK.
+* **Tidak ada padanan** `EFFORT`/`output_config` milik Anthropic. Yang ada `thinking_level`/`thinking_budget`
+  dengan semantik berbeda. Jangan cari yang mirip.
+* Keluaran JSON terstruktur didukung (`response_mime_type` + `response_schema`).
+* Ketentuan tier gratis, kutipan apa adanya: *"Google uses the content you submit … to provide, improve, and
+  develop Google products and services and machine learning technologies"* · *"human reviewers may read,
+  annotate, and process your API input and output"* · *"**Do not submit sensitive, confidential, or personal
+  information to the Unpaid Services.**"* Tabel harga: `Used to improve our products | Yes (Free) | No (Paid)`.
+
+Keputusan:
+1. Penyedia narasi pindah dari `anthropic` ke `google-genai`. `sources.yaml` `provider` diubah, dan `approved`
+   turun ke `null` sampai perpindahannya mendarat lengkap — stempel approval lama tidak boleh dipakai untuk
+   sesuatu yang belum dinilai (ADR-005).
+2. **`evidence_payload` berhenti mengirim `item.value` DAN `item.reason`.** Yang dikirim hanya `item_id`,
+   `status`, dan nama `source.tool`/`source.field`. Alasannya: keduanya memuat nilai keluaran tool RYO
+   (`verdict`, persentil, `regime`, `crowding_state`; `reason` menginterpolasinya, mis. `rsi_14=70.4`), dan
+   `docs/rules-compliance.md` membatasi data itu untuk submission. Google menyuruh eksplisit jangan mengirim
+   informasi rahasia ke tier gratis, dan kita **tidak berada dalam posisi memutuskan kerahasiaan data
+   penyelenggara atas nama mereka**. Membuang keduanya membuat pertanyaan itu tidak perlu dijawab —
+   dan berlaku terlepas dari penyedia mana pun, sekarang atau nanti.
+3. Nama model dan nama penyedia **DILARANG** masuk `Params` atau `decision_hash`. `params_hash` tetap
+   `3d39fb1b…` (beku, TASKS 5.0).
+4. Bila Interactions API dipakai: `store=false` eksplisit (bawaan `store=true`; retensi tier gratis 1 hari).
+5. Fallback tidak berubah: tanpa kredensial → `narration_unavailable`, kartu tetap lengkap, hash tetap.
+
+Konsekuensi, dan yang dikembalikan bila kelak DITOLAK: `sources.yaml` (`provider`, `approved`) ·
+`preflight/narrate.py` (`MODEL`, nama env kredensial, sembilan kelas error SDK, `evidence_payload`) ·
+`pyproject.toml` + `uv.lock` (pohon transitif berubah total — `docstring-parser`/`jiter` masuk karena
+`anthropic`; `certifi` MPL-2.0 dan `cryptography` Apache-2.0-OR-BSD-3-Clause masuk karena `google-genai`) ·
+`DISCLOSURE.md` (15 baris dependensi baru) · `docs/versions.md` · `tests/test_narrate.py` (termasuk penjaga
+mekanis ADR-003 yang mencari nama paket).
+
+Risiko yang diterima sadar: dengan muatan tipis, **narasi mungkin tidak menambah apa pun** di atas yang sudah
+tertulis di kartu. Bila pengukuran menunjukkan begitu, jawaban yang jujur adalah mematikan narasi dan
+menyatakannya — bukan menyalakannya demi kotak centang. Batas waktu percobaan: **7 Sep 12:00 JST**; lewat itu
+kembalikan ke narasi mati dan kirim.
+
+BELUM DIJAWAB penyelenggara (§E): apakah keluaran tool RYO boleh dikirim ke LLM pihak ketiga yang memakai data
+untuk pelatihan. Keputusan ini sengaja dibuat agar **tidak bergantung** pada jawaban itu.

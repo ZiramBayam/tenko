@@ -23,7 +23,7 @@ Aturan: pin persis. Jangan upgrade/downgrade tanpa ADR. "BELUM DIVERIFIKASI" →
 | pyyaml | **6.0.3** | MIT (`License :: OSI Approved :: MIT License`), `requires_python >=3.8`, classifier 3.12 ✓, rilis 2025-09-25, TIDAK yanked (73 file, termasuk wheel `cp312` manylinux/macos), TANPA requires-dist. Sama dengan pyproject.toml + uv.lock (`specifier ==6.0.3`) dan yang terpasang di `.venv` (`yaml.__version__ == '6.0.3'`). Dipakai di jalur produksi sejak TASKS 1.3: `core/sources.py` (`yaml.safe_load` untuk `sources.yaml`). Diverifikasi https://pypi.org/pypi/pyyaml/json + https://pypi.org/pypi/pyyaml/6.0.3/json, 1 Sep 2026. Baris DISCLOSURE.md sudah ada (pyyaml 6.0.3 MIT) — tidak perlu baris baru |
 | numpy | BELUM DIVERIFIKASI | hanya bila validate/CI butuh; Wilson CI bisa tanpa numpy — pertimbangkan tidak memakai |
 | mcp (python SDK) | BELUM DIVERIFIKASI | hanya bila transport MCP wajib; REST sudah cukup (api-facts §A) → tidak dipakai |
-| anthropic | **1.2.0** | MIT, py>=3.10; diverifikasi pypi.org 1 Sep 2026. Hanya untuk narasi kartu (ADR-003/011), tidak pernah menyentuh keputusan. DIPAKAI KODE sejak TASKS 2.3 (`preflight/narrate.py`) — bentuk request diverifikasi 4 Sep 2026, lihat "Bentuk request narasi" di bawah. Transitifnya di `uv.lock`: anyio, docstring-parser, **httpx2 2.12.0**, jiter, pydantic, sniffio, typing-extensions — semuanya sudah ada di DISCLOSURE.md; pemakaian `httpx2` di `tests/test_narrate.py` TIDAK menambah dependency baru |
+| anthropic | **1.2.0** | **MASIH INI yang dipakai kode** (rencana pindah ke Google Gemini: lihat bagian "LLM narasi — kandidat pindah ke Google Gemini" di bawah; belum dipin, belum ber-ADR). MIT, py>=3.10; diverifikasi pypi.org 1 Sep 2026. Hanya untuk narasi kartu (ADR-003/011), tidak pernah menyentuh keputusan. DIPAKAI KODE sejak TASKS 2.3 (`preflight/narrate.py`) — bentuk request diverifikasi 4 Sep 2026, lihat "Bentuk request narasi" di bawah. Transitifnya di `uv.lock`: anyio, docstring-parser, **httpx2 2.12.0**, jiter, pydantic, sniffio, typing-extensions — semuanya sudah ada di DISCLOSURE.md; pemakaian `httpx2` di `tests/test_narrate.py` TIDAK menambah dependency baru |
 
 ### Catatan verifikasi fastapi/uvicorn (api-verifier, 1 Sep 2026)
 - **TestClient tidak butuh paket tambahan yang dipin.** `fastapi.testclient.TestClient` = re-export `starlette.testclient.TestClient`; starlette 1.6.0 mencoba `import httpx2`, jatuh ke `httpx`, dan `RuntimeError` bila keduanya tidak ada. Di env proyek `httpx2==2.12.0` SUDAH ada sebagai transitif `anthropic==1.2.0` → TestClient memakai httpx2, nol warning. Dengan httpx 0.28.1 saja tetap jalan tapi memicu `StarletteDeprecationWarning` ("Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead"). Tidak ada `filterwarnings=error` di pyproject → tidak memblokir tes.
@@ -52,6 +52,67 @@ Semua di bawah dibaca dari SDK yang TERPASANG di `.venv` (bukan ingatan) + dokum
 
 Kesimpulan: tidak perlu panggilan API untuk memastikan bentuk `output_config.format` — tipe SDK terpasang + dokumen resmi sudah menjawabnya. Yang butuh koreksi kode adalah isi `schema`-nya.
 Tanpa: pandas, sklearn, plotting lib. Chart untuk UI: canvas/SVG inline, atau library JS yang **di-vendor lokal** (lihat "Aset frontend JS" di bawah) — CDN saat runtime sudah gugur karena `make demo` wajib offline; putuskan di 4.2 dengan ADR. Chart.js sendiri BELUM DIVERIFIKASI dan belum dipin.
+
+## LLM narasi — kandidat pindah ke Google Gemini (diverifikasi api-verifier 6 Sep 2026; **BELUM DIPIN, BELUM ber-ADR**)
+Pemilik repo memutuskan memindahkan narasi kartu dari Anthropic ke Google Gemini (free tier). api-verifier hanya memverifikasi
+fakta; **memakai paket/sumber baru tetap butuh ADR + manusia** (CLAUDE.md) dan `sources.yaml` masih `llm_narration.provider: anthropic`.
+Sampai keduanya berubah, baris `anthropic 1.2.0` di atas TETAP yang dipakai kode (`preflight/narrate.py`).
+Fakta lengkap + kutipan ketentuan data: **docs/api-facts.md §B2**.
+
+| Paket | Kandidat pin | Lisensi | Bukti (URL/perintah, 6 Sep 2026) |
+|---|---|---|---|
+| **google-genai** | **2.22.0** (rilis 2026-09-02T18:06:00Z, tidak yanked) | **Apache-2.0** (`info.license_expression`; dist-info terpasang `License-Expression: Apache-2.0`) | `curl -sS https://pypi.org/pypi/google-genai/json`; `requires_python >=3.10`, classifier `Python :: 3.12` ADA → cocok dengan pin Python 3.12 |
+| ~~google-generativeai~~ | **JANGAN** | Apache 2.0 | DEPRECATED oleh Google sendiri; README paket: *"[Deprecated] Google AI Python SDK"*, *"this repository is now considered legacy"*, *"All support for this repository ended permanently on November 30, 2025"* — `curl -sS https://pypi.org/pypi/google-generativeai/json` → `info.description` |
+| ~~google-ai-generativelanguage~~ | bukan pilihan | Apache-2.0 | client GAPIC lapis bawah (dependency SDK lama, `==0.6.15`), bukan SDK aplikasi — `curl -sS https://pypi.org/pypi/google-ai-generativelanguage/json` |
+
+**Paket baru yang masuk env bila pindah** (butuh baris DISCLOSURE.md pada commit yang sama; versi & lisensi dibaca dari
+`importlib.metadata` di venv bersih Python 3.12.3 hasil `uv pip install google-genai==2.22.0`, 6 Sep 2026):
+`google-genai` 2.22.0 Apache-2.0 · google-auth 2.57.1 Apache-2.0 · requests 2.34.2 Apache-2.0 · tenacity 9.1.4 Apache-2.0 ·
+websockets 16.1.1 BSD-3-Clause · distro 1.9.0 Apache-2.0 · cryptography 50.0.1 (Apache-2.0 OR BSD-3-Clause) · certifi 2026.7.22 **MPL-2.0** ·
+urllib3 2.7.0 MIT · idna 3.19 BSD-3-Clause · charset-normalizer 3.5.1 MIT · pyasn1 0.6.4 BSD-2-Clause · pyasn1_modules 0.4.2 BSD ·
+cffi 2.1.1 MIT-0 · pycparser 3.0 BSD-3-Clause.
+Yang **tidak** menambah baris karena sudah ada di proyek: httpx 0.28.1, pydantic 2.13.5 (+ pydantic_core, annotated-types,
+typing-inspection, typing_extensions, anyio, sniffio, h11, httpcore) — resolusi google-genai menarik versi yang **sama persis**
+dengan pin proyek. Perhatikan `certifi` **MPL-2.0** (lisensi copyleft-berkas, berbeda dari MIT/BSD/Apache lain di daftar) —
+pitch-writer perlu menulisnya apa adanya, bukan digeneralisasi jadi "MIT".
+
+**Perbandingan jejak dependency:** `anthropic 1.2.0` menarik 7 transitif (anyio, docstring-parser, httpx2, jiter, pydantic, sniffio,
+typing-extensions); `google-genai 2.22.0` menarik **24**, di antaranya `cryptography` + `cffi` (ekstensi native) dan `requests`
++ `websockets`. Ini fakta netral, tetapi relevan untuk `make doctor`/offline: instalasi lebih berat dan `cryptography` butuh wheel.
+
+**Bentuk request (bila jadi pindah) — DIVERIFIKASI dari SDK terpasang, bukan ingatan.** Ringkas; detail + kutipan di api-facts §B2.3–B2.4:
+- Dua bentuk sah: `client.models.generate_content(model=..., contents=..., config=...)` (dokumentasi resmi: *"generateContent remains
+  fully supported"*, tetapi *"now considered legacy"*) dan `client.interactions.create(model=..., input=..., ...)` (GA sejak Juni 2026,
+  *"recommended for all new projects"*).
+- **Tidak ada `output_config`, tidak ada `effort`.** Padanan terdekat = `thinking_level` (`minimal|low|medium|high`, dukungan
+  **berbeda per model**) atau `thinking_config.thinking_budget` (token; `0` DISABLED, `-1` AUTOMATIC).
+- Batas token keluaran: `max_output_tokens`. Timeout: `http_options.timeout` dalam **milidetik** (generateContent) /
+  kwarg `timeout` bertipe `float|httpx.Timeout` (Interactions; **satuan BELUM DIVERIFIKASI**).
+- Retry: **default tidak ada retry** (`stop_after_attempt(1)`) — cocok dengan kebijakan `narrate.py` saat ini.
+- JSON terstruktur: BISA — `response_mime_type="application/json"` + `response_schema`/`response_json_schema`, atau
+  `response_format={"type":"text","mime_type":"application/json","schema":{...}}`. Daftar keyword JSON Schema yang didukung
+  **berbeda** dari Anthropic (`minItems`/`maxItems`/`minimum`/`maximum` justru DIDUKUNG di Gemini) → skema di `narrate.py`
+  wajib ditinjau ulang, bukan disalin.
+- Kredensial: SDK membaca sendiri variabel environment (dua nama, dengan prioritas) — nama persisnya di api-facts §B2.2.
+- Kelas error: `google.genai.errors.{APIError, ClientError, ServerError, ...}`; **tidak ada kelas timeout SDK** — timeout/koneksi
+  keluar sebagai exception `httpx` → sembilan `except anthropic.*` di `narrate.py` tidak punya padanan satu-lawan-satu.
+
+**Model:** id yang free tier (jalur Standard) per halaman pricing 4 Sep 2026 antara lain `gemini-2.5-flash-lite`, `gemini-2.5-flash`,
+`gemini-3.5-flash-lite`, `gemini-3.8-flash` (daftar lengkap + yang `Not available` di api-facts §B2.5). **Belum ada yang dipin** —
+pemilihan model adalah keputusan ADR. Catatan yang harus dibaca dulu: `gemini-3.5-flash-lite` ada di dokumentasi tetapi **tidak ada**
+di `Literal` model SDK 2.22.0.
+
+**Batas free tier: angka RPM/TPM/RPD BELUM DIVERIFIKASI** — halaman rate-limits 2 Sep 2026 tidak lagi menerbitkan tabel angka dan
+mengarahkan ke AI Studio (butuh sign-in). Yang terverifikasi hanya dimensinya dan "RPD reset tengah malam Pacific, per project,
+bukan per key". Jangan menulis angka tebakan di kode.
+
+**Ketentuan data free tier (ringkas; kutipan verbatim ada di api-facts §B2.7 — INI yang harus diputuskan manusia lebih dulu):**
+Terms Gemini API menyatakan untuk Unpaid Services Google memakai konten yang dikirim dan respons untuk mengembangkan produk &
+teknologi machine learning, *"human reviewers may read, annotate, and process your API input and output"*, dan
+*"Do not submit sensitive, confidential, or personal information to the Unpaid Services"*; untuk Paid Services justru
+*"Google doesn't use your prompts ... or responses to improve our products"*. Halaman pricing mengulangnya sebagai baris tabel
+`Used to improve our products | Yes (Free) | No (Paid)` di semua blok model. Prompt narasi kita memuat nilai keluaran tool RYO.
+api-verifier tidak menyimpulkan aman/tidak aman; keputusannya milik pemilik repo.
 
 ## Aset frontend JS (di-vendor lokal, TANPA CDN, TANPA npm) — diverifikasi api-verifier 1 Sep 2026
 Konteks: gaya awwwards (3D + GSAP + smooth scroll) untuk semua layar Fase 3.2. Runtime TIDAK boleh menyentuh CDN

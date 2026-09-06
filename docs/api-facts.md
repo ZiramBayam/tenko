@@ -841,6 +841,212 @@ satu-satunya alarmnya.)
 ## B–D. Sumber eksternal — TIDAK DIPAKAI (ADR-012/013)
 Jalur nyata hanya memakai tool RYO (§A) + satu LLM untuk narasi (SDK/model dipin di docs/versions.md saat TASKS 2.3). Sumber lain
 (Helius, Jupiter, DexScreener, GeckoTerminal) dihapus dari desain; bila suatu saat dibutuhkan, verifikasi dulu di sini.
+**LLM narasi:** provider yang disetujui `sources.yaml` masih `anthropic` (SDK/model dipin di docs/versions.md). Fakta terverifikasi
+untuk kandidat pengganti Google Gemini ada di **§B2** di bawah — fakta saja, belum dipakai kode, belum ber-ADR.
+
+## B2. Narasi kartu — Google Gemini (verifikasi sumber primer 6 Sep 2026) — FAKTA SAJA, BELUM DIPAKAI KODE, BELUM ber-ADR
+**Status kepatuhan hari ini:** `sources.yaml` → `llm_narration.provider: anthropic`, dan `preflight/narrate.py` masih `import anthropic`.
+Selama `sources.yaml` belum diubah lewat instruksi ke manusia/core-engineer + ADR, memanggil Gemini di **jalur nyata** = temuan
+**PELANGGARAN-ATURAN** (CLAUDE.md: sumber eksternal hanya yang `enabled: true` DAN `approved: true`). Bagian ini hanya mencatat fakta
+yang sudah diverifikasi supaya perpindahan itu bisa diputuskan tanpa menebak. Tidak ada baris di sini yang menyetujui sumbernya.
+
+### B2.1 Paket PyPI — yang benar SEKARANG vs yang DEPRECATED
+| Fakta | Sumber (URL/perintah) | Tanggal | Status |
+|---|---|---|---|
+| Paket yang direkomendasikan Google: **`google-genai`** ("Google Gen AI Python SDK"), versi terbaru **2.22.0**, rilis `2026-09-02T18:06:00Z`, **tidak yanked** | `curl -sS https://pypi.org/pypi/google-genai/json` → `info.version`, `releases["2.22.0"][0].upload_time_iso_8601`, `.yanked` | 6 Sep 2026 | DIVERIFIKASI |
+| Lisensi `google-genai` = **Apache-2.0** (`info.license_expression`; dist-info terpasang `License-Expression: Apache-2.0`), `requires_python` `>=3.10`, classifier `Programming Language :: Python :: 3.12` ADA → cocok dengan pin Python 3.12 proyek ini | pypi JSON yang sama + instalasi nyata di venv `Python 3.12.3` | 6 Sep 2026 | DIVERIFIKASI |
+| Dependency **inti** (bukan extra): `anyio<5,>=4.8`, `google-auth[requests]<3,>=2.56`, **`httpx<1,>=0.28.1`**, **`pydantic<3,>=2.12.5`**, `requests<3,>=2.28.1`, `tenacity<9.2,>=8.2.3`, `websockets<17,>=13`, `typing-extensions<5,>=4.14`, `distro<2,>=1.7`, `sniffio` | pypi JSON `info.requires_dist` | 6 Sep 2026 | DIVERIFIKASI |
+| Jejak transitif nyata di venv bersih 3.12 (24 dist di luar `google-genai`): annotated-types 0.8.0 MIT · anyio 4.15.1 MIT · certifi 2026.7.22 MPL-2.0 · cffi 2.1.1 MIT-0 · charset-normalizer 3.5.1 MIT · **cryptography 50.0.1 Apache-2.0 OR BSD-3-Clause** · distro 1.9.0 Apache-2.0 · google-auth 2.57.1 Apache-2.0 · h11 0.16.0 MIT · httpcore 1.0.9 BSD-3-Clause · **httpx 0.28.1** BSD-3-Clause · idna 3.19 BSD-3-Clause · pyasn1 0.6.4 BSD-2-Clause · pyasn1_modules 0.4.2 BSD · pycparser 3.0 BSD-3-Clause · **pydantic 2.13.5** MIT · pydantic_core 2.46.5 MIT · requests 2.34.2 Apache-2.0 · sniffio 1.3.1 MIT OR Apache-2.0 · tenacity 9.1.4 Apache-2.0 · typing-inspection 0.4.4 MIT · typing_extensions 4.16.0 PSF-2.0 · urllib3 2.7.0 MIT · websockets 16.1.1 BSD-3-Clause | `uv pip install --python <venv> google-genai==2.22.0`, lalu `importlib.metadata.distributions()` mencetak Name/version/`License-Expression`\|`License` | 6 Sep 2026 | DIVERIFIKASI |
+| `httpx 0.28.1` dan `pydantic 2.13.5` yang ditarik **identik dengan pin proyek** → dua baris DISCLOSURE.md itu tidak berubah; yang benar-benar baru bagi repo ini ada **14** paket (google-auth, requests, tenacity, websockets, distro, cryptography, certifi, urllib3, idna, charset-normalizer, pyasn1, pyasn1_modules, cffi, pycparser) + `google-genai` sendiri | perintah yang sama | 6 Sep 2026 | DIVERIFIKASI |
+| **`google-generativeai` (0.8.6) DEPRECATED.** Deskripsi paketnya di PyPI (README Google sendiri) diawali `# [Deprecated] Google AI Python SDK for the Gemini API` dan menulis verbatim: *"Please be advised that this repository is now considered legacy. For the latest features, performance improvements, and active development, we strongly recommend migrating to the official Google Generative AI SDK for Python (https://github.com/googleapis/python-genai)"*; *"Limited Maintenance: Development is now restricted to critical bug fixes only. No new features will be added."*; *"End-of-Life Date: All support for this repository ended permanently on November 30, 2025."* | `curl -sS https://pypi.org/pypi/google-generativeai/json` → `info.description` | 6 Sep 2026 | DIVERIFIKASI — **JANGAN DIPAKAI** |
+| `google-ai-generativelanguage` (0.12.0, Apache-2.0) = **client GAPIC lapis bawah** (`google-cloud-python/packages/google-ai-generativelanguage`), dependency SDK lama (`google-generativeai` memin `==0.6.15`), bukan SDK aplikasi yang direkomendasikan | `curl -sS https://pypi.org/pypi/google-ai-generativelanguage/json` (`info.summary`, `info.project_urls`) + `requires_dist` paket lama | 6 Sep 2026 | DIVERIFIKASI — bukan pilihan |
+
+### B2.2 Kredensial — nama variabel environment yang dibaca SDK
+- SDK membaca **`GOOGLE_API_KEY`** lebih dulu, lalu **`GEMINI_API_KEY`**; bila keduanya ada → `GOOGLE_API_KEY` menang + warning.
+  Kode terpasang (`google/genai/_api_client.py:127-142`): `def get_env_api_key()` dengan docstring verbatim
+  *"Gets the API key from environment variables, prioritizing GOOGLE_API_KEY."*, dua pembacaan `os.environ.get(...)`, dan
+  `logger.warning('Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.')`.
+  README paket (PyPI `info.description`) verbatim: *"Gemini Developer API: Set the `GEMINI_API_KEY` or `GOOGLE_API_KEY`. It will automatically be picked up by the client. It's recommended that you set only one of those variables, but if both are set, `GOOGLE_API_KEY` takes precedence."*
+  Perintah: `grep -n "environ" <venv>/lib/python3.12/site-packages/google/genai/_api_client.py`. **DIVERIFIKASI 6 Sep 2026.**
+- Konsekuensi untuk `preflight/narrate.py`: `ENV_CREDENTIAL` harus salah satu dari **dua** nama itu (pilih satu, tulis alasannya);
+  memeriksa keberadaan satu nama saja sementara SDK juga membaca yang lain membuat cek pra-panggilan tidak sinkron dengan SDK.
+- Host & header REST (dari contoh resmi dokumentasi): `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent`
+  dan `https://generativelanguage.googleapis.com/v1beta/interactions`, header `x-goog-api-key: <kredensial>`
+  (https://ai.google.dev/gemini-api/docs/migrate-to-interactions dan .../structured-output, diambil 6 Sep 2026). **DIVERIFIKASI.**
+
+### B2.3 Bentuk panggilan — padanan `messages.create`
+Dua bentuk hidup berdampingan; keduanya dinyatakan dokumentasi resmi.
+https://ai.google.dev/gemini-api/docs/interactions-overview (*Last updated 2026-09-04 UTC*, diambil 6 Sep 2026), verbatim:
+> "The Interactions API is the best way to build with Gemini models and agents. As of June 2026, it is Generally Available and recommended for all new projects. While it is now considered legacy, the original generateContent API remains fully supported."
+
+https://ai.google.dev/gemini-api/docs/migrate-to-interactions (*Last updated 2026-09-04 UTC*), verbatim:
+> "This guide helps you migrate from the generateContent API to the Interactions API. … While generateContent remains fully supported, we recommend the Interactions API for all new development."
+
+| Kebutuhan `narrate.py` sekarang | `client.models.generate_content` (legacy, fully supported) | `client.interactions.create` (GA, direkomendasikan) |
+|---|---|---|
+| metode | `Models.generate_content(*, model: str, contents, config: GenerateContentConfig \| dict \| None = None)` | `create(*, request=None, api_version=None, extra_headers=None, extra_query=None, extra_body=None, timeout: Optional[Union[float, httpx.Timeout]] = None, **body)` |
+| batas token keluaran | `config.max_output_tokens: Optional[int]` — deskripsi field verbatim *"Maximum number of tokens that can be generated in the response."* | `generation_config.max_output_tokens: Optional[int]` |
+| system prompt | `config.system_instruction` | `system_instruction: NotRequired[str]` |
+| timeout | `config.http_options.timeout: Optional[int]` — deskripsi field verbatim *"Timeout for the request in milliseconds."* (**milidetik**) | kwarg `timeout` bertipe `float \| httpx.Timeout` — satuan **tidak** ditulis di SDK (lihat B2.8) |
+| retry | **default: TIDAK ADA retry.** `_api_client.py:560-571` `retry_args(options)` → `if options is None: return {'stop': tenacity.stop_after_attempt(1), 'reraise': True}`; retry hanya menyala bila `HttpOptions.retry_options` diisi (`attempts`, `initial_delay`, `max_delay`, `exp_base`, `jitter`, `http_status_codes`) | klien yang sama → perilaku sama |
+| ambil teks hasil | `GenerateContentResponse.text` (properti ADA) | `Interaction.output_text` (ADA di `model_fields`) |
+
+Perintah reproduksi (venv bersih, `google-genai==2.22.0`, Python 3.12.3):
+`python -c "import inspect; from google.genai.models import Models; print(inspect.signature(Models.generate_content))"` ·
+`python -c "from google.genai import types; print(list(types.GenerateContentConfig.model_fields))"` ·
+`python -c "from google.genai._gaos.google_genai import GeminiNextGenInteractions as G; import inspect; print(inspect.signature(G.create))"` ·
+`python -c "from google.genai._gaos.types.interactions import createmodelinteraction as C; print(list(C.CreateModelInteraction.model_fields)); print(list(C.GenerationConfig.model_fields))"`.
+Kunci body `interactions.create` (dari `CreateModelInteractionParamsNonStreaming`): `input`, `model`, `background`, `environment`,
+`generation_config`, `labels`, `previous_interaction_id`, `response_format`, `response_mime_type`, `response_modalities`,
+`safety_settings`, `service_tier`, `store`, `stream`, `system_instruction`, `tools`, `webhook_config`. **DIVERIFIKASI 6 Sep 2026.**
+
+**Padanan `EFFORT` / `output_config`: TIDAK ADA.** Tidak ada parameter bernama `effort`, dan tidak ada objek `output_config`,
+di SDK ini — `GenerateContentConfig` punya 36 field dan `GenerationConfig` (Interactions) punya 10 field; nol kecocokan pada keduanya
+(daftar lengkap lewat perintah di atas). Yang ADA dan hanya inilah kendali "seberapa banyak model berpikir":
+- `GenerationConfig.thinking_level: Literal['minimal','low','medium','high']` (Interactions) ·
+  `GenerateContentConfig.thinking_config` = `ThinkingConfig{include_thoughts, thinking_budget, thinking_level}` (generateContent);
+  deskripsi field `thinking_budget` verbatim: *"Indicates the thinking budget in tokens. 0 is DISABLED. -1 is AUTOMATIC. The default values and allowed ranges are model dependent."*;
+  `types.ThinkingLevel` = `THINKING_LEVEL_UNSPECIFIED | MINIMAL | LOW | MEDIUM | HIGH`.
+- https://ai.google.dev/gemini-api/docs/thinking (*Last updated 2026-09-04 UTC*, diambil 6 Sep 2026), verbatim:
+  *"Gemini models engage in dynamic thinking by default, automatically adjusting the amount of reasoning effort based on the complexity of the request. You can control this behavior using the thinking_level parameter."*
+  Tabel "Controlling thinking" apa adanya (model · Default Thinking · Levels Supported):
+  `gemini-3.8-flash` On (medium) · low, medium, high — `gemini-3.7-flash` On (medium) · low, medium, high —
+  `gemini-3.6-flash` On (medium) · minimal, low, medium, high — `gemini-3.5-flash-lite` On (minimal) · minimal, low, medium, high —
+  `gemini-3.1-pro-preview` On (high) · low, medium, high — `gemini-3.1-flash-lite-image` On (minimal) · minimal, high —
+  `gemini-3-flash-preview` On (high) · minimal, low, medium, high — `gemini-3-pro-preview` On (high) · low, high —
+  `gemini-3.5-flash` On (medium) · minimal, low, medium, high — `gemini-2.5-pro` On · low, medium, high —
+  `gemini-2.5-flash` On · low, medium, high — **`gemini-2.5-flash-lite` Off · low, medium, high**.
+  Catatan yang mudah salah: **`low` bukan level terendah di semua model** (`minimal` ada di sebagian, tidak ada di `3.8/3.7/2.5-*`),
+  dan pada `gemini-2.5-flash-lite` thinking **default Off**. Menyalin `EFFORT = "low"` apa adanya sah secara ejaan, tetapi
+  ini parameter lain dengan semantik lain — jangan ditulis di kode sebagai "sama seperti sebelumnya".
+
+**Kelas error.** `google.genai.errors` hanya berisi `APIError` (basis), `ClientError`, `ServerError`, `UnknownApiResponseError`,
+`UnknownFunctionCallArgumentError`, `FunctionInvocationError`, `UnsupportedFunctionError`, `ExperimentalWarning`.
+**Tidak ada kelas timeout/koneksi milik SDK**: timeout & connect error keluar sebagai exception httpx —
+`_HTTPX_TRANSIENT_EXC = (httpx.TimeoutException, httpx.ConnectError)`, ditambah padanan `httpx2` bila paket itu terpasang
+(`_api_client.py:101-120`); di repo ini `httpx2 2.12.0` MEMANG terpasang sebagai transitif `anthropic`.
+Konsekuensi untuk `preflight/narrate.py`: sembilan `except anthropic.*` yang ada sekarang **tidak punya padanan satu-lawan-satu**;
+yang tersedia hanya `errors.ClientError`/`errors.ServerError` (membawa `.code`) + exception httpx.
+Perintah: `python -c "from google.genai import errors; print([n for n in dir(errors) if isinstance(getattr(errors,n),type)])"`. **DIVERIFIKASI 6 Sep 2026.**
+
+### B2.4 Keluaran JSON terstruktur — BISA dipaksa
+- **Bisa.** Dua mekanisme, keduanya dari tipe SDK terpasang + dokumentasi resmi:
+  1. `generate_content`: `config.response_mime_type = "application/json"` + **`response_schema`** (subset OpenAPI 3.0) **atau**
+     **`response_json_schema`** (JSON Schema). Deskripsi field `response_json_schema` verbatim: *"Optional. Output schema of the
+     generated response. This is an alternative to `response_schema` that accepts JSON Schema. If set, `response_schema` must be
+     omitted, but `response_mime_type` is required. While the full JSON Schema may be sent, not all features are supported.
+     Specifically, only the following properties are supported: `$id`, `$defs`, `$ref`, `$anchor`, `type`, `format`, `title`,
+     `description`, `enum` (for strings and numbers), `items`, `prefixItems`, `minItems`, `maxItems`, `minimum`, `maximum`,
+     `anyOf`, `oneOf` (interpreted the same as `anyOf`), `properties`, `additionalProperties`, `required`. The non-standard
+     `propertyOrdering` property may also be set."*
+  2. `interactions.create`: `response_format = {"type": "text", "mime_type": "application/json", "schema": {...}}` — tipe SDK
+     `TextResponseFormat{type: Literal['text'], mime_type: Literal['application/json','text/plain'], schema}`; contoh resmi
+     (Python/JS/Java/REST) memakai bentuk itu persis di https://ai.google.dev/gemini-api/docs/structured-output
+     (*Last updated 2026-09-02 UTC*, diambil 6 Sep 2026).
+- **Beda penting dari skema Anthropic yang dipakai sekarang:** `minItems`/`maxItems`/`minimum`/`maximum` **DIDUKUNG** di sini
+  (pada Anthropic dilarang — lihat "Batas skema JSON" di docs/versions.md). `additionalProperties` termasuk yang didukung, tetapi
+  **tidak ada pernyataan resmi bahwa ia wajib `false`** seperti pada Anthropic → jangan mewarisi asumsi itu tanpa uji.
+- Batasan yang ditulis dokumen apa adanya: *"Schema subset: Not all JSON Schema features are supported."* ·
+  *"Schema complexity: Very large or deeply nested schemas may be rejected."* (tanpa angka) ·
+  *"Validation: While output is syntactically correct JSON, always validate values in your application."*
+
+### B2.5 Model yang sah & tersedia di free tier
+Sumber: https://ai.google.dev/gemini-api/docs/pricing (*Last updated 2026-09-04 UTC*, diambil 6 Sep 2026), kolom **Free Tier**
+pada baris *Input price* tiap blok model (jalur **Standard**).
+- **`Free of charge`** (ada di free tier), model teks: `gemini-3.8-flash` · `gemini-3.7-flash` · `gemini-3.6-flash` ·
+  `gemini-3.5-flash` · `gemini-3.5-flash-lite` · `gemini-3.1-flash-lite` · `gemini-3-flash-preview` · `gemini-2.5-pro` ·
+  `gemini-2.5-flash` · `gemini-2.5-flash-lite`.
+- **`Not available`** di free tier: `gemini-omni-1.1-flash` · `gemini-omni-flash-preview` · `gemini-3.1-flash-image` ·
+  `gemini-3.1-flash-lite-image` · `gemini-3-pro-image` · `gemini-2.5-flash-image` · `gemini-2.5-pro-preview-tts` ·
+  `gemini-2.5-computer-use-preview-10-2025`.
+- Jalur **Batch** dan **Flex** tercatat `Not available` di free tier untuk model teks di atas; yang gratis adalah **Standard**
+  (sebagian model juga mencatat `Free of charge` pada jalur **Priority**).
+- Id yang diterima `interactions.create` menurut **tipe SDK** (`CreateModelInteraction.model` = `Literal[...] | UnrecognizedStr`,
+  jadi string lain tidak ditolak di sisi klien): `gemini-2.5-flash`, `gemini-2.5-pro`, `gemma-4-26b-a4b-it`, `gemma-4-31b-it`,
+  `gemini-flash-latest`, `gemini-flash-lite-latest`, `gemini-pro-latest`, `gemini-2.5-flash-lite`, `gemini-2.5-flash-image`,
+  `gemini-3-flash-preview`, `gemini-3.1-pro-preview`, `gemini-3.1-pro-preview-customtools`, `gemini-3.1-flash-lite`,
+  `gemini-3-pro-image`, `nano-banana-pro-preview`, `gemini-3.1-flash-image`, `gemini-3.5-flash`, `gemini-3.6-flash`,
+  `gemini-3.7-flash`, `gemini-3.8-flash`, `lyria-3-clip-preview`, `lyria-3-pro-preview`, `gemini-robotics-er-1.6-preview`,
+  `gemini-robotics-er-2-preview`.
+- **Dua sumber primer tidak sepakat pada satu id:** `gemini-3.5-flash-lite` ADA di pricing, di halaman models, dan di tabel
+  "Supported models & agents" halaman Interactions — tetapi **TIDAK ADA** di `Literal` SDK 2.22.0. Pilih id yang muncul di
+  **kedua** tempat, atau buktikan dengan panggilan nyata. **Pemilihan model = keputusan ADR, bukan berkas ini.**
+
+### B2.6 Batas free tier — laju & kuota harian
+Sumber: https://ai.google.dev/gemini-api/docs/rate-limits (*Last updated 2026-09-02 UTC*, diambil 6 Sep 2026). Verbatim:
+> "Rate limits are usually measured across three dimensions: Requests per minute (RPM) · Tokens per minute (input) (TPM) · Requests per day (RPD)"
+> "Rate limits are applied per project, not per API key. Requests per day (RPD) quotas reset at midnight Pacific time."
+> "Rate limits are more restricted for experimental and preview models."
+> "Specified rate limits are not guaranteed and actual capacity may vary."
+Tabel tier: `Free | Active project or free trial | N/A` (kualifikasi, billing cap) dan spend-based limit `Free | N/A`.
+
+**ANGKA RPM/TPM/RPD FREE TIER: BELUM DIVERIFIKASI.** Halaman rate-limits versi 2 Sep 2026 **tidak lagi memuat tabel angka per model**;
+ia mengarahkan ke AI Studio: *"View your active rate limits in AI Studio"* dan *"Each model variation has an associated rate limit
+(requests per minute, RPM). For details on those rate limits, see the AI Studio Rate Limit page."*
+Yang sudah dicoba (6 Sep 2026): seluruh teks halaman rate-limits (`RPD` hanya 2×, keduanya penjelasan dimensi; nol angka free tier),
+halaman pricing (`RPD` 43×, **semuanya** kuota *Grounding with Google Search/Maps*, bukan kuota panggilan), halaman models (0×).
+AI Studio butuh sign-in → tidak bisa dibaca agen. **Jangan menulis angka free tier di kode/komentar/dokumen sampai manusia
+menempelkannya dari AI Studio**, dan jangan menyamakannya dengan "60/menit" milik RYO (§A) — itu kuota yang sama sekali lain.
+
+### B2.7 KETENTUAN DATA FREE TIER — kutipan apa adanya (INI pertanyaan kepatuhannya)
+Sumber: https://ai.google.dev/gemini-api/terms — "Gemini API Additional Terms of Service", halaman mencetak *Last updated 2026-04-28 UTC*.
+Diambil **6 Sep 2026**. Semua di bawah verbatim.
+> "Any Services that are offered free of charge like direct interactions with Google AI Studio or unpaid quota in Gemini API are unpaid Services (the "Unpaid Services")."
+
+**How Google Uses Your Data — Unpaid Services:**
+> "When you use Unpaid Services, including, for example, Google AI Studio and the unpaid quota on Gemini API, Google uses the content you submit to the Services and any generated responses to provide, improve, and develop Google products and services and machine learning technologies, including Google's enterprise features, products, and services, consistent with our Privacy Policy."
+> "To help with quality and improve our products, human reviewers may read, annotate, and process your API input and output. Google takes steps to protect your privacy as part of this process. This includes disconnecting this data from your Google Account, API key, and Cloud project before reviewers see or annotate it. Do not submit sensitive, confidential, or personal information to the Unpaid Services."
+> "The license you grant to Google under the "Submission of Content" section in the API Terms also extends, to the extent required under applicable law for our use, to any content (e.g., prompts, including associated system instructions, cached content, and files such as images, videos, or documents) you submit to the Services and to any generated responses."
+> "If you're in the European Economic Area, Switzerland, or the United Kingdom, the terms under "How Google uses Your Data" in "Paid Services" apply to all Services, including Google AI Studio and unpaid quota in the Gemini API, even though they are offered free of charge."
+
+**How Google Uses Your Data — Paid Services** (inilah bedanya):
+> "When you use Paid Services, including, for example, the paid quota of the Gemini API, Google doesn't use your prompts (including associated system instructions, cached content, and files such as images, videos, or documents) or responses to improve our products, and will process your prompts and responses in accordance with the Data Processing Addendum for Products Where Google is a Data Processor."
+> "For Paid Services, Google logs prompts and responses for a limited period of time, solely for detecting and preventing violations of the Prohibited Use Policy to maintain the safety and security of the Services, and any required legal or regulatory disclosures."
+> "Your access to Gemini API is a "Paid Service" only when accessing the API through a Cloud Project associated with an active billing account."
+
+Halaman pricing menyatakan hal yang sama sebagai satu baris tabel yang **berulang di setiap blok model** (kolom Free Tier / Paid Tier):
+> "Used to improve our products | Yes | No"
+(https://ai.google.dev/gemini-api/docs/pricing, *Last updated 2026-09-04 UTC*, diambil 6 Sep 2026; diperiksa untuk **31 blok model**,
+nilainya `Yes` / `No` di **semua** blok, termasuk jalur Standard, Batch, Flex, dan Priority.)
+
+**Penyimpanan sisi server — fakta terpisah yang ikut relevan.** https://ai.google.dev/gemini-api/docs/interactions-overview
+(*Last updated 2026-09-04 UTC*, diambil 6 Sep 2026), verbatim:
+> "By default, the API stores all Interaction objects (store=true) in order to simplify use of server-side state management features (with previous_interaction_id), background execution (using background=true) and observability purposes."
+> "Paid tier: The system retains interactions for 55 days." · "Free tier: The system retains interactions for 1 day."
+> "If you don't want this, you can set store=false in your request. This control is separate from state management; you can opt out of storage for any interaction. However, note that store=false is incompatible with background execution and prevents using previous_interaction_id for subsequent turns."
+`generateContent` tidak punya parameter `store`. Halaman "Data logging and sharing" (https://ai.google.dev/gemini-api/docs/logs-policy,
+*Last updated 2026-09-04 UTC*) berlaku untuk *"projects with billing enabled"* dan menyatakan *"By default, because logging is only
+available for billing-enabled projects, prompts and responses within logs are not used for product improvement or development, in
+accordance with our Terms on data use."* → halaman itu **tidak** meringankan ketentuan free tier di atas; ia berbicara tentang tier berbayar.
+
+**Implikasi terhadap `docs/rules-compliance.md` — dipaparkan, TIDAK diputuskan di sini.**
+`preflight/narrate.py:284 evidence_payload` mengirim `item.value` apa adanya, dan nilai itu berasal dari keluaran tool RYO
+(mis. `analyze_token.data.verdict`, `deep_analysis.data.verdict.call`, `monitor....evidence.funding.crowding_state`,
+`....liquidation.pressure_state`, `....sentiment_regime`, persentil, `regime` — lihat §A). `docs/rules-compliance.md` menyatakan
+output tool RYO hanya untuk submission dan tidak dipublikasikan di post. Fakta yang bisa dinyatakan:
+1. Pada **free tier**, ketentuan Google menyatakan konten yang dikirim **dan** respons yang dihasilkan dipakai untuk
+   *"provide, improve, and develop Google products and services and machine learning technologies"*, dan
+   *"human reviewers may read, annotate, and process your API input and output"*.
+2. Ketentuan yang sama meminta: *"Do not submit sensitive, confidential, or personal information to the Unpaid Services."*
+3. Pada **paid tier** (Cloud project dengan billing aktif) pernyataannya berbalik: *"Google doesn't use your prompts ... or responses to improve our products."*
+4. Apakah keluaran tool RYO termasuk *confidential* menurut aturan lomba **tidak dijawab oleh sumber mana pun yang kami punya**:
+   §E belum memuat jawaban tertulis penyelenggara tentang ini, dan RYO Builder MCP Guide tidak memakai kata itu. → **AMBIGU.**
+   Keputusannya milik pemilik repo; bila perlu, ajukan pertanyaan tertulis ke penyelenggara dan catat jawabannya di §E.
+Berkas ini **tidak** menyimpulkan "aman" maupun "tidak aman". Yang pasti: pindah ke free tier Gemini **mengubah premis data**
+yang berlaku saat `sources.yaml` menyetujui `provider: anthropic` — jadi ia butuh keputusan sadar (ADR + `sources.yaml`),
+bukan penggantian paket diam-diam.
+
+### B2.8 Yang masih BELUM DIVERIFIKASI di bagian ini
+- Angka RPM/TPM/RPD free tier (B2.6) — hanya ada di AI Studio yang butuh sign-in; sudah dicari di tiga halaman dokumentasi.
+- **Satuan `timeout` pada `interactions.create`** (tipe `float | httpx.Timeout`, tanpa docstring) sementara `HttpOptions.timeout`
+  yang bertetangga justru **milidetik** → campuran satuan ini mudah membuat timeout 1000× salah. Uji sebelum menulis angka.
+- Latensi nyata per panggilan: **nol panggilan Gemini pernah dilakukan dari repo ini** (bandingannya: latensi `anthropic` juga tidak pernah diukur di sini).
+- Bentuk body error 429/`RESOURCE_EXHAUSTED` yang sebenarnya (hanya kelas exception yang diverifikasi, bukan payload).
+- Apakah `gemini-3.5-flash-lite` benar-benar diterima endpoint (ada di dokumentasi, tidak ada di `Literal` SDK 2.22.0).
+- Ambang "very large or deeply nested schemas" — dokumentasi tidak memberi angka.
+- Apakah `google-genai` bisa hidup berdampingan dengan `anthropic` di satu `uv.lock` tanpa konflik resolusi (belum dicoba di
+  `pyproject.toml` proyek; venv verifikasi hanya berisi `google-genai`).
+
 
 ## E. Aturan lomba yang sudah dijawab tertulis (kutipan + tanggal + kanal) — TASKS 0.2
 | Pertanyaan | Jawaban | Sumber/tanggal |
