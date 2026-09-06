@@ -304,6 +304,32 @@ def _read_build(name: str) -> str:
         ) from exc
 
 
+#: Empat face IBM Plex + teks lisensinya, dibaca SEKALI saat impor dari daftar yang ditulis di
+#: sini — bukan dari `iterdir()`. Bedanya nyata: berkas yang tersasar ke `ui/static/fonts/`
+#: tidak otomatis ikut terlayani, dan yang dilayani selalu bisa dibaca manusia dari kode ini.
+#: SIL OFL 1.1 (ADR-022); `LICENSE.txt` ikut dilayani karena lisensinya menuntut itu.
+FONT_NAMES = (
+    "IBMPlexMono-Regular.woff2",
+    "IBMPlexMono-SemiBold.woff2",
+    "IBMPlexSans-Regular.woff2",
+    "IBMPlexSans-SemiBold.woff2",
+    "LICENSE.txt",
+)
+
+
+def _read_font(name: str) -> bytes:
+    path = STATIC_DIR / "fonts" / name
+    try:
+        return path.read_bytes()
+    except OSError as exc:  # pragma: no cover — hanya bila aset terlacak dihapus
+        raise RuntimeError(
+            f"ui/static/fonts/{name} tidak terbaca. Aset ini DILACAK git dan ikut terkirim; "
+            f"kembalikan dengan `git checkout -- ui/static/fonts/{name}`."
+        ) from exc
+
+
+FONTS = {name: _read_font(name) for name in FONT_NAMES}
+
 STYLESHEET = _read_build("app.css")
 
 #: Klien TypeScript yang sudah dibundel (`frontend/src/**.ts` → esbuild IIFE). Ia MENAMBAH

@@ -114,6 +114,7 @@ from preflight.skill import (
 )
 from ui.screens import (
     CLIENT_SCRIPT,
+    FONTS,
     REASON_CEILINGS,
     STYLESHEET,
     VALUE_LIMIT,
@@ -886,6 +887,25 @@ def stylesheet() -> Response:
     return Response(content=STYLESHEET, media_type="text/css; charset=utf-8", headers=HTML_HEADERS)
 
 
+@app.api_route("/ui/fonts/{name}", methods=["GET", "HEAD"])
+def font(name: str) -> Response:
+    """Satu face IBM Plex (SIL OFL 1.1, ADR-022), dari daftar TERTUTUP.
+
+    `name` datang dari request, jadi ia tidak pernah menyentuh filesystem: ia dicocokkan ke
+    :data:`ui.screens.FONTS` yang dibaca sekali saat impor. Berkas yang tidak ada di daftar itu
+    adalah 404, bukan pembacaan disk — tidak ada `..`, tidak ada path absolut, tidak ada
+    symlink yang bisa dibujuk, karena tidak ada path yang dibangun dari masukan sama sekali.
+
+    OFL 1.1 menuntut lisensinya ikut terdistribusi bersama fontnya; ia ada di
+    `ui/static/fonts/LICENSE.txt` (dilacak git) DAN dilayani di sini sebagai `LICENSE.txt`.
+    """
+    blob = FONTS.get(name)
+    if blob is None:
+        raise HTTPException(status_code=404, detail=f"no font is served as {name!r}")
+    media = "text/plain; charset=utf-8" if name.endswith(".txt") else "font/woff2"
+    return Response(content=blob, media_type=media, headers=HTML_HEADERS)
+
+
 @app.api_route("/ui/app.js", methods=["GET", "HEAD"])
 def client_script() -> Response:
     """Klien TypeScript yang sudah dibundel (`frontend/src/` → esbuild → `ui/static/app.js`).
@@ -947,6 +967,7 @@ ROUTE_INDEX = (
     "/ui/decision/{id}",
     "/ui/tenko.css",
     "/ui/app.js",
+    "/ui/fonts/{name}",
     "/api/routes",
     "/api/health",
     "/api/watchlist",

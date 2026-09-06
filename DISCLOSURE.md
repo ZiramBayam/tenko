@@ -46,7 +46,7 @@ Runtime tooling versions are recorded in `docs/versions.md`.
 | pydantic | 2.13.5 | MIT | `SkillResult` contract & validation — used in `core/skill.py` |
 | pyyaml | 6.0.3 | MIT | reads `sources.yaml` — used in `core/sources.py` |
 | anthropic | 1.2.0 | MIT | card narration (outside the decision path, ADR-003) — **used by code**: only in `preflight/narrate.py`, one `messages.create` call per card, model `claude-opus-5`, after the final decision; credentials from env only, and with no credentials there is no request at all |
-| fastapi | 0.141.1 | MIT | JSON routes + two HTML screens — **used by code**: `ui/app.py` announces **eleven routes** in `ROUTE_INDEX` (`ui/app.py`, symbol `ROUTE_INDEX` — line numbers in `ui/` move, names do not): `/`, `/ui`, `/ui/decision/{id}`, `/ui/tenko.css`, `/ui/app.js`, `/api/routes`, `/api/health`, `/api/watchlist`, `/api/decisions`, `/api/decision/{id}`, `/api/preflight/{symbol}`. **Two** of those are assets, served from **two tracked static files** — `ui/static/app.css` and `ui/static/app.js`, both built by esbuild from `frontend/` (ADR-020, landed in commit `ed77a8c`) and both committed to git. Each screen carries **one** `<script src="/ui/app.js" defer>` from its own origin (`ui/screens.py`, emitted by `_shell()`); still **zero CDN and zero npm packages served at runtime** (`package.json` → `"dependencies": {}`). The CSP sent with every **HTML** response (`ui/app.py` `HTML_HEADERS`; the `/api/…` JSON responses carry no such header — what protects them is `ui/app.py` `SafeJSONResponse`) names no third-party host and permits neither `unsafe-inline` nor `unsafe-eval`; scripts, styles and `fetch` targets are confined to this origin. Read the header there rather than from this file, which is not the place that defines it — a pasted copy here is how the previous version of this row became false. This row replaces two earlier wordings, "six GET routes … Screens A/B do not exist yet" and "eight GET routes … zero static files … no `<script>` at all", both of which are now false (corrected 6 Sep 2026). It only reads the store (`Store(..., read_only=True)`); there is no `httpx`/`anthropic` in `ui/`, and `/api/health` reports `calls_ryo_tools: false` and `calls_llm: false`. Every response — including 400/404/405/422/500/503 — carries `simulated: true` + the SIMULATED banner |
+| fastapi | 0.141.1 | MIT | JSON routes + a landing page and two HTML screens — **used by code**: `ui/app.py` announces **fourteen routes** in `ROUTE_INDEX` (`ui/app.py`, symbol `ROUTE_INDEX` — line numbers in `ui/` move, names do not): `/` (the landing page, ADR-021), `/app`, `/app/decision/{id}`, `/ui`, `/ui/decision/{id}` (the last two are aliases of the two before them, kept so that existing links in this repo do not die), `/ui/tenko.css`, `/ui/app.js`, `/ui/fonts/{name}`, `/api/routes`, `/api/health`, `/api/watchlist`, `/api/decisions`, `/api/decision/{id}`, `/api/preflight/{symbol}`. **Three** of those are assets, served from **tracked static files** — `ui/static/app.css` and `ui/static/app.js`, both built by esbuild from `frontend/` (ADR-020, landed in commit `ed77a8c`), plus the four vendored IBM Plex faces and their licence in `ui/static/fonts/` (ADR-022; see the **Fonts** section below). All are committed to git. `/ui/fonts/{name}` serves from a **closed list** (`ui/screens.py`, symbol `FONT_NAMES`) and never builds a filesystem path from the request. Each screen carries **one** `<script src="/ui/app.js" defer>` from its own origin (`ui/screens.py`, emitted by `_shell()`); still **zero CDN and zero npm packages served at runtime** (`package.json` → `"dependencies": {}`). The CSP sent with every **HTML** response (`ui/app.py` `HTML_HEADERS`; the `/api/…` JSON responses carry no such header — what protects them is `ui/app.py` `SafeJSONResponse`) names no third-party host and permits neither `unsafe-inline` nor `unsafe-eval`; scripts, styles, `fetch` targets and — since ADR-022 — images, fonts and media are all confined to this origin (`'self'`, never `*` and never `data:`). Read the header there rather than from this file, which is not the place that defines it — a pasted copy here is how the previous version of this row became false. This row replaces two earlier wordings, "six GET routes … Screens A/B do not exist yet" and "eight GET routes … zero static files … no `<script>` at all", both of which are now false (corrected 6 Sep 2026). It only reads the store (`Store(..., read_only=True)`); there is no `httpx`/`anthropic` in `ui/`, and `/api/health` reports `calls_ryo_tools: false` and `calls_llm: false`. Every response — including 400/404/405/422/500/503 — carries `simulated: true` + the SIMULATED banner |
 | uvicorn | 0.52.4 | BSD-3-Clause | the `make ui` server — **used**, launched from the `Makefile` (`uv run uvicorn ui.app:app --port $UI_PORT`), not imported by code; without the `[standard]` extra (`docs/versions.md`) |
 | pytest | 9.1.1 | MIT | dev — runs `make test` |
 | ruff | 0.16.5 | MIT | dev — lint & format (`make lint`) |
@@ -189,6 +189,44 @@ ADR-014).
   `license: None`). So when vendoring happens, this project must itself create
   `ui/static/vendor/gsap/LICENSE.txt` containing a copy of the official text plus a provenance note (source URL and
   retrieval date). That file **does not exist yet**, because the vendoring has not happened.
+
+## Fonts — VENDORED and shipped (ADR-022)
+
+Four IBM Plex faces are committed to `ui/static/fonts/` and served from this app's own origin at
+`/ui/fonts/{name}`. **Zero CDN, zero network request at render**, so `make demo` still runs with
+no network (spec §7) and `font-src 'self'` is enough. These are the **only** binary assets in the
+repo besides the esbuild output.
+
+| Asset | Version | License | Verified how |
+|---|---|---|---|
+| IBM Plex Sans (Regular, SemiBold) | **v6.4.2** | **SIL OFL 1.1** | `curl https://raw.githubusercontent.com/IBM/plex/v6.4.2/LICENSE.txt` → *"Copyright © 2017 IBM Corp. with Reserved Font Name \"Plex\" … licensed under the SIL Open Font License, Version 1.1"*, read 6 Sep 2026 |
+| IBM Plex Mono (Regular, SemiBold) | **v6.4.2** | **SIL OFL 1.1** | same file, same tag |
+
+Downloaded from `https://raw.githubusercontent.com/IBM/plex/v6.4.2/IBM-Plex-{Sans,Mono}/fonts/complete/woff2/`.
+Pinned to the release tag, not `master`, so the bytes are reproducible. SHA-256 of what is
+committed:
+
+```
+49ce58b41a0e1cb921c0f58d9a5b8b96a2cc21437c7066f3ba4f24873076d131  IBMPlexMono-Regular.woff2
+ed5eaca7522336959d6c3810bd9bb78424f0d964082d581bfbea169ee08d14e3  IBMPlexMono-SemiBold.woff2
+ba711a3085ff9f27440b6b9c4550cfc47c97bf36591d5da958b975bb3add8c1a  IBMPlexSans-Regular.woff2
+f78048030eab62e860efa39a0df79e2e5581bf122eb95b9bc42c0b8a4988d205  IBMPlexSans-SemiBold.woff2
+7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da  LICENSE.txt
+```
+
+**OFL 1.1 obligations, and how they are met.** The licence text ships with the fonts at
+`ui/static/fonts/LICENSE.txt` (tracked by git) and is also served at `/ui/fonts/LICENSE.txt`;
+`tests/test_ui.py::test_every_vendored_font_is_served_and_carries_its_licence` fails if either
+disappears. The files are distributed **unmodified** and **not sold**, and the Reserved Font Name
+"Plex" is not used for any modified version — Tenko does not modify them at all. The CSS family
+names (`"IBM Plex Sans Vendored"`) are local `@font-face` aliases pointing at the unmodified
+files, not renamed fonts.
+
+**Not vendored, and why it matters:** no asset in this repo comes from a third-party
+"awwwards-style" template or portfolio repository. Such repositories are typically MIT **for
+their code only**, while their fonts, video and textures remain licensed to the original client —
+and a hackathon submission is publication. Every asset here has a licence that names assets
+explicitly, verified from the upstream file above rather than from a summary.
 
 ## Reference material (not shipped, not executed)
 - `references/awwwards-3d/` — a 3D scroll-driven design guidance skill, **MIT** (Copyright (c) 2026 awwwards-3d skill

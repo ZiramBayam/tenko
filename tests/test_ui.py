@@ -896,7 +896,13 @@ def test_index_serves_the_landing_and_the_app_is_one_click_away(client: TestClie
     # Setiap route yang diumumkan benar-benar dijawab: daftar yang menyebut route mati adalah
     # penemuan yang menyesatkan, bukan penemuan.
     for route in body["routes"]:
-        probe = route.replace("{id}", "1").replace("{symbol}", "SOL")
+        probe = (
+            route.replace("{id}", "1")
+            .replace("{symbol}", "SOL")
+            # `{name}` hanya punya arti dari daftar TERTUTUP `FONT_NAMES`; menebak nama
+            # di sini akan menguji 404-nya, bukan route-nya.
+            .replace("{name}", ui_screens.FONT_NAMES[0])
+        )
         assert client.get(probe).status_code == 200, route
 
 
@@ -2735,17 +2741,71 @@ def test_the_only_icon_on_the_screens_is_embedded_and_says_nothing_by_itself(cli
 
 
 def test_the_stylesheet_loads_nothing_from_anywhere_including_itself(client: TestClient) -> None:
-    """Nol aset eksternal ditarik: nol webfont, nol gambar, nol URI tertanam.
+    """Nol aset dari LUAR aplikasi ini: nol CDN, nol URI tertanam, nol gambar.
 
     Ini bukan selera melainkan syarat: domain aset mana pun harus lebih dulu `approved: true` di
     `sources.yaml` dengan barisnya sendiri di `DISCLOSURE.md`, dan demo spec §7 harus jalan
-    tanpa jaringan. CSP `img-src 'none'` melarang setengahnya; sisanya dijaga di sini.
+    tanpa jaringan.
+
+    ADR-022 mengubah bentuk tes ini, bukan jaminannya. Dulu `url(` dan `@font-face` dilarang
+    HABIS, yang kebetulan cukup selama tidak ada aset sama sekali. Sekarang empat face IBM Plex
+    di-vendor, jadi yang dilarang bukan lagi "memuat" melainkan "memuat dari tempat lain": tiap
+    `url()` di stylesheet WAJIB berupa path se-origin di bawah `/ui/fonts/`, dan tiap berkas
+    yang ditunjuknya WAJIB benar-benar dilayani. Larangan yang dilonggarkan tanpa diganti
+    penggantinya adalah larangan yang hilang, jadi keduanya diperiksa di sini.
     """
     css = client.get("/ui/tenko.css").text
-    for forbidden in ("url(", "data:", "@font-face", "@import", "http", "//"):
+    for forbidden in ("data:", "@import", "http", "//"):
         assert forbidden not in css, forbidden
-    # Font-stack sistem: nama keluarga, bukan berkas yang diunduh.
+
+    urls = re.findall(r"url\(([^)]*)\)", css)
+    assert urls, "prasyarat: stylesheet memang memuat font yang di-vendor"
+    for raw in urls:
+        target = raw.strip().strip("\"'")
+        assert target.startswith("/ui/fonts/"), f"aset dari luar /ui/fonts/: {target}"
+        assert ".." not in target, target
+        # ...dan ia BENAR-BENAR ada. `url()` yang menunjuk berkas hilang adalah 404 diam-diam
+        # yang hanya terlihat di browser, dan tidak ada browser di jalur tes.
+        served = client.get(target)
+        assert served.status_code == 200, f"{target} -> {served.status_code}"
+        assert served.headers["content-type"] == "font/woff2", target
+        assert served.content[:4] == b"wOF2", f"{target} bukan woff2"
+
+    # Tiap `@font-face` menyebut `font-display`, supaya teks terbaca dengan font sistem SEBELUM
+    # Plex tiba: layar tidak pernah kosong menunggu aset (alasan yang sama dengan ADR-020 6).
+    assert css.count("@font-face") == css.count("font-display"), "ada face tanpa font-display"
+    # Tumpukan sistem tetap berdiri di belakangnya — fallback yang sungguh dipakai saat `swap`.
     assert "system-ui" in css and "ui-monospace" in css
+
+
+def test_every_vendored_font_is_served_and_carries_its_licence(client: TestClient) -> None:
+    """OFL 1.1 menuntut lisensinya ikut terdistribusi bersama fontnya (ADR-022 butir 4).
+
+    Dua hal yang mudah hilang tanpa tes, dan keduanya berakibat kepatuhan, bukan tampilan:
+    berkas lisensi yang tidak ikut terkirim, dan daftar font yang tumbuh diam-diam sehingga
+    `DISCLOSURE.md` berhenti menggambarkan apa yang benar-benar dilayani.
+    """
+    licence = client.get("/ui/fonts/LICENSE.txt")
+    assert licence.status_code == 200
+    assert "SIL Open Font License, Version 1.1" in licence.text
+    assert 'Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"' in licence.text
+
+    faces = [name for name in ui_screens.FONT_NAMES if name.endswith(".woff2")]
+    assert sorted(faces) == [
+        "IBMPlexMono-Regular.woff2",
+        "IBMPlexMono-SemiBold.woff2",
+        "IBMPlexSans-Regular.woff2",
+        "IBMPlexSans-SemiBold.woff2",
+    ], "daftar face berubah — perbarui DISCLOSURE.md pada commit yang sama"
+
+    # Nama yang tidak terdaftar tidak pernah menyentuh disk: 404, termasuk yang mencoba keluar.
+    for bogus in ("../app.py", "../../ui/app.py", "nope.woff2"):
+        assert client.get(f"/ui/fonts/{bogus}").status_code == 404, bogus
+
+    # Dan `DISCLOSURE.md` menyebut apa yang benar-benar dilayani, bukan yang pernah dilayani.
+    disclosure = (ROOT / "DISCLOSURE.md").read_text(encoding="utf-8")
+    assert "IBM Plex" in disclosure and "OFL" in disclosure
+    assert "v6.4.2" in disclosure, "versi font yang di-vendor tidak tercatat"
 
 
 # --- laporan juri fase 5: kolom "daya veto" & angka `make grade` ---------------------------
@@ -3435,7 +3495,7 @@ def test_one_css_naming_rule_serves_both_renderers() -> None:
 #: Cara memperbaruinya: `make frontend` mencetak hash barunya. Menggantinya adalah perbuatan
 #: yang TERLIHAT di diff — dan itulah seluruh gunanya.
 BUNDLE_SHA256 = "a4e51736b3f9ef70cf13bc9270398b94dcfff67573fbff4a7eacc6b025a36a67"
-STYLESHEET_SHA256 = "358bbdd3c22d50b19889221bc90ffd968637e3e7cbc6325f00020babf44c25f1"
+STYLESHEET_SHA256 = "1df8f842e4a04affe602b86cf29e90d2cd1d3cfde4d97801a996a3357ab3ec73"
 
 
 def test_the_shipped_bundle_is_pinned_byte_for_byte() -> None:

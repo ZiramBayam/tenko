@@ -1,4 +1,32 @@
 /* frontend/styles/app.css */
+@font-face {
+  font-family: "IBM Plex Sans Vendored";
+  src: url(/ui/fonts/IBMPlexSans-Regular.woff2) format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans Vendored";
+  src: url(/ui/fonts/IBMPlexSans-SemiBold.woff2) format("woff2");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono Vendored";
+  src: url(/ui/fonts/IBMPlexMono-Regular.woff2) format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono Vendored";
+  src: url(/ui/fonts/IBMPlexMono-SemiBold.woff2) format("woff2");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
 :root {
   --bg: #0d1016;
   --panel: #161b24;
@@ -19,6 +47,7 @@
   --r1: 5px;
   --r2: 9px;
   --sans:
+    "IBM Plex Sans Vendored",
     system-ui,
     -apple-system,
     "Segoe UI",
@@ -28,6 +57,7 @@
     Arial,
     sans-serif;
   --mono:
+    "IBM Plex Mono Vendored",
     ui-monospace,
     SFMono-Regular,
     "DejaVu Sans Mono",

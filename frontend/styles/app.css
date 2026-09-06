@@ -13,9 +13,53 @@
    jadi tidak ada rasio yang perlu dihitung ulang.
 
    Warna tidak pernah membawa informasi sendirian: tiap lencana membawa teksnya, hijau-netral
-   membawa kalimatnya, dan `unspoken` membawa "tidak disebut". Nol aset dari luar repo ini:
-   nol webfont, nol gambar yang dimuat, nol URI tertanam — CSP `img-src 'none'` juga
-   melarangnya, dan tes menolak keduanya di berkas ini. */
+   membawa kalimatnya, dan `unspoken` membawa "tidak disebut".
+
+   ADR-022 mengubah satu kalimat yang dulu berdiri di sini ("nol webfont"): empat face IBM Plex
+   kini DI-VENDOR ke `ui/static/fonts/` dan dilayani dari origin sendiri. Yang TIDAK berubah dan
+   yang menjadikannya tetap aman: nol permintaan ke luar repo ini, nol CDN, nol URI tertanam,
+   nol gambar yang dimuat — dan tumpukan font sistem tetap berdiri di belakang Plex sebagai
+   fallback yang sungguh dipakai selama `swap` dan bila asetnya hilang. */
+/* --- IBM Plex, di-vendor (SIL OFL 1.1, ADR-022) -------------------------------------------
+   Dilayani dari origin sendiri lewat `/ui/fonts/{name}` (daftar TERTUTUP di `ui/screens.py`),
+   jadi `font-src 'self'` cukup dan nol permintaan jaringan tetap berdiri — `make demo` jalan
+   tanpa jaringan (spec §7). Lisensinya ikut terkirim di `ui/static/fonts/LICENSE.txt` karena
+   OFL 1.1 menuntutnya.
+
+   Empat face dan tidak lebih: Regular + SemiBold untuk masing-masing sans dan mono. Papan
+   keberangkatan tidak butuh tujuh bobot, dan tiap face adalah ~50 KB yang harus dibayar juri
+   dalam uji 30 detik.
+
+   `font-display: swap` disengaja: teksnya terbaca dengan font sistem SEBELUM Plex tiba, jadi
+   layar tidak pernah kosong menunggu aset — alasan yang sama dengan ADR-020 butir 6. */
+@font-face {
+  font-family: "IBM Plex Sans Vendored";
+  src: url("/ui/fonts/IBMPlexSans-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans Vendored";
+  src: url("/ui/fonts/IBMPlexSans-SemiBold.woff2") format("woff2");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono Vendored";
+  src: url("/ui/fonts/IBMPlexMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono Vendored";
+  src: url("/ui/fonts/IBMPlexMono-SemiBold.woff2") format("woff2");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
 :root {
   --bg: #0d1016; --panel: #161b24; --line: #646e84; --ink: #f3f5f9; --dim: #c3cad6;
   --go: #7ff0a0; --nogo: #ff9a90; --warn: #ffd479; --link: #9fd0ff;
@@ -29,8 +73,8 @@
   /* Font SISTEM saja — nol webfont dan nol permintaan ke luar. Prosa memakai sans (kalimat
      yang harus terbaca dalam 30 detik), sedangkan angka, hash, id, dan nilai asal-RYO tetap
      monospace supaya kolomnya sejajar dan aksara yang mirip tidak tertukar. */
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "DejaVu Sans", Arial, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace;
+  --sans: "IBM Plex Sans Vendored", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "DejaVu Sans", Arial, sans-serif;
+  --mono: "IBM Plex Mono Vendored", ui-monospace, SFMono-Regular, "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace;
 }
 * { box-sizing: border-box; }
 html { background: var(--bg); }

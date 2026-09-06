@@ -36,7 +36,7 @@ frontend:          ## bangun ulang ui/static/app.js + app.css dari frontend/ (BU
 	npm ci                       # ci, bukan install: lockfile yang menentukan, bukan rentang versi
 	npx tsc --noEmit             # type-check; esbuild sendiri tidak memeriksa tipe
 	npx esbuild frontend/src/main.ts --bundle --format=iife --target=es2020 --charset=utf8 --legal-comments=none --outfile=ui/static/app.js
-	npx esbuild frontend/styles/app.css --bundle --charset=utf8 --legal-comments=none --outfile=ui/static/app.css
+	npx esbuild frontend/styles/app.css --bundle --charset=utf8 --legal-comments=none --external:/ui/fonts/* --outfile=ui/static/app.css
 	@echo "ui/static/ dibangun ulang. JANGAN lupa: git add ui/static/ — artefaknya dilacak."
 	@echo "SHA-256 artefak (paku ulang di tests/test_ui.py: BUNDLE_SHA256 / STYLESHEET_SHA256):"
 	@sha256sum ui/static/app.js ui/static/app.css
