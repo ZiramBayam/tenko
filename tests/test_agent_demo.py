@@ -381,7 +381,7 @@ def test_the_module_runs_as_a_command(tmp_path: Path) -> None:
 
 # --- pengakuan langkah 2: diaudit, bukan dipercaya; dan tidak bisa ditimpa teks berkas ---------
 #
-# Dua temuan TINGGI security-reviewer (6 Sep 2026), keduanya terbukti jalan:
+# Dua temuan TINGGI tinjauan keamanan (6 Sep 2026), keduanya terbukti jalan:
 #
 # 1. pengakuan sintetis diturunkan dari blok `synthetic` berkas yang ia klaim audit — berkas yang
 #    envelopenya SUDAH ditulis ulang menjadi `unavailable` tetapi blok pengakuannya dikosongkan

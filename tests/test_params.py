@@ -1,6 +1,6 @@
 """Tes TASKS 2.1 — `preflight/params.py` (ambang + tabel kosakata + params_hash).
 
-Acuan: docs/spec.md §4, docs/api-facts.md §A "Kosakata terukur" (697 snapshot, api-verifier
+Acuan: docs/spec.md §4, docs/api-facts.md §A "Kosakata terukur" (697 snapshot, verifikasi API
 1 Sep 2026), ADR-003 (keputusan deterministik), ADR-013.
 
 Yang dijaga tes ini: (a) `params_hash` deterministik DAN berubah untuk setiap ambang/tabel
@@ -139,7 +139,7 @@ def test_every_table_declares_the_field_it_belongs_to() -> None:
 
 # --- bentuk string -----------------------------------------------------------------------
 def test_full_string_match_only_no_em_dash_splitting() -> None:
-    """Kepala setelah split TIDAK dipakai; kualifikasi ikut tercatat (instruksi api-verifier)."""
+    """Kepala setelah split TIDAK dipakai; kualifikasi ikut tercatat (instruksi verifikasi API)."""
     entry = ANALYZE_TOKEN_VERDICT.lookup("caution — overbought")
     assert entry is not None and entry.qualifier == "overbought"
     assert ANALYZE_TOKEN_VERDICT.lookup("caution") is None
@@ -238,7 +238,7 @@ def test_the_crowding_alert_carries_the_side_it_sits_on() -> None:
 #: `params_hash` yang BERLAKU. Dipatok, bukan sekadar "berbeda dari yang lama": `provenance`
 #: ikut ke `as_dict()`, jadi menyunting PROSA satu entri pun menggeser hash ini dan membuat
 #: setiap baris `decisions` menjadi `STALE_PARAMS`. Penjaga yang hanya menuntut `!= before`
-#: membiarkan pergeseran senyap itu lolos (mutan M4 security-reviewer 0.12 selamat).
+#: membiarkan pergeseran senyap itu lolos (mutan M4 tinjauan keamanan 0.12 selamat).
 #: Memperbaruinya adalah tindakan SADAR: pastikan Anda memang bermaksud menggeser params.
 CURRENT_PARAMS_HASH = "3d39fb1bd1a03b7f5269f53fec347d34645d2b402ff1c2de47e53f19d69616b7"
 #: Hash sebelum TASKS 0.12, tercatat di `decisions` id 20-27 pada `data/ryo.db`.
@@ -390,7 +390,7 @@ def dig(value: object, path: tuple[object, ...]) -> list[str]:
     Versi pertama kanari ini hanya menelusuri dict, jadi `compare_tokens.data.tokens[].verdict`
     — satu-satunya nilai kosakata yang hidup DI DALAM list — tidak pernah disapu, dan tabel
     `COMPARE_TOKENS_VERDICT` tidak dijaga apa pun. Ia hijau karena kebetulan, bukan karena
-    diperiksa (temuan quant-engineer saat TASKS 0.12).
+    diperiksa (temuan kerja preflight saat TASKS 0.12).
     """
     if not path:
         return [value] if isinstance(value, str) else []
@@ -423,7 +423,7 @@ def test_an_invented_value_inside_a_list_turns_the_canary_red() -> None:
 def test_tables_still_cover_every_value_in_the_live_recorder_db() -> None:
     """Kanari anti-halusinasi: DB perekam dibuka HANYA baca (mode=ro), tidak pernah ditulis.
 
-    Kalau tes ini gagal, RYO mengeluarkan nilai baru — panggil `@agent-api-verifier` untuk
+    Kalau tes ini gagal, RYO mengeluarkan nilai baru — panggil `verifikasi API` untuk
     menambah barisnya dengan hitungan + tanggal, JANGAN memetakannya ke tetangga terdekat.
     """
     paths = {
@@ -464,4 +464,4 @@ def test_tables_still_cover_every_value_in_the_live_recorder_db() -> None:
         field: sorted(repr(value)[:60] for value in sorted(values)[:5])
         for field, values in sorted(unknown.items())
     }
-    assert not unknown, f"nilai baru di data/ryo.db (panggil api-verifier): {trimmed}"
+    assert not unknown, f"nilai baru di data/ryo.db (panggil verifikasi API): {trimmed}"

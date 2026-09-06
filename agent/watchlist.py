@@ -22,7 +22,7 @@ berbeda, "apakah teks ini berbentuk seperti ticker sama sekali". Tanpanya `--sym
 `--`, `"BTC"` (tanda kutip ikut), `{"SYMBOL":"SOL"}`, `123`, `ＳＯＬ` (bentuk lebar), `BNB😀`,
 dan `SОL` (huruf О Kiril — tak bisa dibedakan mata dari `SOL` di Layar A dan di kartu).
 
-**Apa yang saringan ini TIDAK lakukan — baca sebelum mengklaim apa pun** (security-reviewer
+**Apa yang saringan ini TIDAK lakukan — baca sebelum mengklaim apa pun** (tinjauan keamanan
 4 Sep 2026):
 
 * Ia **bukan** daftar simbol sah RYO. Daftar seperti itu tidak diterbitkan (docs/api-facts.md
@@ -88,13 +88,13 @@ LETTER_CATEGORIES: frozenset[str] = frozenset({"Lu", "Ll", "Lt", "Lm", "Lo"})
 
 #: Berapa nama entri yang ditolak yang ikut dicetak ke satu baris log. Tanpa batas ini,
 #: `--symbols` berisi 200.000 entri sampah menghasilkan SATU baris log 1,2 MB (terukur,
-#: security-reviewer 0.11) — input operator tidak boleh menentukan ukuran baris log.
+#: tinjauan keamanan 0.11) — input operator tidak boleh menentukan ukuran baris log.
 MAX_NAMED_DROPS = 20
 
 #: Kanji dan kana dihitung sebagai SATU aksara. Tanpa ini `ドージ` ditolak hanya karena chōonpu
 #: `ー` bernama `KATAKANA-HIRAGANA PROLONGED SOUND MARK`, dan `犬コイン` ditolak karena mencampur
 #: kanji dengan katakana — keduanya ejaan Jepang yang normal, bukan serangan, dan ini lomba
-#: Jepang (temuan SEDANG security-reviewer 0.11). Unicode sendiri memberi U+30FC
+#: Jepang (temuan SEDANG tinjauan keamanan 0.11). Unicode sendiri memberi U+30FC
 #: `Script_Extensions = {Hira, Kana}`; ember ini adalah versi kasarnya.
 JAPANESE_SCRIPTS: dict[str, str] = {
     "CJK": "JAPANESE-OR-HAN",
@@ -137,7 +137,7 @@ def plausible_symbol(symbol: str) -> bool:
     mengetik bentuk lebar sedang menyalin dari sumber yang aneh, dan menebak maksudnya akan
     menulis baris ledger permanen atas tebakan itu.
 
-    Syarat (4) menutup **campur-aksara** (temuan SEDANG security-reviewer 0.11): homoglyph
+    Syarat (4) menutup **campur-aksara** (temuan SEDANG tinjauan keamanan 0.11): homoglyph
     lintas-aksara seperti `SOL` vs `SОL`, yang menjadi dua baris ledger tidak bisa dibedakan
     mata di Layar A dan di kartu, dan RTL implisit tanpa satu pun karakter Cf.
 
@@ -227,7 +227,7 @@ def watchlist(
         if symbol is None or not plausible_symbol(symbol):
             # Potongan DITANDAI: tanpa `TRUNCATED_MARK`, entri `"A"*32 + "BBBB!"` dicetak
             # sebagai `'AAAA…AAAA'` — potongan yang justru BERBENTUK simbol sah, sehingga
-            # baris lognya membingungkan operator (temuan RENDAH security-reviewer 0.11).
+            # baris lognya membingungkan operator (temuan RENDAH tinjauan keamanan 0.11).
             dropped.append(entry[:32] + TRUNCATED_MARK if len(entry) > 32 else entry)
             continue
         if symbol not in symbols:

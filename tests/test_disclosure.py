@@ -1,7 +1,7 @@
 """DISCLOSURE.md harus mendaftar SETIAP paket yang benar-benar terkunci di `uv.lock`.
 
 Kenapa tes ini ada: Official Rules §5 mewajibkan disclosure dependency, dan
-hackathon-judge (`docs/judge-reports/fase-1.md`) menandai daftar yang tidak lengkap
+penilaian rubric (`docs/judge-reports/fase-1.md`) menandai daftar yang tidak lengkap
 sebagai satu-satunya kategori temuan yang berisiko DISKUALIFIKASI, bukan sekadar
 kehilangan poin. Saat task 2.3 nanti benar-benar memakai `anthropic`, atau saat
 dependency baru ikut lewat `uv sync`, tes inilah yang gagal lebih dulu — bukan juri.

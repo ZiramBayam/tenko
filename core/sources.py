@@ -8,7 +8,7 @@ registry-nya. Sampai TASKS 1.2 tidak ada satu pun kode yang MEMBACA berkas itu, 
 Sifat modul ini (tiap klaim punya tes di ``tests/test_sources.py``):
 
 * **Approved berarti boolean `true`, titik.** ``approved: null``, ``approved: "true"``,
-  ``approved: 1`` — semuanya BUKAN persetujuan (`approved is True`). CLAUDE.md: "`approved:
+  ``approved: 1`` — semuanya BUKAN persetujuan (`approved is True`). ADR-005: "`approved:
   null` = belum boleh dipakai di jalur nyata (fixture boleh)". Perlu diketahui: PyYAML
   memakai YAML 1.1, sehingga ``yes``/``on``/``TRUE``/``True`` DIURAI menjadi boolean `True`
   dan karena itu ikut diterima (``no``/``off`` menjadi `False` dan ditolak). Itu keputusan

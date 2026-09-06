@@ -231,7 +231,7 @@ def _scalar(value: Any) -> str | None:
     (`core/skill.py` hanya menjaga `id` dan `reason`), jadi teks di dalamnya tetap teks pihak
     lain sampai di sini. Tanpa escape, satu `data_date` berisi `\x1b[10A\x1b[1G…` memindahkan
     kursor terminal ke atas dan MENIMPA baris tabel yang alat ini sendiri hitung — angka palsu
-    di layar yang dihasilkan oleh payload tool (temuan KRITIS security-reviewer 2.1b,
+    di layar yang dihasilkan oleh payload tool (temuan KRITIS tinjauan keamanan 2.1b,
     dibuktikan jalan, bukan diduga). `clean_text` mengubahnya menjadi `\\u001b[10A…`: inert
     dan TERLIHAT.
     """
@@ -300,7 +300,7 @@ def _rows(store: Store, sql: str, params: Sequence[Any] = ()) -> list[Any]:
 
     **`Store._select` TIDAK menyaring SQL**: ia mengeksekusi apa pun langsung ke koneksi, dan
     pada koneksi mode tulis satu `INSERT` lewat fungsi ini akan benar-benar menambah baris
-    (temuan SEDANG security-reviewer 2.1b). Karena itu bentuk SQL-nya dipagari DI SINI: hanya
+    (temuan SEDANG tinjauan keamanan 2.1b). Karena itu bentuk SQL-nya dipagari DI SINI: hanya
     `SELECT`, dan hanya lewat `sweep()` yang menuntut `store.read_only`.
     """
     if not sql.lstrip().upper().startswith("SELECT"):
@@ -403,7 +403,7 @@ def sweep(
         VetoTableError: `store` bisa menulis. "Baca-saja" harus jadi sifat FUNGSI ini, bukan
             sifat `main()` saja: `Store._select` mengeksekusi SQL apa pun ke koneksinya, jadi
             alat ukur yang menerima koneksi mode tulis kehilangan satu-satunya jaminan yang
-            membuatnya aman dijalankan atas DB hidup (temuan SEDANG security-reviewer 2.1b).
+            membuatnya aman dijalankan atas DB hidup (temuan SEDANG tinjauan keamanan 2.1b).
     """
     if not getattr(store, "read_only", False):
         raise VetoTableError(

@@ -57,7 +57,7 @@ DEFAULT_SIZE_USD = 1000.0
 #: kesempatan mencatat exit sebelum outcome T+24 j dibaca. Ia TIDAK menghilangkan tabrakan
 #: (1455 > 720 juga): tidak ada nilai timeout yang bisa, karena yang menentukan adalah letak
 #: celahnya, bukan panjang jendelanya. Yang benar-benar memperbaikinya adalah uptime perekam
-#: (dicatat api-verifier 4 Sep 2026 sebagai task tersendiri, bukan task ini).
+#: (dicatat verifikasi API 4 Sep 2026 sebagai task tersendiri, bukan task ini).
 #:
 #: **Cabang yang TIDAK diambil, dan alasannya:** menutup `timeout` TANPA harga (dengan `price`
 #: sebagai `unspoken`) menuntut perubahan skema — `trade_events.price` adalah `REAL NOT NULL`
@@ -67,7 +67,7 @@ DEFAULT_SIZE_USD = 1000.0
 #: eksplisit di `reason` baris `exit` (`agent/trade.py`), bukan disembunyikan.
 DEFAULT_TIMEOUT_MIN = 12 * 60
 
-#: Empat simbol inti (TASKS 2.4, dipotong product-manager 3 Sep 2026). Ini juga simbol yang
+#: Empat simbol inti (TASKS 2.4, dipotong penjagaan ruang lingkup 3 Sep 2026). Ini juga simbol yang
 #: benar-benar direkam `core/recorder.py`, jadi watchlist ini punya bukti di store.
 CORE_SYMBOLS: tuple[str, ...] = ("SOL", "BTC", "ETH", "BNB")
 

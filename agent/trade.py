@@ -15,7 +15,7 @@ dikerjakan.
 (:func:`plan_from_frozen_evidence`), bukan dibaca dari `decisions.card_json`: kolom itu tidak
 dilindungi hash apa pun, dan satu `UPDATE` atasnya sudah cukup untuk membuat exit dibukukan
 pada harga yang mustahil sementara `make replay` tetap berkata IDENTICAL (temuan TINGGI
-security-reviewer, 4 Sep 2026).
+tinjauan keamanan, 4 Sep 2026).
 
 Harga keluar: `analyze_token.data.market.price_usd` dari snapshot PEREKAM, dibaca
 `core.store.Store.latest_fresh` dengan batas kesegaran yang sama dengan preflight
@@ -36,14 +36,14 @@ Harga keluar: `analyze_token.data.market.price_usd` dari snapshot PEREKAM, dibac
 * Penyebabnya **uptime perekam kami, bukan RYO** — dan `deep_analysis.data.market.price_usd`
   bukan pengganti yang lebih baik: 653 baris (vs 929), ditulis pada siklus yang SAMA sehingga
   tidak pernah lebih segar, dan pada 648 pasang sesiklus selisihnya median 0,0000 % / maks
-  0,6057 % (api-verifier 4 Sep 2026: "jangan ganti").
+  0,6057 % (verifikasi API 4 Sep 2026: "jangan ganti").
 
 Konsekuensinya ditanggung terang-terangan: tidak ada harga segar → posisi **TETAP TERBUKA**,
 sebabnya disebut per posisi, dan TIDAK diisi harga terakhir yang kebetulan ada. Itu berlaku
 untuk `timeout` juga (lihat :func:`exit_reason` dan
 `agent.params.DEFAULT_TIMEOUT_MIN` soal cabang yang tidak diambil).
 
-Tiga jalan keluar saja (dipotong product-manager 3 Sep 2026): `target`, `stop`, `timeout`.
+Tiga jalan keluar saja (dipotong penjagaan ruang lingkup 3 Sep 2026): `target`, `stop`, `timeout`.
 Tanpa exit parsial, tanpa trailing.
 
 **Urutan pemeriksaan: `stop` DULU, baru `target`.** Satu snapshot memberi satu harga, bukan
@@ -317,7 +317,7 @@ def plan_from_frozen_evidence(
 ) -> PracticePlan:
     """Turunkan ULANG plan sebuah keputusan dari snapshot bekunya — bukan dari `card_json`.
 
-    **Kenapa bukan `card_json`** (temuan TINGGI security-reviewer, 4 Sep 2026, dibuktikan
+    **Kenapa bukan `card_json`** (temuan TINGGI tinjauan keamanan, 4 Sep 2026, dibuktikan
     dengan serangan yang berhasil): `decisions.card_json` TIDAK dilindungi hash apa pun —
     `core.replay.DECISION_FIELDS` sengaja hanya `decision`/`blocking`/`item_status`. Satu
     `UPDATE decisions SET card_json=…` tanpa menyentuh satu hash pun sudah cukup untuk

@@ -3,7 +3,7 @@
 `preflight.skill.check_aggregate_floor` menjawab *"envelope ini konsisten dengan
 `data["items"]`-nya sendiri?"*. Ia TIDAK menjawab *"`data["items"]` adalah apa yang dikatakan
 bukti beku?"* — dan itu bukan dugaan, melainkan dua serangan yang benar-benar dijalankan
-security-reviewer atas TASKS 2.2 (3 Sep 2026):
+tinjauan keamanan atas TASKS 2.2 (3 Sep 2026):
 
 * **Serangan 6.** Balik `03_regime`/`10_relative` dari `red` menjadi `green` di
   `data["items"]`, selaraskan `n_*`/`decision`/`blocking`/`summary`/`availability`, lalu hitung
@@ -53,7 +53,7 @@ Batas yang diakui (baca sebelum menyebut modul ini "penjaga")
 * Penilaian ulang memakai `params` yang dioper pemanggil, dan menuntut `params` itu sama
   dengan `data["params_hash"]` — aturan yang sama dengan `check_decision_floor`. Tanpa itu,
   penjangkaran akan menilai dengan ambang yang tidak pernah dipakai menilai apa pun.
-* **Kesegaran bukti beku TIDAK diperiksa di sini** (dicatat security-reviewer 4 Sep 2026;
+* **Kesegaran bukti beku TIDAK diperiksa di sini** (dicatat tinjauan keamanan 4 Sep 2026;
   scope, bukan cacat yang belum diperbaiki — jangan ditambal di modul ini). Bundle berumur
   tiga hari yang konsisten dengan dirinya sendiri menghasilkan `GO` yang lolos penjangkaran:
   item 1 mengukur jarak antar-bukti dengan jam INTERNAL bundle (`preflight/items.py` aturan 5),
@@ -217,7 +217,7 @@ def check_against_evidence(
     `symbol` = simbol yang SEDANG diputuskan (dari watchlist). Wajib dioper jalur produksi:
     tanpa itu, penjangkaran membaca simbol DARI envelope, sehingga envelope ETH yang lengkap
     dan konsisten dengan buktinya sendiri bisa dipakai untuk keputusan berlabel SOL — baris
-    `decisions` `symbol='SOL'` GO dengan angka milik ETH (temuan TINGGI security-reviewer,
+    `decisions` `symbol='SOL'` GO dengan angka milik ETH (temuan TINGGI tinjauan keamanan,
     4 Sep 2026, dibuktikan berhasil). Default `None` dipertahankan HANYA untuk pemanggil yang
     memang tidak punya simbol acuan (tes lantai preflight); ia mematikan pemeriksaan ini.
 

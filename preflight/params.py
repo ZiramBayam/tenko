@@ -9,13 +9,13 @@ Modul ini adalah SATU-SATUNYA tempat angka ambang dan pemetaan kosakata RYO hidu
 **Kosakata = pengamatan, BUKAN spesifikasi RYO.** Guide maupun katalog ``/tools`` tidak pernah
 menerbitkan enum untuk ``verdict``, ``verdict.call``, ``confluence.state``, atau ``regime``;
 tabel di bawah ini berasal dari 697 snapshot perekam kami sendiri (docs/api-facts.md §A,
-"Kosakata terukur", api-verifier 1 Sep 2026). Dalam ~13 jam saja MUNCUL DUA nilai yang
+"Kosakata terukur", verifikasi API 1 Sep 2026). Dalam ~13 jam saja MUNCUL DUA nilai yang
 sebelumnya "belum pernah terlihat" (``avoid``, ``regime: neutral``), jadi tabel ini bocor
 menurut bukti sendiri. Konsekuensi yang ditegakkan kode: nilai di luar tabel →
 item ``unspoken`` + warning. Tidak ditebak, tidak dipetakan ke tetangga terdekat, tidak
 dijadikan 0/netral, tidak melempar exception.
 
-Tiga aturan bentuk yang diminta api-verifier (docs/api-facts.md §A):
+Tiga aturan bentuk yang diminta verifikasi API (docs/api-facts.md §A):
 
 1. **Setiap tabel membawa `field`-nya sendiri** (path PERSIS). ``compare_tokens`` memakai
    kosakata ``deep_analysis.verdict.call``, BUKAN kosakata ``analyze_token.verdict`` — dua
@@ -44,7 +44,7 @@ Tiga aturan bentuk yang diminta api-verifier (docs/api-facts.md §A):
      yang berubah hanya kualitas alasan di kartu: "regime risk_off menentang plan long"
      alih-alih "kosakata tak dikenal".
 
-   Nilai baru masuk ke sini hanya lewat ``@agent-api-verifier`` dengan hitungan + tanggal.
+   Nilai baru masuk ke sini hanya lewat verifikasi sumber primer dengan hitungan + tanggal.
    Satu-satunya baris yang hitungannya 0 **di field-nya sendiri** adalah
    ``compare_tokens…verdict = "cautious"``; ia tetap ada karena api-facts §A menyatakan field
    itu memakai namespace ``deep_analysis.verdict.call`` (14× di sana), dan karena verdict di
@@ -241,7 +241,7 @@ def _vocab(field_path: str, entries: dict[str, VocabEntry]) -> Vocabulary:
 
 
 _OBS = "docs/api-facts.md §A 'Kosakata terukur' (697 snapshot, api-verifier 1 Sep 2026)"
-#: Sapuan yang BERLAKU (api-verifier, TASKS 0.12). `_OBS` di atas menunjuk sapuan 697 snapshot
+#: Sapuan yang BERLAKU (verifikasi API, TASKS 0.12). `_OBS` di atas menunjuk sapuan 697 snapshot
 #: yang sudah usang; entri yang disentuh 0.12 memakai konstanta ini, sisanya menyusul saat
 #: fieldnya diperiksa ulang — angka lama tidak dihapus supaya jejaknya tidak hilang.
 SWEEP = "data/ryo.db (mode=ro, sapuan id <= 2165, 4 Sep 2026)"

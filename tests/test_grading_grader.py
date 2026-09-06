@@ -220,7 +220,7 @@ def test_distinct_cycles_are_distinct_events(tmp_path: Path) -> None:
     assert rate.n_effective == 5
 
 
-# --- peristiwa = DATUM, bukan baris snapshot (temuan security-reviewer, TINGGI) ------------
+# --- peristiwa = DATUM, bukan baris snapshot (temuan tinjauan keamanan, TINGGI) ------------
 def build_two_polls_of_one_funding_day(tmp_path: Path) -> Path:
     """Dua tick 8 jam terpisah yang membaca DUA baris `monitor…` ber-datum funding IDENTIK.
 
@@ -494,7 +494,7 @@ def test_two_runs_are_byte_identical(tmp_path: Path) -> None:
 
 
 def test_report_never_prints_a_rate_without_n(tmp_path: Path) -> None:
-    """CLAUDE.md: tidak ada angka agregat tanpa `n`. Setiap baris item membawa n + peristiwa."""
+    """spec §3: tidak ada angka agregat tanpa `n`. Setiap baris item membawa n + peristiwa."""
     path = build_db(tmp_path, cycles=2, repeats=2)
     text = render(report_of(path))
     for line in text.splitlines():

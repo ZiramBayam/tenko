@@ -643,7 +643,7 @@ def _echo_everywhere(payload: str) -> tuple[str | None, str | None, str]:
 # cetak WAJIB muncul di sini. Dua jalur terakhir (`result.status`, `result.tool`) dulu tidak
 # diredaksi sama sekali — `_check_envelope` adalah fungsi tingkat modul tanpa akses ke kunci
 # — dan membocorkan 31 karakter pertama kunci ke stdout lewat HTTP 200 (temuan
-# security-reviewer TASKS 1.5). Menambah jalur server-controlled baru tanpa menambahkannya
+# tinjauan keamanan TASKS 1.5). Menambah jalur server-controlled baru tanpa menambahkannya
 # ke daftar ini berarti tes ini tidak menjaganya; itulah kegagalan yang harus dihindari.
 def _echo_in_trace_id(payload: str) -> list[str]:
     def handler(request: httpx.Request) -> httpx.Response:

@@ -13,7 +13,7 @@ dan tidak pernah memanggil satu tool RYO pun** — ia tidak mengonstruksi klien 
 mengimpor `core.ryo_client`, dan tidak memegang `core.livelock` — sehingga bukti yang tidak
 segar menjadi item `unspoken` → `NO_GO` ber-`reason` jujur ("tidak ada snapshot dalam N menit
 di store"), **bukan** "kuota dipegang perekam": tidak ada yang memegang apa pun, karena tidak
-ada pemanggil kedua. Dasarnya usul **ADR-018** (product-manager 3 Sep 2026, **status: USULAN —
+ada pemanggil kedua. Dasarnya usul **ADR-018** (penjagaan ruang lingkup 3 Sep 2026, **status: USULAN —
 menunggu persetujuan manusia**): pemanggil live kedua atas satu token bucket 60/menit adalah
 risiko tanpa imbalan menjelang kirim, sementara preflight (TASKS 2.2) sudah store-first dan
 demo §7 berbasis fixture. `core.livelock.try_acquire` karena itu **tetap ada tanpa pemanggil
@@ -23,7 +23,7 @@ Tiga penjaga dijalankan berurutan sebelum satu baris pun ditulis, dan urutannya 
 
 1. `preflight.skill.check_aggregate_floor` — "envelope ini konsisten dengan itemnya sendiri?"
 2. `agent.anchor.check_against_evidence` — "itemnya adalah apa yang dikatakan bukti beku?"
-   (TASKS 2.4c-min; menutup serangan 6 & 8 security-reviewer atas 2.2). Dipanggil **sebelum**
+   (TASKS 2.4c-min; menutup serangan 6 & 8 tinjauan keamanan atas 2.2). Dipanggil **sebelum**
    baris `decisions` ditulis dan **sebelum** posisi ditakar dari `plan`.
 3. `core.replay.decision_hash` dihitung ULANG dari bundle + keputusan yang sudah dijangkarkan,
    lalu disamakan dengan `data["decision_hash"]` envelope. Yang disimpan adalah hash yang
@@ -85,7 +85,7 @@ class InsufficientEvidence(Exception):
     keadaan normal yang jujur (kode keluar 0). Keduanya sama dalam satu hal: tidak ada baris
     `decisions` yang lahir.
 
-    **Kenapa tidak ditulis sebagai NO_GO biasa** (temuan SEDANG security-reviewer, 4 Sep 2026):
+    **Kenapa tidak ditulis sebagai NO_GO biasa** (temuan SEDANG tinjauan keamanan, 4 Sep 2026):
     baris ber-`snapshot_ids=[]` membekukan bundle KOSONG, sehingga `decision_hash`-nya dihitung
     atas nol bukti dan `make replay` melaporkan **"IDENTICAL … dari 0 snapshot beku"** — vonis
     yang nyaris tidak membawa informasi tetapi TERLIHAT seperti verifikasi di layar demo §7.
@@ -229,7 +229,7 @@ def _decide_symbol(
     # menjawab 404 sejak 3.1a; agen memakai standar lebih rendah daripada UI-nya sendiri.
     # Simbol yang DIPAKAI mencari, bukan yang diketik: `result.data["symbol"]` sudah dijaga
     # `_check_bookkeeping`, jadi pesannya menyebut simbol yang benar-benar dicari (temuan RENDAH
-    # security-reviewer 0.13 — `"bukti TENTANG sol"` untuk pencarian atas `SOL` menyesatkan).
+    # tinjauan keamanan 0.13 — `"bukti TENTANG sol"` untuk pencarian atas `SOL` menyesatkan).
     searched = result.data.get("symbol") if isinstance(result.data, dict) else None
     named = searched if isinstance(searched, str) and searched else symbol
     spoken_about = symbol_evidence(result.data, named)
@@ -381,7 +381,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         # Buka BACA-SAJA lebih dulu: `Store(...)` biasa MEMBUAT berkas baru, sehingga `--db`
         # yang salah ketik dulu menghasilkan DB kosong yang lalu diisi baris tanpa bukti
-        # (temuan SEDANG security-reviewer, 4 Sep 2026). Resolusi path tetap milik
+        # (temuan SEDANG tinjauan keamanan, 4 Sep 2026). Resolusi path tetap milik
         # `core.store` — agen tidak menebak nama berkasnya sendiri.
         Store(args.db, read_only=True).close()
     except StoreError as exc:

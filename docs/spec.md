@@ -116,4 +116,4 @@ Coping with failure 20 — tetap bekerja saat rate-limited, di-restart, atau dep
 | T3 Fills a gap 25 | Tidak ada tool reliabilitas sinyal di RYO maupun di daftar ide resmi. |
 | T3 Follows the spec 15 | Adapter ke spec skill resmi (menunggu 0.2b); shape output stabil & terdokumentasi. |
 | T3 Could we use it 20 | Satu fungsi, satu shape, tanpa dependency eksternal, berjalan dari DB perekam; README "cara memasang". |
-Ambang rekam video: ≥80 pada setiap track yang dimasuki (dinilai hackathon-judge).
+Ambang rekam video: ≥80 pada setiap track yang dimasuki (dinilai penilaian rubric).

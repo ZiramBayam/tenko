@@ -293,7 +293,7 @@ def test_a_zero_evidence_row_becomes_stale_params_once_the_rules_change(tmp_path
     SEKARANG — jadi begitu params bergeser, baris nol-bukti berhenti terbaca sebagai nol-bukti.
     Memindahkan urutan cabang TIDAK menolong (diuji saat 0.14): cabangnya menjadi tak
     terjangkau, bukan terlambat. Melonggarkan syaratnya menjadi `not frozen_ids` saja akan
-    membuka kembali temuan SEDANG-1 security-reviewer 4 Sep — baris yang buktinya DIKOSONGKAN
+    membuka kembali temuan SEDANG-1 tinjauan keamanan 4 Sep — baris yang buktinya DIKOSONGKAN
     akan mengaku "memang ditulis tanpa bukti".
 
     Jadi `STALE_PARAMS` di sini benar, dan lebih jujur daripada `MISMATCH` yang lama: dengan

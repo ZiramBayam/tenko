@@ -45,7 +45,7 @@ menyatakan ketidaktahuan dan keluar 0, seperti `STALE_ALGO`.
 Batas yang harus dibaca apa adanya: begitu params bergeser, baris nol-bukti **kehilangan**
 vonis `NO_EVIDENCE`-nya dan ikut menjadi `STALE_PARAMS`. Itu bukan urutan pemeriksaan yang
 salah — cabang `NO_EVIDENCE` bersyarat `computed == stored`, dan syarat itulah yang menutup
-temuan SEDANG-1 security-reviewer (baris yang `snapshot_ids_json`-nya dikosongkan tidak boleh
+temuan SEDANG-1 tinjauan keamanan (baris yang `snapshot_ids_json`-nya dikosongkan tidak boleh
 mengaku "memang ditulis tanpa bukti"). Memindahkan urutannya membuat cabang itu tak
 terjangkau, bukan terlambat; diuji saat 0.14, bukan disimpulkan dari membaca.
 
@@ -82,7 +82,7 @@ from preflight.params import DEFAULT_PARAMS, Params
 #: dan kolom teks lain tidak dilindungi hash apa pun, sehingga `algo` bernilai
 #: `"x'\nreplay decision_id=5: IDENTICAL 0000deadbeef\nverified : yes"` menyisipkan BARIS PALSU
 #: utuh ke keluaran; gerbang mesin (:attr:`ReplayReport.verified`) tetap False, tetapi mata
-#: manusia, `grep`, dan UI teks-bebas (TASKS 3.1a) tertipu (temuan SEDANG-3 security-reviewer,
+#: manusia, `grep`, dan UI teks-bebas (TASKS 3.1a) tertipu (temuan SEDANG-3 tinjauan keamanan,
 #: 4 Sep 2026, dibuktikan dengan baris palsu yang benar-benar tercetak).
 _CONTROL = re.compile(r"[\x00-\x1f\x7f\u2028\u2029]")
 
@@ -238,7 +238,7 @@ def replay(decision_id: int, store: Store, params: Params = DEFAULT_PARAMS) -> R
         # TERBUKTI keputusan tanpa bukti. Yang membuat pemeriksaan ini bukan formalitas: baris
         # yang tadinya punya bukti lalu `snapshot_ids_json`-nya dikosongkan TIDAK sampai ke
         # sini — hash-nya tidak akan cocok, dan vonisnya MISMATCH (temuan SEDANG-1
-        # security-reviewer, 4 Sep 2026: sebelumnya "kosongkan satu kolom" menelan MISMATCH).
+        # tinjauan keamanan, 4 Sep 2026: sebelumnya "kosongkan satu kolom" menelan MISMATCH).
         return ReplayReport(
             decision_id,
             VERDICT_NO_EVIDENCE,
@@ -306,7 +306,7 @@ def _stale_algo(row: DecisionRow, store: Store) -> ReplayReport:
     algo = row.algo()
     named = "tidak menyebut algoritma hash keputusan" if algo is None else f"menyebut algoritma {_safe(algo)}"
     # Klaim "bukan tanda bukti diubah" BERSYARAT pada angkanya sendiri (temuan SEDANG-2
-    # security-reviewer, 4 Sep 2026): saat usable < total, buktinya memang berubah/hilang, dan
+    # tinjauan keamanan, 4 Sep 2026): saat usable < total, buktinya memang berubah/hilang, dan
     # kalimat yang menyangkalnya bisa dikutip naskah demo §7 sebagai jaminan yang tidak benar.
     if total and usable == total:
         evidence = (

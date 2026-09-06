@@ -53,7 +53,7 @@ tesisnya kejujuran itu mahal; hijau palsu lebih mahal lagi.
 
 Karena itu semua tes yang menyentuh gate memakai `@skip_if_gate_absent`: bila berkasnya tidak
 ada mereka SKIP dengan alasan yang menyebut apa yang tidak terjaga (paritas gate↔`make lint`
-dan perilaku stop hook) dan mengapa. Alternatifnya adalah melacak `scripts/gate.sh` supaya tes
+dan perilaku hook pra-selesai) dan mengapa. Alternatifnya adalah melacak `scripts/gate.sh` supaya tes
 ini selalu berjalan di mana pun; itu **keputusan pemilik repo**, bukan sesuatu yang dibalik
 diam-diam dari sini. Selama keputusannya tetap, pilihan ini adalah yang jujur — dan tidak ada
 kode produk yang jadi tak teruji: gate hanya menjalankan `ruff`/`pytest`/`grep` yang sama, yang
@@ -85,7 +85,7 @@ GATE_PRESENT = all(path.is_file() for path in GATE_DEPS)
 GATE_ABSENT_REASON = (
     "scripts/gate.sh tidak ada di pohon ini, dan itu memang disengaja: berkasnya dikecualikan "
     "lewat .git/info/exclude (TASKS 0.7 'lokal, tidak dilacak'), jadi clone bersih tidak "
-    "memilikinya. YANG DILEWATI: paritas gate<->`make lint` dan perilaku stop hook (leg pytest, "
+    "memilikinya. YANG DILEWATI: paritas gate<->`make lint` dan perilaku hook pra-selesai (leg pytest, "
     "TENKO_GATE_FULL/SELFTEST). Tesnya tidak rusak dan tidak ada kode produk yang tak teruji - "
     "`make lint` dan `make test` tetap menjalankan pemeriksaan yang sama."
 )
@@ -242,7 +242,7 @@ def _sandbox(tmp_path: Path, body: str, test_body: str = PASSING_TEST) -> Path:
     # `tests/` menjadi berkas `.py` yang belum dilacak, jadi `git ls-files --others` menemukan
     # mereka dan leg pytest terpicu SEPERTI di repo nyata. Tanpa ini `CHANGED_PY` selalu kosong
     # dan satu-satunya cara memicu leg pytest adalah `TENKO_GATE_FULL=1` — yang membuat cabang
-    # "berkas .py bergerak" tidak pernah teruji sama sekali (temuan TINGGI security-reviewer).
+    # "berkas .py bergerak" tidak pernah teruji sama sekali (temuan TINGGI tinjauan keamanan).
     subprocess.run([_exe("git"), "init", "-q"], cwd=tmp_path, check=True, capture_output=True, text=True)
     return tmp_path / "scripts" / "gate.sh"
 
@@ -335,7 +335,7 @@ def test_gate_pytest_leg_is_skipped_inside_a_running_suite(tmp_path: Path) -> No
     Satu-satunya beda dengan (a) adalah variabel itu, jadi ini mengunci artinya: gate melewati
     leg pytest ketika sebuah pytest sudah berjalan di atasnya — dan hanya leg itu.
 
-    Sengaja TANPA `TENKO_GATE_FULL`: sejak temuan TINGGI security-reviewer (6 Sep 2026) `FULL`
+    Sengaja TANPA `TENKO_GATE_FULL`: sejak temuan TINGGI tinjauan keamanan (6 Sep 2026) `FULL`
     diperiksa LEBIH DULU dan mengalahkan `SELFTEST`, jadi memakainya di sini justru akan
     menjalankan leg pytest dan menguji kebalikan dari yang dimaksud. Yang memicu leg pytest di
     sini adalah `CHANGED_PY` — sandbox kini repo git ber-`mod.py` yang belum dilacak.
@@ -344,8 +344,8 @@ def test_gate_pytest_leg_is_skipped_inside_a_running_suite(tmp_path: Path) -> No
     result = _run_gate(gate, selftest=True).proc
     assert result.returncode == 0, result.stdout + result.stderr
     assert "GATE MERAH" not in result.stderr
-    # Dilewati TAPI diumumkan (temuan SEDANG security-reviewer 6 Sep 2026): sebelumnya leg
-    # pytest mati tanpa satu baris pun yang mengatakannya, jadi stop hook bisa hijau di atas
+    # Dilewati TAPI diumumkan (temuan SEDANG tinjauan keamanan 6 Sep 2026): sebelumnya leg
+    # pytest mati tanpa satu baris pun yang mengatakannya, jadi hook pra-selesai bisa hijau di atas
     # suite merah tanpa suara. Yang dijaga di sini bukan kesenyapannya, melainkan suaranya.
     assert "leg pytest DILEWATI" in result.stderr
 
@@ -355,9 +355,9 @@ def test_gate_pytest_leg_is_skipped_inside_a_running_suite(tmp_path: Path) -> No
 def test_gate_full_beats_selftest_so_one_knob_always_wins(tmp_path: Path) -> None:
     """`TENKO_GATE_FULL=1` menjalankan leg pytest MESKI `TENKO_GATE_SELFTEST=1` ada.
 
-    Temuan TINGGI security-reviewer 6 Sep 2026: sebelumnya `SELFTEST` mematikan leg pytest tanpa
+    Temuan TINGGI tinjauan keamanan 6 Sep 2026: sebelumnya `SELFTEST` mematikan leg pytest tanpa
     syarat dan `FULL` tidak bisa mengalahkannya, sehingga variabel yang bocor ke shell operator
-    berarti stop hook HIJAU di atas suite MERAH, tanpa suara. Ini pasangan langsung dari tes di
+    berarti hook pra-selesai HIJAU di atas suite MERAH, tanpa suara. Ini pasangan langsung dari tes di
     atas: sandbox dan suite yang sama, hanya `FULL` yang ditambahkan.
     """
     gate = _sandbox(tmp_path, FORMATTED, test_body=FAILING_TEST)

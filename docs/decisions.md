@@ -39,14 +39,14 @@ Konsekuensi: MAE dilaporkan apa adanya; kill criterion (PRD §7) berlaku.
 ## ADR-008 (DIBATALKAN oleh ADR-012; prinsip "hasil hanya di dalam submission" tetap) Framing Calibration = reliability meter untuk user
 Konteks: data tool = milik RYO; hasil bisa dibaca sebagai audit negatif.
 Keputusan: bahasa produk "rapor sinyal untuk user"; angka selalu relatif ke base rate dan dengan CI; hasil tidak dipublikasikan di luar submission.
-Konsekuensi: pitch-writer & post sosial tidak memuat angka tool RYO.
+Konsekuensi: penulisan dokumen & post sosial tidak memuat angka tool RYO.
 
 ## ADR-009 (DIGANTI oleh ADR-012: keputusan = preflight) Sinyal agen sengaja sederhana
 Konteks: yang dinilai T1 adalah sebab→akibat & jejak, bukan alpha; sinyal kompleks menambah bug.
 Keputusan: kandidat = scan_market rank + check_safety lolos; edge target parametris (bukan prediksi).
 Konsekuensi: metrik utama agen = selisih kumulatif buku mid vs honest + kualitas keputusan skip, bukan PnL absolut.
 
-## ADR-010 (USULAN — menunggu keputusan user, 1 Sep 2026) Pivot: Calibration Ledger jadi tulang punggung; agen T1 = "Trust Meter Agent"; Honest Fill diparkir
+## ADR-010 (DITERIMA 6 Sep 2026; diusulkan 1 Sep 2026) Pivot: Calibration Ledger jadi tulang punggung; agen T1 = "Trust Meter Agent"; Honest Fill diparkir
 Konteks: RYO Builder MCP Guide (13 Aug 2026) menunjukkan 6 tool berbasis **simbol** (SOL/BTC/CAKE), listing pasar luas, tanpa
 tool safety, tanpa reserves/likuiditas pool, tanpa mint address. Honest Fill v1 (impact constant-product + sandwich per jam)
 membutuhkan reserves & mint untuk join ke swap on-chain — keduanya tidak tersedia dari endpoint approved; untuk aset seukuran
@@ -67,7 +67,7 @@ Konsekuensi: PRD §2/§5 & spec §4–§5 direvisi setelah user setuju; paket `h
 Calibration + agen; jadwal lebih longgar (dua produk → satu produk dua wajah). Risiko: quota per key membatasi cadence
 perekam → prioritaskan watchlist tetap (≤25 simbol) dan `deep_analysis` per jam, `analyze_token` lebih sering untuk outcome.
 
-## ADR-011 (USULAN, 1 Sep 2026) Mekanik sosial & peran model AI — memenuhi definisi resmi "Agentic SocialFi"
+## ADR-011 (DITERIMA 6 Sep 2026; diusulkan 1 Sep 2026) Mekanik sosial & peran model AI — memenuhi definisi resmi "Agentic SocialFi"
 Konteks: landing ryobuild.com mendefinisikan Social = public reasoning / reputation / debat / group discovery, dan menyatakan
 "your own AI model — RYO does not call one for you". Rencana ADR-010 belum punya mekanik sosial eksplisit dan tanpa model AI.
 Keputusan (usulan):
@@ -78,7 +78,7 @@ Keputusan (usulan):
    post sosial (berlabel SIMULATED).
 3. **Model AI** = LLM hanya untuk narasi kartu dari bukti terstruktur (bukan keputusan; ADR-003 tetap). Tes menjaga: narasi tidak
    mengubah decision_hash; prompt membungkus data sebagai data (anti-injeksi dari field summary tool). Model & SDK diputuskan
-   di versions.md oleh api-verifier saat task-nya dibuat (evaluator sudah memakai anthropic SDK — bisa disamakan).
+   di versions.md oleh verifikasi API saat task-nya dibuat (evaluator sudah memakai anthropic SDK — bisa disamakan).
 4. Tidak dibangun: debat multi-agen, KOL/X monitoring, komentar/voting user (butuh auth & moderasi; di luar 7 hari).
 Konsekuensi: +1 task UI (kartu trade) dan +1 task narasi (Fase 3/4); DISCLOSURE menyebut model AI; LLM = dependency baru.
 
@@ -113,7 +113,7 @@ Konsekuensi: core/skill.py mengikuti §3 spec v2; README menunjukkan diff bentuk
 Konteks: pemilik proyek memutuskan estetika awwwards (3D + GSAP + smooth scroll) untuk seluruh layar, bukan hanya
 landing page. ADR-001 mengunci Python murni tanpa Node/npm; versions.md lama mengandaikan "Chart.js dari CDN".
 spec §7 langkah 5 menuntut `make demo` jalan dari fixture offline dengan dua run identik, TASKS 4.5 menguji keadaan
-host mati, dan TASKS 4.6 menuntut navigasi keyboard penuh. Verifikasi lisensi/versi: api-verifier 1 Sep 2026.
+host mati, dan TASKS 4.6 menuntut navigasi keyboard penuh. Verifikasi lisensi/versi: verifikasi API 1 Sep 2026.
 Keputusan:
 1. Gaya awwwards diterapkan ke Layar A (watchlist) dan Layar B (kartu panggilan), bukan hanya landing.
 2. Library di-vendor apa adanya ke `ui/static/vendor/` — TANPA CDN, TANPA npm, tanpa build step (ADR-001 utuh).
@@ -134,7 +134,7 @@ ScrollTrigger 3.12.5 → 3.15.0 BELUM DIVERIFIKASI (changelog resmi tidak dapat 
 3.2; Chart.js gugur — grafik memakai SVG/canvas inline; `sources.yaml` tidak bertambah karena file vendored bukan
 sumber runtime eksternal.
 
-## ADR-015 (USULAN — menunggu keputusan manusia, 1 Sep 2026) `SkillResult` mengikuti envelope RYO NYATA: `schema_version="1.0"`, `simulated` satu-satunya field tambahan
+## ADR-015 (DITERIMA 6 Sep 2026; diusulkan 1 Sep 2026) `SkillResult` mengikuti envelope RYO NYATA: `schema_version="1.0"`, `simulated` satu-satunya field tambahan
 Konteks: `docs/spec.md` §3 menulis `schema_version: str = "1"`. Itu ditulis SEBELUM sampel live TASKS 0.3 ada.
 Keenam `docs/samples/*.json` memakai `"1.0"` dan berbagi sepuluh field top-level yang persis sama
 (`schema_version, tool, status, data_mode, as_of, request, data, summary, availability, warnings`) — diverifikasi
@@ -149,7 +149,7 @@ Keputusan (usulan):
    melanggar rules-compliance.
 3. "Field top-level identik" di AC 1.3 dibaca sebagai invarian himpunan yang diuji mekanis terhadap
    `docs/samples/analyze_token.json`: `RYO_TOP_LEVEL ⊆ milik kita` DAN selisihnya tepat `{"simulated"}`.
-4. (ditambahkan setelah verifikasi api-verifier 1 Sep 2026) Dua penyimpangan lain dari teks spec §3 ikut diputuskan
+4. (ditambahkan setelah verifikasi verifikasi API 1 Sep 2026) Dua penyimpangan lain dari teks spec §3 ikut diputuskan
    di sini, supaya tidak ada perubahan diam-diam: (a) spec menulis `as_of: datetime` non-null, kode memakai
    `datetime | None` karena cabang `unavailable` tidak punya bukti dan karenanya tidak punya waktu — memaksa
    `now()` di situ akan melanggar determinisme ADR-003 dan merusak AC "dua run byte-identik"; (b) spec tidak
@@ -165,7 +165,7 @@ Penambahan field top-level baru di kemudian hari butuh ADR sendiri. README menam
 Status: kode 1.3 dibangun memakai `"1.0"` karena itu yang terverifikasi dari sumber primer; bila manusia menolak,
 yang berubah hanya satu konstanta + satu tes.
 
-## ADR-016 (USULAN 1 Sep 2026) Dua generasi di data/ryo.db: dilaporkan STALE_ALGO, tidak dihapus, tidak disembunyikan
+## ADR-016 (DITERIMA 6 Sep 2026; diusulkan 1 Sep 2026) Dua generasi di data/ryo.db: dilaporkan STALE_ALGO, tidak dihapus, tidak disembunyikan
 Konteks: `data/ryo.db` memuat 19 baris `decisions` + 9 `trade_events` yang ditulis implementasi yang
 dihapus 1 Sep 2026. `blocking_json`-nya berisi integer (`'[5,6,10]'`) sedangkan `core/replay.py`
 mewajibkan id item bertipe `str` → `ReplayError`; `card_json`-nya tidak memuat `algo`; `params_hash`-nya
@@ -202,7 +202,7 @@ Konsekuensi yang ditulis apa adanya: baris **nol-bukti** kehilangan vonis `NO_EV
 params bergeser, karena cabang itu bersyarat `computed == stored` dan `computed` memakai params
 sekarang. Memindahkan urutan cabangnya tidak menolong — ia menjadi tak terjangkau, bukan terlambat
 (diuji, bukan disimpulkan). Melonggarkan syaratnya menjadi `not frozen_ids` saja akan membuka kembali
-temuan SEDANG-1 security-reviewer 4 Sep, jadi syarat itu dipertahankan.
+temuan SEDANG-1 tinjauan keamanan 4 Sep, jadi syarat itu dipertahankan.
 
 ## ADR-017 (DITERIMA 6 Sep 2026; diusulkan 2 Sep 2026) Keadaan ketiga spec §4: `neutral` = hijau tanpa konfirmasi
 **Status: DITERIMA** oleh pemilik repo 6 Sep 2026 (TASKS 2.1c). Kode 2.1 sudah menerapkannya sejak
@@ -243,7 +243,7 @@ confluence MIXED 43%, kesegaran, kelengkapan, rr, relatif), bukan dari mayoritas
 menerbitkan enum resmi yang menyatakan `neutral` bermakna bearish, ADR ini dicabut, `params_hash` berubah,
 dan keputusan lama tetap bisa di-replay dengan params lamanya.
 
-## ADR-018 (USULAN 3 Sep 2026, ditulis 4 Sep 2026) Agen store-first murni: fallback live DICABUT
+## ADR-018 (DITERIMA 6 Sep 2026; diusulkan 3 Sep 2026, ditulis 4 Sep 2026) Agen store-first murni: fallback live DICABUT
 **Status: USULAN — menunggu keputusan manusia.** Jangan dibaca sebagai DITERIMA. Kode yang
 mengandalkannya (`agent/main.py`, `scripts/daemons.sh`) menyebut status ini apa adanya dan
 dipatok tes (`tests/test_agent.py::test_main_docstring_states_the_deviation_and_points_at_adr_018`).
@@ -258,12 +258,12 @@ segar", dan TASKS 2.0b semula meminta agen menjadi pemanggil live kedua di belak
    17–34 dtk, `compare_tokens` ≈40 dtk) — di depan juri itu bukan demo, itu jeda.
 3. TASKS 2.2 sudah menjadikan `preflight` **store-first murni** dan naskah demo §7 berbasis fixture
    offline, sehingga kemampuan live agen tidak dipakai satu langkah demo pun.
-Ditambah temuan security-reviewer 2.0a (2 Sep 2026): resolusi path kunci berbeda antara perekam
+Ditambah temuan tinjauan keamanan 2.0a (2 Sep 2026): resolusi path kunci berbeda antara perekam
 (`load_dotenv`) dan agen (tidak), sehingga `RECORDER_LOCK_PATH` di `.env` membuat **kedua** pemanggil
 menang atas kunci yang sama — dua pemanggil live atas satu kuota, persis kegagalan yang kunci itu ada
 untuk mencegahnya.
 
-Keputusan (usulan product-manager, dilaksanakan di TASKS 2.0b-lite + 2.4):
+Keputusan (usulan penjagaan ruang lingkup, dilaksanakan di TASKS 2.0b-lite + 2.4):
 1. `agent/` **tidak pernah** mengonstruksi klien live dan tidak mengimpor `core.ryo_client`. Bukti yang
    tidak cukup segar menjadi item `unspoken` → `NO_GO` ber-`reason` yang menyebut **store** ("no snapshot
    within N min in the store"), **bukan** "kuota dipegang perekam": tidak ada yang memegang apa pun,

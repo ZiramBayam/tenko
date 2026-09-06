@@ -112,7 +112,7 @@ def test_point_estimate_is_never_deflated() -> None:
 
 
 def test_n_zero_is_not_a_rate() -> None:
-    """0/0 bukan 0 (CLAUDE.md): tidak ada titik estimasi, tidak ada selang."""
+    """0/0 bukan 0 (ADR-013): tidak ada titik estimasi, tidak ada selang."""
     rate = observed_rate(0, 0, 0)
     assert rate.point is None
     assert rate.interval is None
@@ -180,7 +180,7 @@ def test_half_up_rounding_is_stable_across_items() -> None:
 
 
 def test_as_dict_always_carries_n_and_events() -> None:
-    """Tidak ada angka agregat tanpa `n` (CLAUDE.md) — termasuk di bentuk mesin."""
+    """Tidak ada angka agregat tanpa `n` (spec §3) — termasuk di bentuk mesin."""
     payload = observed_rate(0, 5, 2).as_dict()
     assert payload["n"] == 5
     assert payload["events"] == 2

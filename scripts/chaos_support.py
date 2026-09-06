@@ -339,7 +339,7 @@ def evidence_refusal(path: Path, *, hot_journal_ok: bool = False) -> str | None:
     """Alasan menolak membuka `path` dengan koneksi yang BISA MENULIS, atau None bila aman.
 
     Tiga alasan yang saling bebas, disusun agar konsisten dengan `core.recorder.fixture_refusal`
-    (temuan SEDANG security-reviewer atas chaos): berkasnya adalah store bukti repo (identitas
+    (temuan SEDANG tinjauan keamanan atas chaos): berkasnya adalah store bukti repo (identitas
     inode, jadi cwd lain, symlink, dan hardlink tertangkap); ia berada di dalam direktori bukti
     `ROOT/data`; atau ia memegang buku besar `decisions`.
 

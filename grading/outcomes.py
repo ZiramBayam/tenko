@@ -71,7 +71,7 @@ PRICE_TOOL = "analyze_token"
 PRICE_FIELD = "data.market.price_usd"
 
 #: Nilai `Outcome.status`. `open_at_horizon` = jendela LENGKAP dan tidak ada sisi yang tersentuh;
-#: sisanya adalah ketiadaan data, dan ketiadaan data tidak pernah menjadi 0 (CLAUDE.md).
+#: sisanya adalah ketiadaan data, dan ketiadaan data tidak pernah menjadi 0 (ADR-013).
 OutcomeStatus = str
 STOP_FIRST: OutcomeStatus = "stop_first"
 TARGET_FIRST: OutcomeStatus = "target_first"
@@ -213,7 +213,7 @@ def price_series(store: Store, symbol: str) -> tuple[list[PricePoint], int]:
 
     Raises:
         GradingDataError: `store` bisa menulis. Alat ukur tidak boleh memegang koneksi yang
-            bisa mengubah DB hidup (temuan SEDANG security-reviewer 2.1b): `Store._select`
+            bisa mengubah DB hidup (temuan SEDANG tinjauan keamanan 2.1b): `Store._select`
             meneruskan SQL apa pun ke koneksinya.
     """
     if not getattr(store, "read_only", False):

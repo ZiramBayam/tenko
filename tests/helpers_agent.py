@@ -79,7 +79,7 @@ def build_store(
     # Presisi DETIK, bukan mikrodetik: envelope RYO berpresisi detik (ADR-015 poin 5, 476/476
     # baris), dan pemancar kami memotong ke detik. `as_of` bermikrodetik membuat
     # `agent.anchor.recompute` membandingkan nilai terpotong dengan nilai beku mentah, lalu
-    # menolak SETIAP baris — 48 tes merah, ditemukan frontend-engineer 5 Sep 2026.
+    # menolak SETIAP baris — 48 tes merah, ditemukan kerja layar 5 Sep 2026.
     moment = (at if at is not None else datetime.now(UTC)).replace(microsecond=0)
     ts = (moment - timedelta(minutes=age_min)).isoformat()
     store = Store(tmp_path / name)
@@ -154,7 +154,7 @@ def align_inner_clocks(envelope: dict[str, Any], stamp: str) -> None:
     `data.source.timestamp` = `2026-09-01T03:48:32Z`). Begitu baris uji memindahkan `as_of` ke
     "sekarang" tanpa memindahkan dua yang di dalam, item 1 mengambil yang TERTUA dan membaca
     bukti berumur berhari-hari — sehingga `01_freshness` menahan SETIAP simbol dan yang diuji
-    berubah diam-diam (ditemukan frontend-engineer, 5 Sep 2026).
+    berubah diam-diam (ditemukan kerja layar, 5 Sep 2026).
     """
     data = envelope.get("data")
     if not isinstance(data, dict):

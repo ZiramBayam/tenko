@@ -44,7 +44,7 @@ Kredensial (klaim di bawah ini punya tes regresi di ``tests/test_ryo_client.py``
   Dua yang terakhir dulu TIDAK diredaksi sama sekali: ``_check_envelope`` adalah fungsi
   tingkat modul, jadi ia tidak punya akses ke kunci dan secara struktural tidak bisa
   meredaksi; ia membocorkan 31 karakter pertama kunci ke stdout dan ke ``logs/*.log``
-  (temuan security-reviewer TASKS 1.5). Sekarang ia method, dan :meth:`BaseRyoClient._safe`
+  (temuan tinjauan keamanan TASKS 1.5). Sekarang ia method, dan :meth:`BaseRyoClient._safe`
   dibuat **abstrak** supaya klien baru tidak bisa diam-diam tidak meredaksi.
   Selain bentuk PERSIS, :func:`_redact_fragments` juga menelan **potongan** berurutan
   ≥ :data:`MIN_SECRET_FRAGMENT` (12) karakter dari tiap bentuk — server yang memantulkan
@@ -485,7 +485,7 @@ class BaseRyoClient(ABC):
         kebijakan redaksinya. Default yang aman-terlihat adalah cara temuan ini lahir —
         `_check_envelope` dulu fungsi tingkat modul tanpa akses ke kunci, sehingga dua jalur
         (`result.status`, `result.tool`) secara STRUKTURAL tidak bisa diredaksi dan
-        membocorkan kunci lewat respons HTTP 200 (security-reviewer, TASKS 1.5).
+        membocorkan kunci lewat respons HTTP 200 (tinjauan keamanan, TASKS 1.5).
         """
 
     def _server_text(self, value: Any, limit: int) -> str:
@@ -674,7 +674,7 @@ class RyoClient(BaseRyoClient):
         # Gate DULU, kredensial belakangan. Urutan sebaliknya membuat gate tidak pernah
         # terjangkau di mesin tanpa kredensial: pengguna diberi tahu "belum diset" padahal
         # sebab sebenarnya bisa jadi sumber yang belum disetujui, dan AC 1.3(5) hanya lolos
-        # karena kredensial kebetulan ada (temuan security-reviewer fase 1).
+        # karena kredensial kebetulan ada (temuan tinjauan keamanan fase 1).
         require_source(RYO_TOOLS, env=None if env is None else dict(env))
         source = os.environ if env is None else env
         base_url = source.get(ENV_URL, "")

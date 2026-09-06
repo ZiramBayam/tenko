@@ -99,7 +99,7 @@ from core.sources import LLM_NARRATION, SourcesError, require_source
 
 log = logging.getLogger("preflight.narrate")
 
-#: Model + SDK dipin di docs/versions.md (api-verifier). Jangan ganti tanpa memperbarui pin.
+#: Model + SDK dipin di docs/versions.md (verifikasi API). Jangan ganti tanpa memperbarui pin.
 MODEL = "claude-opus-5"
 #: `effort` ada DI DALAM `output_config` pada API ini, bukan top-level.
 EFFORT = "low"
@@ -318,7 +318,7 @@ def evidence_payload(result: SkillResult) -> dict[str, Any]:
 def build_prompt(result: SkillResult) -> str:
     """Pesan user: kalimat kami di luar tag, bukti pihak ketiga di dalam tag.
 
-    **Daftar id juga DATA, bukan instruksi** (temuan SEDANG security-reviewer 4 Sep 2026):
+    **Daftar id juga DATA, bukan instruksi** (temuan SEDANG tinjauan keamanan 4 Sep 2026):
     ia berasal dari `data["items"]` atau — untuk envelope penolakan — dari kunci
     `availability`, yang `core/skill.py` sengaja izinkan berupa teks apa pun sepanjang
     :data:`core.skill.KEY_LIMIT`. Karena letaknya di LUAR tag, id dibersihkan `clean_text`
@@ -342,7 +342,7 @@ def output_schema(item_ids: list[str]) -> dict[str, Any]:
     """Structured output: bentuk keluaran dipaksa skema, bukan prefill (prefill sudah dihapus).
 
     **Batas keras yang mudah dilanggar — baca sebelum menambah satu keyword pun** (rujukan:
-    docs/versions.md, "Bentuk request narasi (anthropic 1.2.0) — DIVERIFIKASI api-verifier
+    docs/versions.md, "Bentuk request narasi (anthropic 1.2.0) — DIVERIFIKASI verifikasi API
     4 Sep 2026"): structured outputs MENOLAK `maxLength`/`minLength`, `maxItems`, constraint
     numerik, dan `minItems` selain 0/1 — jawabannya **400**, jadi narasi mati 100% dan
     diam-diam. `anthropic.lib._parse._transform.transform_schema` yang biasanya memindahkan
@@ -405,7 +405,7 @@ def has_credentials(env: dict[str, str] | None = None) -> bool:
 def _credential_gate(env: dict[str, str] | None) -> str | None:
     """`None` bila boleh memanggil; kalau tidak, sebab yang bisa ditindaklanjuti manusia.
 
-    **Dua sumber kebenaran adalah perangkapnya** (temuan SEDANG security-reviewer 4 Sep
+    **Dua sumber kebenaran adalah perangkapnya** (temuan SEDANG tinjauan keamanan 4 Sep
     2026): `has_credentials` membaca `env` yang diberikan pemanggil, sedangkan SDK membaca
     `os.environ` proses. Pemanggil yang memuat `.env` ke sebuah dict lalu mengirimkannya
     sebagai `env=` akan lolos pemeriksaan dan meledak di dalam SDK (`TypeError: Could not
@@ -555,7 +555,7 @@ def narrate(
         except (anthropic.AnthropicError, TypeError, ValueError) as exc:
             # `TypeError` ADA di daftar ini karena SDK 1.2.0 melempar itu — bukan
             # `AnthropicError` — saat metode autentikasi tidak bisa diresolusi (temuan
-            # SEDANG security-reviewer 4 Sep 2026). Menangkap hanya `AnthropicError` berarti
+            # SEDANG tinjauan keamanan 4 Sep 2026). Menangkap hanya `AnthropicError` berarti
             # penjaga yang tidak pernah menyala.
             return Narration.unavailable(
                 f"the LLM client could not be built ({type(exc).__name__}); check that "
@@ -569,7 +569,7 @@ def narrate(
         # Envelope yang SAH menurut `core/skill.py` masih bisa gagal diserialisasi: model itu
         # menjalankan `_unrepresentable` atas `data` dan `ItemResult.value`, tetapi TIDAK atas
         # `summary`/`request` — dan `evidence_payload` memetik keduanya (temuan SEDANG
-        # security-reviewer 4 Sep 2026). `_safe` sudah membatasi magnitudo integer; ini pagar
+        # tinjauan keamanan 4 Sep 2026). `_safe` sudah membatasi magnitudo integer; ini pagar
         # kedua supaya "tidak pernah melempar" berlaku mutlak, bukan hampir.
         log.warning("kartu tidak bisa dirakit menjadi bukti prompt: %s", type(exc).__name__)
         return Narration.unavailable(
@@ -625,7 +625,7 @@ def narrate(
     except anthropic.NotFoundError:
         return Narration.unavailable(
             f"model {MODEL} was not found (404); the pin lives in docs/versions.md and only "
-            "api-verifier may change it",
+            "verifikasi API may change it",
             n_items,
         )
     except anthropic.BadRequestError as exc:
@@ -633,7 +633,7 @@ def narrate(
         log.warning("narasi ditolak sebagai request tak sah: %s", type(exc).__name__)
         return Narration.unavailable(
             "the narration request was rejected as malformed (400); the request shape in "
-            "preflight/narrate.py needs re-verification by api-verifier",
+            "preflight/narrate.py needs re-verification by verifikasi API",
             n_items,
         )
     except anthropic.APIStatusError as exc:

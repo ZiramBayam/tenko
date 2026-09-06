@@ -634,7 +634,7 @@ def test_output_schema_pins_the_item_ids(tmp_path: Path) -> None:
 
 
 #: Keyword yang DITOLAK structured outputs → HTTP 400 → narasi mati 100% dan diam-diam.
-#: Daftar dari docs/versions.md "Bentuk request narasi … DIVERIFIKASI api-verifier 4 Sep 2026"
+#: Daftar dari docs/versions.md "Bentuk request narasi … DIVERIFIKASI verifikasi API 4 Sep 2026"
 #: (dan `anthropic/lib/_parse/_transform.py`). `transform_schema` TIDAK menyelamatkan skema
 #: dict mentah yang dikirim lewat `output_config={"format": ...}`, jadi penjaganya di sini.
 FORBIDDEN_SCHEMA_KEYWORDS = frozenset(

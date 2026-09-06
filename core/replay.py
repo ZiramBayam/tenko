@@ -50,7 +50,7 @@ Membandingkan hasil dengan kolom ``decisions.decision_hash`` yang tersimpan (IDE
 MISMATCH) adalah tugas TASKS 2.4, bukan modul ini.
 
 **Batas yang harus dibaca sebelum mengklaim apa pun tentang modul ini** (dibuktikan
-security-reviewer, 1 Sep 2026; bukan cacat yang belum diperbaiki, melainkan scope):
+tinjauan keamanan, 1 Sep 2026; bukan cacat yang belum diperbaiki, melainkan scope):
 
 * :func:`verify_bundle` menjawab "bundle ini konsisten dengan dirinya sendiri", BUKAN "bukti
   ini benar-benar ada di store". :class:`Bundle` yang dirakit tangan dari

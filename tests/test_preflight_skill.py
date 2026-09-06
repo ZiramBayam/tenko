@@ -231,7 +231,7 @@ def test_cli_accepts_the_intent_as_a_second_argument(tmp_path: Path) -> None:
 def test_bare_cli_finds_the_skill_through_the_module_map(tmp_path: Path) -> None:
     """Jalur `make skill` apa adanya: `python -m core.skill_cli`, TANPA paket pemilik diimpor.
 
-    `core/skill.py` memetakan `preflight -> preflight.skill` (diisi core-engineer), dan
+    `core/skill.py` memetakan `preflight -> preflight.skill` (diisi kerja core), dan
     `load_skill` mengimpornya secara malas. Tes ini yang menjaga jalur itu: kalau entri peta
     hilang, envelope masih sah tetapi `data`-nya `None` dan `warnings` berbunyi "not
     registered" — demo §7 langkah 1 mati tanpa satu tes pun merah kalau tidak dipatok di sini.
@@ -302,7 +302,7 @@ def test_decision_hash_can_be_recomputed_from_the_store(tmp_path: Path) -> None:
 
 
 def test_shifting_ts_utc_alone_cannot_make_stale_evidence_look_fresh(tmp_path: Path) -> None:
-    """Regresi eksperimen-2 security-reviewer (TASKS 2.2b AC(7)), dari ujung ke ujung.
+    """Regresi eksperimen-2 tinjauan keamanan (TASKS 2.2b AC(7)), dari ujung ke ujung.
 
     Serangannya: satu penulisan mentah ke kolom `ts_utc` atas bukti berumur 3 hari membuatnya
     tampak berumur menit, dan `verify_bundle` LOLOS karena `payload_hash` tidak menyentuh kolom
@@ -372,7 +372,7 @@ def test_plan_is_a_passthrough_of_item_nine(tmp_path: Path) -> None:
     # Dipatok ke jangkar LUAR, bukan keluaran-vs-keluaran: `as_of` baris uji diketahui sejak
     # disemai (`NOW - 2 mnt`, presisi detik), jadi bandingkan dengan nilai itu. Versi antara
     # membandingkan `plan["source"]` dengan `store_reads` — keduanya keluaran fungsi yang sama,
-    # jadi ia akan tetap hijau kalau keduanya salah bersama (temuan RENDAH security-reviewer).
+    # jadi ia akan tetap hijau kalau keduanya salah bersama (temuan RENDAH tinjauan keamanan).
     expected_as_of = (NOW - timedelta(minutes=2)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     assert plan["source"]["as_of"] == expected_as_of
     assert result.data["store_reads"]["tools"][DEEP]["as_of"] == expected_as_of
@@ -552,7 +552,7 @@ def test_compare_symbols_never_repeat_a_token(symbol: str, expected: str) -> Non
 def test_compare_symbols_for_a_peer_symbol_still_find_their_rows(tmp_path: Path) -> None:
     """Penulis dan pencari baris sepakat: store diisi dengan args ber-dedupe, lalu ditemukan.
 
-    **Batas tes ini (ditandai api-verifier):** store-nya dibangun dari `tool_args` yang sama,
+    **Batas tes ini (ditandai verifikasi API):** store-nya dibangun dari `tool_args` yang sama,
     jadi ia SIRKULAR terhadap DB nyata — ia membuktikan kedua sisi kode sepakat, BUKAN bahwa
     baris `compare_tokens` untuk `BNB` ada di `data/ryo.db` (hari ini tidak ada satu pun;
     TASKS 2.0c yang membuatnya).
@@ -884,7 +884,7 @@ def test_headline_names_both_the_verdict_and_the_n(tmp_path: Path) -> None:
     assert "10 of 10" in headline
 
 
-# --- lima serangan security-reviewer atas envelope preflight ASLI (TINGGI-1, 3 Sep 2026) ---
+# --- lima serangan tinjauan keamanan atas envelope preflight ASLI (TINGGI-1, 3 Sep 2026) ---
 # Semuanya menambal `result.data`/`result.summary` SETELAH validasi — celah nyata yang diakui
 # `core/skill.py` (model beku, isi `data` tidak). Versi pertama `check_aggregate_floor` LOLOS
 # kelimanya karena ia hanya memeriksa konsistensi angka, bukan menghitung ulang vonisnya.

@@ -30,7 +30,7 @@ Sifat modul ini (setiap klaim di bawah punya tes di ``tests/test_store.py``):
   kondisi yang sama teramati) dan replay kehilangan urutan waktu.
 
   **Batas yang diakui, harus dibaca sebelum mengklaim apa pun tentang modul ini** (dicatat
-  hackathon-judge, 1 Sep 2026; scope, bukan cacat yang belum diperbaiki): jaminan
+  penilaian rubric, 1 Sep 2026; scope, bukan cacat yang belum diperbaiki): jaminan
   hanya-tambah berlaku **di batas API** :class:`Store`, BUKAN pada objek koneksi.
   ``Store._db`` adalah handle SQLite mentah yang SENGAJA tidak dilindungi lapis (2): siapa
   pun yang memegangnya bisa menjalankan ``REPLACE INTO``/``INSERT OR REPLACE`` sendiri, dan
@@ -71,7 +71,7 @@ Sifat modul ini (setiap klaim di bawah punya tes di ``tests/test_store.py``):
   oleh SQLite sendiri. Dipakai UI, yang memang tidak pernah menulis apa pun.
 
   Klaim "tidak bisa menulis" itu **pernah tidak benar** (TASKS 0.10, temuan TINGGI
-  security-reviewer 2.4): URI-nya dirakit dengan f-string, jadi path ber-``?`` atau ber-``#``
+  tinjauan keamanan 2.4): URI-nya dirakit dengan f-string, jadi path ber-``?`` atau ber-``#``
   memindahkan sisa teks ke bagian query dan ``mode=ro`` bisa ditimpa. Sekarang ia berdiri di
   tiga lapis yang saling bebas: :func:`_resolve_path` menolak ``?``/``#``, URI-nya dirakit
   dengan ``urllib.parse.quote``, dan koneksinya menyalakan ``PRAGMA query_only`` — yang tidak
@@ -83,7 +83,7 @@ Sifat modul ini (setiap klaim di bawah punya tes di ``tests/test_store.py``):
   luar proses ini.
 
 * **Kesegaran punya batas atas, dan itu kewarasan JAM — bukan integritas** (TASKS 2.0d, atas
-  temuan TINGGI-2 security-reviewer 2 Sep 2026). Kolom ``ts_utc`` **tidak dijaga hash
+  temuan TINGGI-2 tinjauan keamanan 2 Sep 2026). Kolom ``ts_utc`` **tidak dijaga hash
   tersimpan mana pun**: ``snapshots.args_hash`` menutupi ``args_json`` dan
   ``snapshots.payload_hash`` menutupi ``payload_json``, sementara ``ts_utc`` berdiri sendiri —
   ``core.replay._check_entry`` hanya menghitung ulang kedua hash itu. Karena itu
@@ -164,7 +164,7 @@ FRESH_SCAN_LIMIT = 64
 #: Kenapa 120 detik, dari data dan bukan dari selera:
 #:
 #: * Skew nyata `as_of - ts_utc` di `data/ryo.db` (1521 baris, 3 Sep 2026; 1206 baris saat
-#:   pengukuran security-reviewer 2 Sep): p50 -0,44 dtk (-0,6 dtk pada n=1206), p05 -2,8 dtk,
+#:   pengukuran tinjauan keamanan 2 Sep): p50 -0,44 dtk (-0,6 dtk pada n=1206), p05 -2,8 dtk,
 #:   p95 +1,1 dtk, ekor min -71,0 dtk / maks +2,3 dtk. Jarak terjauh `ts_utc` mendahului
 #:   `as_of` adalah 71 dtk, masih di bawah 120.
 #: * **0 dari 1521** baris nyata punya `ts_utc > now` (0/1206 pada pengukuran sebelumnya),
@@ -196,7 +196,7 @@ RECENT_ARGS_LIMIT = 8192
 #: menggeser `ts_utc` tinggal menggesernya juga.
 #:
 #: **Apa yang ini lakukan, dan apa yang TIDAK** (TASKS 2.2b AC(7)). Ia **menaikkan biaya**
-#: serangan; ia tidak menutupnya. Jangan menulis "menutup" di sini lagi — security-reviewer
+#: serangan; ia tidak menutupnya. Jangan menulis "menutup" di sini lagi — tinjauan keamanan
 #: membuktikan (5 Sep 2026) bahwa penulis mentah yang mengubah `payload_json` SELURUHNYA secara
 #: konsisten (`as_of` + `data.observation_as_of` + `data.source.timestamp`) lalu menghitung ulang
 #: `payload_hash` tetap mengubah `unavailable` menjadi `partial/GO` tanpa satu peringatan pun,
@@ -212,12 +212,12 @@ RECENT_ARGS_LIMIT = 8192
 #: **Yang lubangnya memang ditutup** dibanding `FUTURE_SKEW_TOLERANCE_S`:
 #: `latest_fresh` memilih dengan `ORDER BY ts_utc DESC` atas kolom yang tidak terjaga, jadi
 #: penulis mentah yang menggeser SATU kolom `ts_utc` mundur membuat bukti tua tampak baru —
-#: security-reviewer membuktikannya: satu penulisan mentah ke kolom itu atas bukti berumur 3
+#: tinjauan keamanan membuktikannya: satu penulisan mentah ke kolom itu atas bukti berumur 3
 #: hari mengubah `unavailable/NO_GO` menjadi `partial/GO` sementara `verify_bundle` tetap LOLOS. `as_of` tidak
 #: bisa ikut digeser tanpa menghitung ulang `payload_hash`, jadi pertengkaran keduanya adalah
 #: tanda tangan serangan itu.
 #:
-#: **Simetri `abs()` adalah permukaan, bukan pertahanan** (security-reviewer 2.2b): tanda tangan
+#: **Simetri `abs()` adalah permukaan, bukan pertahanan** (tinjauan keamanan 2.2b): tanda tangan
 #: pemalsuan yang dinamai di atas selalu skew POSITIF (`ts_utc` digeser maju). Sisi negatif hanya
 #: lahir dari jam RYO yang memang di depan (≤2,33 dtk terukur). Ia dipertahankan karena gratis
 #: hari ini (0 dari 2537) dan karena `as_of` yang melompat maju tetap tanda sesuatu yang salah.
@@ -386,14 +386,14 @@ def _authorizer(
             # Hanya MENYALAKAN yang diizinkan. Tanpa pemeriksaan nilai ini, pemegang `_db` —
             # penyerang yang docstring modul ini akui ada dalam scope — cukup menulis
             # `PRAGMA query_only=OFF` untuk mencabut lapis ketiga, dan lapis itu berhenti
-            # menjadi cadangan yang berdiri sendiri (temuan SEDANG security-reviewer 0.10).
+            # menjadi cadangan yang berdiri sendiri (temuan SEDANG tinjauan keamanan 0.10).
             # `arg2 is None` = MEMBACA nilainya. Dibiarkan lewat supaya lapis ketiga bisa
             # diperiksa (dan dipatok tes), bukan sekadar dipercaya.
             if arg2 is None or arg2.strip().lower() in QUERY_ONLY_ON:
                 return sqlite3.SQLITE_OK
             # Dicatat, tidak dikembalikan diam-diam: penolakan INI yang paling ingin dilihat
             # operator, karena ia berarti ada kode di proses ini yang mencoba mencabut
-            # proteksi baca-saja (temuan RENDAH security-reviewer 0.10).
+            # proteksi baca-saja (temuan RENDAH tinjauan keamanan 0.10).
             log.warning("store: PRAGMA query_only=%r ditolak (proteksi baca-saja hanya satu arah)", arg2)
             return sqlite3.SQLITE_DENY
         if name in ALLOWED_PRAGMAS:
@@ -521,7 +521,7 @@ def _resolve_path(db_path: str | Path | None) -> Path:
     lowered = text.lower()
     if lowered.startswith("file:") or "?" in text or "#" in text:
         # `?` dan `#` ditolak SELURUHNYA, bukan hanya `?mode=`/`?cache=` (TASKS 0.10, temuan
-        # TINGGI security-reviewer 2.4). Keduanya memisahkan query/fragment di dalam URI
+        # TINGGI tinjauan keamanan 2.4). Keduanya memisahkan query/fragment di dalam URI
         # SQLite, jadi `evil.db?mode=rwc&x=` maupun nama berkas ber-`#` — yang SAH sebagai
         # nama berkas POSIX — bisa mengubah arti path yang dikira berkas biasa.
         raise StoreError(f"path DB berbentuk URI tidak didukung: {text!r} — beri path berkas biasa")
@@ -938,7 +938,7 @@ class Store:
                 # DISEBUT, bukan hanya dicatat. Tanpa ini kartu berbohong: `store_reads` berbunyi
                 # "no snapshot within N min in the store" padahal snapshotnya ADA dan segar —
                 # ia dibuang karena rusak. Itu persis veto senyap yang AC(7) ada untuk mencegah
-                # (temuan SEDANG security-reviewer 2.2b).
+                # (temuan SEDANG tinjauan keamanan 2.2b).
                 note = (
                     f"{snapshot.tool}: snapshot_id={snapshot.id} skipped, payload_json is not "
                     "readable JSON; the row exists and is fresh but cannot be used as evidence"
@@ -994,7 +994,7 @@ class Store:
         Apa pun pilihannya, tiap baris seperti itu mencatat satu `log.warning` (TASKS 2.0d):
         jam yang melompat tidak boleh membungkam pengumpulan data tanpa jejak.
 
-        Alasannya terukur (security-reviewer, 3 Sep 2026, tiga kebijakan x dua sub-kasus;
+        Alasannya terukur (tinjauan keamanan, 3 Sep 2026, tiga kebijakan x dua sub-kasus;
         klaim 2.0d "membuang baris itu hanya memindahkan efeknya" — TERBANTAH, dan kutipannya
         disimpan supaya kesimpulan salah yang sama tidak diambil lagi). Kebijakan ketiga menang
         di KEDUA sub-kasus; itulah yang dipakai sejak TASKS 2.0f:

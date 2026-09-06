@@ -310,7 +310,7 @@ def test_compare_tokens_is_recorded_for_watchlist_symbols_only(store: Store) -> 
 def test_compare_tokens_is_capped_by_the_cycle_budget(store: Store, caplog: pytest.LogCaptureFixture) -> None:
     """Anggaran mengikat, DAN pemotongannya menyebut simbol yang kehilangan cakupan.
 
-    Temuan SEDANG security-reviewer (TASKS 2.0c): `WATCHLIST` yang diperlebar lewat env
+    Temuan SEDANG tinjauan keamanan (TASKS 2.0c): `WATCHLIST` yang diperlebar lewat env
     membuat simbol ke-5 dst. tidak pernah punya baris `compare_tokens`, sehingga item 10
     (WAJIB) `unspoken` selamanya. Degradasinya jujur; sebabnya harus terlihat.
     """
@@ -791,7 +791,7 @@ ENVELOPE: dict[str, Any] = {
 
 
 # --- fixture tidak boleh menulis ke store bukti (TASKS 0.19) -------------------------------
-# Versi pertama penjaga ini membandingkan path terhadap `DEFAULT_DB_PATH` — dan security-reviewer
+# Versi pertama penjaga ini membandingkan path terhadap `DEFAULT_DB_PATH` — dan tinjauan keamanan
 # menembusnya EMPAT kali: dari cwd selain akar repo (`Path("./data/ryo.db").resolve()` menunjuk
 # `scripts/data/ryo.db`, yaitu bentuk insiden aslinya), lewat `DB_PATH` kustom, lewat hardlink,
 # dan dengan meninggalkan berkas DB berskema penuh karena `Store` dibuka SEBELUM penolakan.
@@ -840,7 +840,7 @@ def test_fixture_refuses_from_a_working_directory_that_is_not_the_repo_root(
     """Bentuk insiden `id 1597-1643`: dijalankan dari subdirektori, path relatif ke DB bukti.
 
     Penjaga versi pertama MATI di sini — `Path("./data/ryo.db").resolve()` menunjuk berkas di
-    dalam cwd, jadi perbandingannya tidak pernah cocok (temuan KRITIS security-reviewer).
+    dalam cwd, jadi perbandingannya tidak pernah cocok (temuan KRITIS tinjauan keamanan).
     """
     repo_db = Path(core_recorder.ROOT) / core_recorder.DEFAULT_DB_PATH
     monkeypatch.setattr(core_recorder, "ROOT", tmp_path)
@@ -848,7 +848,7 @@ def test_fixture_refuses_from_a_working_directory_that_is_not_the_repo_root(
     victim.parent.mkdir()
     # SENGAJA tanpa baris `decisions`: kalau korbannya punya buku besar, aturan "ada ledger"
     # yang menangkapnya dan tes ini lolos bahkan dengan jangkar cwd yang lama — persis yang
-    # dibuktikan security-reviewer dengan mutan. Yang harus menangkap di sini adalah jangkar
+    # dibuktikan tinjauan keamanan dengan mutan. Yang harus menangkap di sini adalah jangkar
     # `ROOT`, jadi korbannya hanya berisi snapshot biasa.
     with Store(victim) as store:
         store.insert_snapshot("analyze_token", {"symbol": "SOL"}, ENVELOPE)
@@ -933,7 +933,7 @@ def test_a_trailing_space_does_not_slip_past_the_guard(tmp_path: Path, spelling:
     """`Store` membuang spasi pinggir, jadi penjaga harus memakai penormal yang SAMA.
 
     Tanpa itu, `--db "victim.db "` dilihat penjaga sebagai berkas lain (tidak ada, tanpa
-    ledger) sementara `Store` menulis ke berkas aslinya — security-reviewer memasukkan 35 baris
+    ledger) sementara `Store` menulis ke berkas aslinya — tinjauan keamanan memasukkan 35 baris
     fixture ke DB berledger lewat celah ini.
     """
     victim = tmp_path / "victim.db"
@@ -1155,7 +1155,10 @@ def test_recorder_stops_when_the_cycle_tail_starves(store: Store, caplog: pytest
 def test_a_cut_short_cycle_reports_only_what_it_actually_recorded(
     store: Store, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Cacah di baris log = yang benar-benar dijalankan, bukan daftar niat (CLAUDE.md)."""
+    """Cacah di baris log = yang benar-benar dijalankan, bukan daftar niat.
+
+    Laporkan yang terjadi, bukan yang diniatkan.
+    """
 
     class SlowAfterFirstSymbol(RecordingClient):
         def __init__(self, clock: FakeClock) -> None:
@@ -1562,7 +1565,7 @@ def test_empty_credentials_are_not_refilled_from_dotenv(tmp_path: Path) -> None:
 def test_removed_credentials_are_refilled_unless_no_dotenv(tmp_path: Path) -> None:
     """Batas yang diakui: `unset` BUKAN cara mencabut kredensial — `.env` mengisinya lagi.
 
-    hackathon-judge menemukannya dengan cara mahal (percobaan "cabut kredensial"-nya tetap
+    penilaian rubric menemukannya dengan cara mahal (percobaan "cabut kredensial"-nya tetap
     memanggil API dan menyumbang HTTP 429). Tes ini mengunci kenyataan itu supaya siapa pun
     yang menulis tes chaos berikutnya memakai `--no-dotenv` atau mengosongkan nilainya.
     """

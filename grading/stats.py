@@ -40,7 +40,7 @@ Batas yang diakui
 * :math:`\\min(n, events)` adalah koreksi **kasar**. Koreksi yang benar (efek desain klaster)
   butuh korelasi intra-klaster yang tidak bisa ditaksir dari `n_eff` sekecil ini.
 * Modul ini **tidak** bisa menjanjikan bahwa hasilnya konservatif; klaim itu pernah ditulis di
-  sini dan **dicabut** (temuan security-reviewer, 6 Sep 2026). Yang benar-benar dijamin hanya
+  sini dan **dicabut** (temuan tinjauan keamanan, 6 Sep 2026). Yang benar-benar dijamin hanya
   :math:`n_{eff} \\le n` dan :math:`n_{eff} \\le events`. Selangnya seketat-tidaknya definisi
   `events` yang dikirim pemanggil: ketika `grading.grader` masih mencacah BARIS snapshot alih-
   alih datum, dua baris `monitor…` ber-datum funding identik terhitung 2 peristiwa, dan
@@ -147,7 +147,7 @@ class ObservedRate:
 
     @property
     def point(self) -> float | None:
-        """`k/n` — None saat `n == 0`, karena 0/0 bukan 0 (CLAUDE.md: null != 0)."""
+        """`k/n` — None saat `n == 0`, karena 0/0 bukan 0 (ADR-013: null != 0)."""
         return None if self.n == 0 else self.k / self.n
 
     def as_dict(self) -> dict[str, object]:

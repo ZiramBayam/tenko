@@ -35,8 +35,8 @@ Batas yang diakui (baca sebelum memakai modul ini; gaya `core/replay.py`)
   `deep_analysis.data.trade_plan`) berikut `source`+`as_of`-nya. Nol aritmetika: entry/stop/
   target/ukuran posisi/ATR adalah TASKS 2.4.
 * **KESEGARAN TIDAK DIJAGA OLEH APA PUN YANG BISA DIVERIFIKASI ULANG** (temuan TINGGI
-  security-reviewer, 3 Sep 2026; scope, bukan cacat yang sudah diperbaiki — perbaikannya ada di
-  `core/store.py`/`core/replay.py`, sudah dipecah product-manager menjadi TASKS 2.0d + 2.2b).
+  tinjauan keamanan, 3 Sep 2026; scope, bukan cacat yang sudah diperbaiki — perbaikannya ada di
+  `core/store.py`/`core/replay.py`, sudah dipecah penjagaan ruang lingkup menjadi TASKS 2.0d + 2.2b).
   Yang menentukan bukti mana yang terpilih adalah kolom `snapshots.ts_utc`, dan:
 
   - `ts_utc` **tidak dijaga hash mana pun**. `core.replay._check_entry` menghitung ulang
@@ -67,7 +67,7 @@ Batas yang diakui (baca sebelum memakai modul ini; gaya `core/replay.py`)
 
   Jangan menulis di mana pun bahwa preflight menjamin umur bukti terhadap dunia nyata.
   Perbaikannya milik task lain, jangan dikerjakan di sini: batas ATAS kesegaran di
-  `core/store.py` = **TASKS 2.0d** (core-engineer); ambang skew `ts_utc − as_of` dan kalibrasi
+  `core/store.py` = **TASKS 2.0d** (kerja core); ambang skew `ts_utc − as_of` dan kalibrasi
   `max_age_min` ber-n = **TASKS 2.2b**.
 * **Determinisme punya satu celah yang diketahui: jam resolusi.** Dua panggilan atas store yang
   sama menghasilkan envelope byte-identik SELAMA tidak ada baris yang melewati batas kesegaran
@@ -97,7 +97,7 @@ envelope yang sudah jadi — dan dipanggil `preflight` sendiri sebelum mengembal
   (:data:`KNOWN_SECTIONS`) ditolak, dan item yang HILANG dari ``availability`` juga ditolak
   (dua arah).
 
-Angka yang konsisten belum berarti jujur — itu temuan TINGGI security-reviewer (3 Sep 2026):
+Angka yang konsisten belum berarti jujur — itu temuan TINGGI tinjauan keamanan (3 Sep 2026):
 lima serangan yang menyelaraskan seluruh ``n_*`` tetap lolos versi pertama lantai ini (GO
 dengan item merah · ``blocking`` dikosongkan · item merah DIHAPUS lalu ``n_*`` dihitung ulang ·
 item karangan disisipkan supaya ``n_spoken`` bukan nol · ``plan`` diganti angka lain). Karena
@@ -116,7 +116,7 @@ Batas yang diakui untuk :func:`check_aggregate_floor` — baca sebelum menyebutn
 -------------------------------------------------------------------------------------------
 Pertanyaan yang DIJAWAB lantai ini: *"envelope ini konsisten dengan `data["items"]`-nya
 sendiri?"*. Pertanyaan yang TIDAK dijawabnya, pada kedalaman berapa pun: *"`data["items"]`
-adalah apa yang dikatakan bukti beku?"*. Konsekuensinya dibuktikan security-reviewer dengan
+adalah apa yang dikatakan bukti beku?"*. Konsekuensinya dibuktikan tinjauan keamanan dengan
 serangan yang benar-benar dijalankan (3 Sep 2026), dan semuanya LOLOS lantai ini:
 
 * **Membalik status item membalik seluruh keputusan, dan setiap penjaga di sini ikut patuh.**
@@ -266,7 +266,7 @@ DATA_N_GREEN = "n_green"
 DATA_N_RED = "n_red"
 DATA_N_UNSPOKEN = "n_unspoken"
 #: Pembukuan bukti di `data` — ikut diperiksa lantai supaya tidak bisa hilang/bertipe salah/
-#: bertentangan satu sama lain (temuan SEDANG security-reviewer ronde kedua).
+#: bertentangan satu sama lain (temuan SEDANG tinjauan keamanan ronde kedua).
 DATA_SYMBOL = "symbol"
 DATA_SNAPSHOT_IDS = "snapshot_ids"
 DATA_PARAMS_HASH = "params_hash"
@@ -414,7 +414,7 @@ def symbol_tools(symbol: str, intent: str = DEFAULT_INTENT, params: Params = DEF
     membangun argumen untuk simbol pembanding lalu membandingkan strukturnya. Tidak didaftar
     ulang di sini: kalau `tool_args` berubah, himpunan ini ikut berubah sendiri.
 
-    **Bukan uji substring atas teks JSON-nya** (TASKS 0.13, temuan TINGGI security-reviewer).
+    **Bukan uji substring atas teks JSON-nya** (TASKS 0.13, temuan TINGGI tinjauan keamanan).
     `json.dumps({}) == "{}"`, jadi `"{}" in json.dumps(args)` menjawab True untuk
     `market_overview` dan `monitor_market_sentiment_shift` — yang dicari dengan `{}` dan justru
     market-wide. Akibatnya simbol `{}`, `{`, atau `}` — ketiganya lolos `normalize_symbol` —
@@ -424,7 +424,7 @@ def symbol_tools(symbol: str, intent: str = DEFAULT_INTENT, params: Params = DEF
     """
     if not isinstance(symbol, str):
         # Fail-closed seperti `normalize_symbol`: pemanggil yang salah tipe tidak boleh
-        # menjatuhkan seluruh tick lewat TypeError (temuan RENDAH security-reviewer 0.13).
+        # menjatuhkan seluruh tick lewat TypeError (temuan RENDAH tinjauan keamanan 0.13).
         return set()
     mine = tool_args(symbol, intent, params)
     other_symbol = _SENTINEL_SYMBOLS[1] if symbol == _SENTINEL_SYMBOLS[0] else _SENTINEL_SYMBOLS[0]
@@ -465,7 +465,7 @@ def symbol_evidence(data: Mapping[str, Any] | None, symbol: str) -> list[str]:
     # dengan `request.symbol`), jadi ia bisa dipercaya sebagai penanda kepemilikan — dan dengan
     # memeriksanya di sini, prasyaratnya tidak lagi bergantung pada disiplin pemanggil.
     # Kunci `symbol` wajib ADA, bukan sekadar cocok bila kebetulan ada: envelope buatan tangan
-    # tanpa kunci itu dulu lolos cek kepemilikan (temuan RENDAH security-reviewer 0.13).
+    # tanpa kunci itu dulu lolos cek kepemilikan (temuan RENDAH tinjauan keamanan 0.13).
     if data.get("symbol") != symbol:
         return []
     reads = data.get("store_reads")
@@ -823,7 +823,7 @@ def _check_summary_text(summary: Mapping[str, Any], verdict: str) -> None:
 def _check_bookkeeping(result: SkillResult, data: Mapping[str, Any], items: Sequence[ItemResult]) -> None:
     """Pembukuan bukti di `data` wajib ADA, bertipe benar, dan tidak saling bertentangan.
 
-    Semuanya intra-envelope (serangan 9/10/11/12/13 security-reviewer, 3 Sep 2026): kunci yang
+    Semuanya intra-envelope (serangan 9/10/11/12/13 tinjauan keamanan, 3 Sep 2026): kunci yang
     hilang atau bertipe salah membuat TASKS 2.4 menulis baris `decisions` dengan kolom kosong,
     dan `snapshot_ids` yang berselisih dengan `store_reads.n_snapshots_frozen` adalah dua
     pembukuan yang menyebut jumlah bukti berbeda di envelope yang sama. Yang TIDAK dijawab di
@@ -884,7 +884,7 @@ def _check_plan(plan: Any, items: Sequence[ItemResult]) -> None:
     `plan` yang "bentuknya benar" tetapi menunjuk angka lain daripada item 9-nya sendiri, dan
     TASKS 2.4 menakar posisi dari angka itu.
 
-    **Batasnya harus dibaca bersama klaim itu** (serangan 8/12 security-reviewer, 3 Sep 2026):
+    **Batasnya harus dibaca bersama klaim itu** (serangan 8/12 tinjauan keamanan, 3 Sep 2026):
     yang ditutup HANYA `plan` yang tidak sinkron dengan item. Ia TIDAK mencegah `trade_plan`
     yang dipalsukan **di kedua sisi** — `entry` 103.8957 -> 1.0, `stop` -> 0.0001, `targets` ->
     [999999.0], `source.snapshot_id` -> 424242 di `data["items"][8]` DAN di `data["plan"]`

@@ -9,7 +9,7 @@ Batas itu diterima secara SADAR, bukan terlewat, dan alasannya empiris: pada sap
 (n=2443 baris nyata) selisihnya bermedian +0,48 detik dengan maksimum +71 detik. Menambah gigi
 jam dinding ke jalur keputusan berarti item ke-12 + ADR + `params_hash` yang bergeser — seluruh
 buku besar `decisions` menjadi `STALE_PARAMS` — demi gejala yang 0 dari 2443 baris pernah
-tunjukkan (keputusan product-manager, 5 Sep 2026).
+tunjukkan (keputusan penjagaan ruang lingkup, 5 Sep 2026).
 
 Yang menjaga supaya penerimaan itu tetap BERDASAR adalah berkas ini: sebuah kanari di LUAR
 jalur keputusan. Ia tidak menyentuh `preflight/params.py`, tidak menggeser `params_hash`, dan
@@ -107,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
             f"age-sweep MERAH: selisih terbesar {worst:+.2f} jam melewati ambang "
             f"{MAX_LAG_HOURS:g} jam. Item 1 TIDAK akan menangkap ini — ia mengukur umur relatif "
             f"di dalam bundel, bukan terhadap jam dinding (TASKS 2.2e). Periksa apakah RYO mulai "
-            f"menyajikan data usang, lalu bawa buktinya ke product-manager sebelum menyentuh "
+            f"menyajikan data usang, lalu bawa buktinya ke penjagaan ruang lingkup sebelum menyentuh "
             f"`preflight/params.py`.",
             file=sys.stderr,
         )

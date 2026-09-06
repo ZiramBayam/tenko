@@ -32,7 +32,7 @@ di atas bersifat struktural, ia berhenti tepat di kunci ``items``. ``data`` yang
 kunci ``items`` melewati SELURUH invarian item — ``SkillResult(tool="t", status="ok",
 data={"foo": 1}, availability={})`` diterima apa adanya, dengan nol item dan ``availability``
 kosong. Artinya: **angka agregat di luar ``items`` tidak punya penjaga ``n`` di lapisan ini**,
-dan aturan "tidak ada angka agregat tanpa ``n``" (CLAUDE.md, spec §3) bukan sesuatu yang
+dan aturan "tidak ada angka agregat tanpa ``n``" (spec §3) bukan sesuatu yang
 model ini tegakkan untuk Anda. TASKS 2.2-lah yang wajib menyediakan ``n``-nya sendiri —
 menghitungnya dari item yang benar-benar tersebut, dan menolak merakit ``plan``/``decision``
 saat ``n`` nol — bukan mengandalkan validator di sini. Pengakuan ini dipatok tes yang
@@ -98,7 +98,7 @@ WARNING_LIMIT = 400
 #: pada 240, `reason` item 1 berakhir di ``"…so this says nothing about how old ...(truncated)"``
 #: — klausa wajib "not the wall clock" selamat, tetapi kalimat yang MENJELASKANNYA terpotong di
 #: tengah frasa, dan kartu terbaca sebagai klaim kesegaran (persis yang TASKS 3.2 larang, dan
-#: yang pernah membuat security-reviewer 2.2 menyimpulkan kartu berbohong).
+#: yang pernah membuat tinjauan keamanan 2.2 menyimpulkan kartu berbohong).
 #:
 #: Panjang nyata hari ini (sapuan 5 Sep 2026 atas `data/ryo.db`): item 2 = 355, item 1 = 260,
 #: item 8 = **240** — yaitu tepat di tepi, jadi penyebutan `data_date` dari TASKS 0.21 adalah
@@ -205,7 +205,7 @@ def _iso_z(value: datetime | None) -> str | None:
     """Bentuk teks yang sama dengan envelope RYO: `2026-09-01T03:47:14Z`.
 
     Dipotong ke DETIK dengan sengaja: RYO memakai presisi detik di seluruh amatan
-    (api-verifier, 476/476), sedangkan `snapshots.ts_utc` menyimpan mikrodetik — tanpa
+    (verifikasi API, 476/476), sedangkan `snapshots.ts_utc` menyimpan mikrodetik — tanpa
     pemotongan, `ItemSource.as_of` akan mengeluarkan bentuk yang tidak pernah dipakai RYO
     (ADR-015 poin 5).
     """

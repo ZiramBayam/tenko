@@ -486,7 +486,7 @@ def _step2_disclosure(path: str | Path, fixture: DemoFixture) -> list[str]:
     lines.extend(
         [
             "    yang dikarang hanyalah BENTUK padamnya; bila RYO kelak benar-benar mengirim",
-            "    `status: unavailable`, bentuk ini wajib dibandingkan ulang (api-verifier).",
+            "    `status: unavailable`, bentuk ini wajib dibandingkan ulang (verifikasi API).",
         ]
     )
     lines.extend(_disclosure_mismatch(shaped_ids, claimed, declared=True))

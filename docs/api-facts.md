@@ -85,7 +85,7 @@ Hitungan lengkap sapuan ini (menggantikan semua hitungan sapuan 697 dan 762 di a
 `monitor….evidence.funding.crowding_state` normal 20/20 · `monitor….evidence.liquidation.pressure_state` normal 20/20 ·
 `monitor….evidence.fear_greed.change_direction` down 20/20 · `compare_tokens.data.tokens[].verdict` neutral 31 · constructive 11 (42 token) ·
 `technical_analysis.trend` analyze_token up 402 · sideways 37 · down 13; deep_analysis up 289 · sideways 26 · down 4.
-Hitungan yang dilaporkan quant-engineer (accumulate 195 · caution — overbought 123 · neutral 107 · avoid 5; call neutral 154 ·
+Hitungan yang dilaporkan kerja preflight (accumulate 195 · caution — overbought 123 · neutral 107 · avoid 5; call neutral 154 ·
 constructive 145 · cautious 17; CONFIRMED 182 · MIXED 134) DIVERIFIKASI benar **pada `id <= 810`** (ts ≤ 18:20:14Z) — bukan salah,
 hanya lebih tua ~25 baris / ~19 menit. Himpunan nilainya identik; yang berubah hanya frekuensi.
 
@@ -200,7 +200,7 @@ bukan estetika: (1) bila ejaan sebenarnya berbeda (`risk-off`, `RISK_OFF`, `risk
 sekali tidak menolong; (2) di kedua tempat itu barisnya hanya bisa mengubah `unspoken` (yang MEMVETO, karena item 3 & 4 wajib)
 menjadi IZIN — `risk_off` + plan short → hijau, `change_direction: up` + plan long → hijau. Menghapusnya gagal-tertutup
 (fail closed) dan sama sekali tidak mengubah keputusan pada semua data yang pernah kami lihat. Menambahkannya kembali: lewat
-`@agent-api-verifier` dengan hitungan + tanggal, setelah nilainya benar-benar muncul.
+`verifikasi API` dengan hitungan + tanggal, setelah nilainya benar-benar muncul.
 
 **Aturan itu TETAP BERLAKU dan terbukti dua arah dalam satu jam (2 Sep 2026).** Ia mencabut `FEAR_GREED_CHANGE_DIRECTION["up"]`
 (0 amatan, dan spec §4 item 4 memang tidak pernah menulis string itu — provenance = tebakan kami) **dan** ia yang memaksa
@@ -226,7 +226,7 @@ Bukti historis bahwa daftar ini bocor: dalam ~14,5 jam muncul TIGA nilai yang se
 sapuan menyimpulkan nol untuknya.
 Konsekuensi wajib (spec §4, ADR-013): nilai di luar tabel → item **`unspoken` + warning**; TIDAK ditebak, TIDAK dipetakan ke
 tetangga terdekat, TIDAK dijadikan 0/netral, dan tidak boleh melempar exception. `preflight/params.py` harus menutup cabang
-default-nya seperti itu, dan menambah nilai baru ke tabel ini hanya lewat `@agent-api-verifier` dengan hitungan + tanggal.
+default-nya seperti itu, dan menambah nilai baru ke tabel ini hanya lewat `verifikasi API` dengan hitungan + tanggal.
 `as_of` ISO-8601 Z; `chain` null di semua sampel; `contract` hanya di scan_market.
 **Latensi terukur (1 Sep 2026, WIB siang):** `deep_analysis` **17–34 dtk**; `analyze_token`, `market_overview`, `scan_market`, `monitor_market_sentiment_shift` ≈1–3 dtk; `compare_tokens` ≈40 dtk (3 simbol). Siklus perekam 6 simbol = 281 dtk. **Konsekuensi desain: yang mengikat adalah LATENSI, bukan kuota 60/mnt.** UI tidak boleh memanggil tool secara live; `preflight` memakai snapshot store yang masih segar (item 1) dan hanya memanggil live bila perlu — sebuah preflight penuh yang semuanya live bisa >60 dtk.
 
@@ -341,7 +341,7 @@ gagal tercatat tepat saat ia jatuh tempo. Penyebabnya perekam kami (proses berhe
 Ulangi: `python3 -c 'import sqlite3,json,collections,datetime;c=sqlite3.connect("file:data/ryo.db?mode=ro",uri=True);r=list(c.execute("SELECT id,args_json,ts_utc FROM snapshots WHERE tool=\'analyze_token\' ORDER BY id"));print("max id",r[-1][0]);d=collections.defaultdict(list);[d[json.loads(a)["symbol"]].append(datetime.datetime.fromisoformat(t)) for _,a,t in r];print({s:(len(v),round(max((v[k+1]-v[k]).total_seconds()/60 for k in range(len(v)-1)))) for s,v in d.items() if s in ("SOL","BTC","ETH","BNB")})'`
 
 ##### Sapuan B — 5 Sep 2026 (TASKS 0.8b), DB 3100 baris, baris terbaru `2026-09-05T11:38:55.512961+00:00`
-Diverifikasi ulang oleh `api-verifier` 5 Sep 2026 dari `data/ryo.db` yang dibuka **read-only**
+Diverifikasi ulang oleh `verifikasi API` 5 Sep 2026 dari `data/ryo.db` yang dibuka **read-only**
 (`sqlite3.connect("file:"+quote(path)+"?mode=ro", uri=True)` + `PRAGMA query_only=ON`; nol byte ditulis).
 Definisi `% segar` sama persis dengan sapuan 4 Sep: Σ min(jarak, 120 mnt) + min(sisa dari baris terakhir ke ujung jendela, 120 mnt),
 dibagi panjang jendela (= gabungan interval `[t, t+120 mnt]` dipotong jendela).
@@ -788,7 +788,7 @@ bendera `synthetic: true` per baris, kata `SYNTHETIC` di `warnings`, `summary.he
 **Angka yang dikutip fixture & demo sudah basi: keduanya menulis "0/476".** Yang benar per 6 Sep 2026 adalah **0 dari 3645**.
 Kalimatnya tidak salah arah (nolnya tetap nol) tetapi denominatornya tujuh kali terlalu kecil, dan aturan §A menuntut setiap
 klaim nol menyebut `id` maksimum yang disapu. Perbaikan ada di `preflight/outage_fixture.py` (teks yang ditanam ke berkas
-fixture) → tugas `@agent-core-engineer`/`@agent-quant-engineer`, bukan berkas ini.
+fixture) → tugas `kerja core`/`kerja preflight`, bukan berkas ini.
 
 **Catatan pendamping: `agent/fixtures/*.json` TIDAK memuat envelope sintetis.** Ketiga berkas (`demo-2026-09-05.json` 14
 snapshot, `twodate-a-2026-09-03.json` 7, `twodate-b-2026-09-04.json` 7) diperiksa 6 Sep 2026: **28 dari 28** envelope
@@ -846,8 +846,8 @@ untuk kandidat pengganti Google Gemini ada di **§B2** di bawah — fakta saja, 
 
 ## B2. Narasi kartu — Google Gemini (verifikasi sumber primer 6 Sep 2026) — FAKTA SAJA, BELUM DIPAKAI KODE, BELUM ber-ADR
 **Status kepatuhan hari ini:** `sources.yaml` → `llm_narration.provider: anthropic`, dan `preflight/narrate.py` masih `import anthropic`.
-Selama `sources.yaml` belum diubah lewat instruksi ke manusia/core-engineer + ADR, memanggil Gemini di **jalur nyata** = temuan
-**PELANGGARAN-ATURAN** (CLAUDE.md: sumber eksternal hanya yang `enabled: true` DAN `approved: true`). Bagian ini hanya mencatat fakta
+Selama `sources.yaml` belum diubah lewat instruksi ke manusia/kerja core + ADR, memanggil Gemini di **jalur nyata** = temuan
+**PELANGGARAN-ATURAN** (ADR-005: sumber eksternal hanya yang `enabled: true` DAN `approved: true`). Bagian ini hanya mencatat fakta
 yang sudah diverifikasi supaya perpindahan itu bisa diputuskan tanpa menebak. Tidak ada baris di sini yang menyetujui sumbernya.
 
 ### B2.1 Paket PyPI — yang benar SEKARANG vs yang DEPRECATED

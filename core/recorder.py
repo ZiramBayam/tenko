@@ -116,7 +116,7 @@ from core.sources import SourcesError
 # `_resolve_path` diimpor SENGAJA meski privat: penjaga fixture harus menormalkan path
 # dengan penormal yang SAMA dengan penulisnya. Penormal sendiri berarti `--db "x.db "`
 # (satu spasi di ujung) dilihat penjaga sebagai berkas lain sementara `Store` membuang
-# spasinya dan menulis ke berkas aslinya — tembus, terbukti oleh security-reviewer 0.19.
+# spasinya dan menulis ke berkas aslinya — tembus, terbukti oleh tinjauan keamanan 0.19.
 from core.store import (
     DEFAULT_DB_PATH,
     Store,
@@ -433,7 +433,7 @@ class Recorder:
             # Pesan RyoError dibentuk core/ryo_client.py dan melewati redaksi di KELIMA jalur
             # teks yang dikendalikan server (tes regresi di sana, diparametrisasi per jalur).
             # Klaim ini pernah SALAH: `result.status`/`result.tool` dulu tidak diredaksi dan
-            # bocor ke berkas log ini lewat HTTP 200 (security-reviewer, TASKS 1.5).
+            # bocor ke berkas log ini lewat HTTP 200 (tinjauan keamanan, TASKS 1.5).
             report.note_failure(tool)
             log.warning("%s: panggilan gagal — %s: %s", label, type(exc).__name__, exc)
             return None
@@ -537,7 +537,7 @@ class Recorder:
         try:
             # `drop_future=False` DITULIS EKSPLISIT: tabel A/B memutuskan KEDUA call-site,
             # jadi keduanya harus terbaca sebagai pilihan. Di sini baris masa depan sengaja
-            # IKUT supaya simbolnya tidak lenyap dari jendela (security-reviewer 2.0f).
+            # IKUT supaya simbolnya tidak lenyap dari jendela (tinjauan keamanan 2.0f).
             in_window = self._store.recent_args(
                 "analyze_token",
                 self.config.followup_max_age_h * 60.0,
@@ -603,7 +603,7 @@ class Recorder:
         selamanya dan setiap keputusan untuk simbol itu NO_GO. Degradasinya jujur
         (`unspoken`, bukan nilai default), tetapi SEBABNYA tidak terlihat di mana pun kecuali
         di sini — jadi "ARB tidak pernah dibandingkan" harus bisa dibaca dari satu baris log,
-        bukan disimpulkan dari cacah yang hilang (temuan SEDANG security-reviewer, TASKS 2.0c;
+        bukan disimpulkan dari cacah yang hilang (temuan SEDANG tinjauan keamanan, TASKS 2.0c;
         pola yang sama dengan 1.13: celah yang tidak terlihat = celah yang tidak diperbaiki).
         """
         watchlist = set(self.config.watchlist)
@@ -639,7 +639,7 @@ class Recorder:
         dijalankan, bukan di depan dari daftar niat: pada siklus yang dipotong, cacah yang
         dilaporkan log harus cacah yang benar-benar terekam. Langkah yang tidak pernah
         dijalankan muncul sebagai daftar kosong karena memang tidak ada amatannya — bukan
-        karena nilainya nol (CLAUDE.md, "tunjuk & sebut").
+        karena nilainya nol (ADR-013, "tunjuk & sebut").
         """
         report = CycleReport()
 
@@ -799,7 +799,7 @@ class Recorder:
                 # `db_status.py` tetap melihat data segar sementara `compare_tokens` dan
                 # follow-up — ekor siklus, satu-satunya sumber item 10 dan pembacaan T+24 jam —
                 # tidak pernah dijalankan lagi. Rem terpisah supaya kelaparan itu berisik,
-                # bukan senyap (temuan TINGGI security-reviewer 0.8a, 4 Sep 2026).
+                # bukan senyap (temuan TINGGI tinjauan keamanan 0.8a, 4 Sep 2026).
                 log.error(
                     "%d siklus berturut-turut dipotong watchdog; ekor siklus (compare_tokens, "
                     "follow-up) tidak pernah dijalankan lagi sehingga item 10 akan 'unspoken' dan "
@@ -821,7 +821,7 @@ class Recorder:
             # `started + interval` sudah lewat dan jedanya akan jatuh ke lantai 1 detik: siklus
             # penuh baru langsung dimulai, berulang-ulang. Terukur 2703 panggilan/jam vs 11/jam
             # normal — polling rapat yang dilarang api-facts §A dan docs/rules-compliance.md
-            # (temuan TINGGI security-reviewer 0.8a). Karena itu jedanya dihitung dari SEKARANG.
+            # (temuan TINGGI tinjauan keamanan 0.8a). Karena itu jedanya dihitung dari SEKARANG.
             resume_at = (time_fn() if aborted_cycle else started) + self.config.interval_s
             try:
                 self._sleep_until(resume_at, sleep_fn=sleep_fn, time_fn=time_fn)
@@ -876,7 +876,7 @@ def load_dotenv(path: str | Path | None = None) -> None:
       Tetapi artinya `unset` BUKAN cara mencabut kredensial. Pakai ``--no-dotenv``,
       kosongkan nilainya, atau pindahkan berkas `.env`.
 
-    hackathon-judge menemukan ini dengan cara mahal: percobaan "cabut kredensial"-nya
+    penilaian rubric menemukan ini dengan cara mahal: percobaan "cabut kredensial"-nya
     ternyata tetap memanggil API sungguhan dan ikut menyumbang beberapa HTTP 429.
 
     Nilai tidak pernah dicetak/dilog. Variabel yang sudah ada di environment menang, jadi
@@ -929,7 +929,7 @@ def _repo_evidence_db() -> Path:
 
     Dijangkarkan ke akar repo, BUKAN ke cwd: `Path("./data/ryo.db").resolve()` dari `scripts/`
     menunjuk `scripts/data/ryo.db`, dan penjaga yang memakainya mati persis pada bentuk insiden
-    `id 1597-1643` (temuan KRITIS security-reviewer 0.19).
+    `id 1597-1643` (temuan KRITIS tinjauan keamanan 0.19).
 
     `DB_PATH` SENGAJA tidak ikut di sini. Ia justru cara yang didokumentasikan untuk mengarahkan
     perekam ke DB coretan (`DB_PATH=/tmp/t.db … --client fixture`, docstring modul ini), jadi
@@ -944,7 +944,7 @@ def _inside_evidence_dir(target: Path) -> bool:
 
     Menutup store bukti KUSTOM (`DB_PATH=./data/tenko.db`) sejak hari pertama, bukan sejak
     keputusan pertamanya — tanpa memerahkan satu tes pun, karena tidak ada tes yang menulis ke
-    `data/` (`tests/helpers_agent.py`). Diusulkan security-reviewer 0.19 dan diverifikasi atas
+    `data/` (`tests/helpers_agent.py`). Diusulkan tinjauan keamanan 0.19 dan diverifikasi atas
     suite penuh sebelum diambil.
     """
     evidence_dir = _repo_evidence_db().parent
@@ -960,7 +960,7 @@ def _same_file(left: Path, right: Path) -> bool:
     `resolve()` mengikuti symlink tetapi TIDAK menembus hardlink: `ln data/ryo.db alias.db`
     memberi dua path yang `resolve()`-nya berbeda dengan inode yang sama. Karena itu identitas
     inode diperiksa lebih dulu bila kedua berkas ada, dan perbandingan path menjadi cadangan
-    untuk berkas yang belum ada (temuan SEDANG security-reviewer 0.19).
+    untuk berkas yang belum ada (temuan SEDANG tinjauan keamanan 0.19).
     """
     try:
         if left.exists() and right.exists():

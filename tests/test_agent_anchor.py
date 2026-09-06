@@ -56,7 +56,7 @@ def run(store: Store, symbol: str = "SOL") -> tuple[SkillResult, object]:
 def red_regime(tool: str, symbol: str, envelope: dict) -> None:
     """`market_overview.data.regime = "risk_off"` + `compare_tokens.data.factors = []`.
 
-    Mutasi yang SAMA dengan serangan 6 security-reviewer: dua item merah yang lalu dipalsukan
+    Mutasi yang SAMA dengan serangan 6 tinjauan keamanan: dua item merah yang lalu dipalsukan
     menjadi hijau di envelope.
     """
     if tool == MARKET_OVERVIEW:
@@ -112,7 +112,7 @@ def _forge_attack_six(result: SkillResult) -> None:
 
 
 def test_attack_six_is_rejected_by_the_anchor(tmp_path: Path) -> None:
-    """Serangan 6 security-reviewer 2.2 — DITOLAK di sini (dulu: lolos, diakui di 2.2)."""
+    """Serangan 6 tinjauan keamanan 2.2 — DITOLAK di sini (dulu: lolos, diakui di 2.2)."""
     store = build_store(tmp_path, symbols=("SOL",), mutate=red_regime)
     result, bundle = run(store)
     assert (result.data["decision"], result.data["blocking"]) == ("NO_GO", [ITEM_REGIME, RELATIVE])
@@ -290,7 +290,7 @@ def test_a_refusal_envelope_has_nothing_to_anchor(tmp_path: Path) -> None:
     assert recomputed.items == ()
 
 
-# --- TINGGI-4 (security-reviewer 4 Sep 2026): simbol envelope harus simbol yang diputuskan ---
+# --- TINGGI-4 (tinjauan keamanan 4 Sep 2026): simbol envelope harus simbol yang diputuskan ---
 def test_an_envelope_for_another_symbol_is_rejected(tmp_path: Path) -> None:
     """Bukti ETH tidak boleh dipakai untuk keputusan berlabel SOL.
 

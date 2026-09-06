@@ -1450,7 +1450,7 @@ def test_a_reason_survives_the_whole_chain_from_item_result_to_the_rendered_scre
 ) -> None:
     """`ItemResult` → ledger → `/api/decision` → layar: satu langit-langit, bukan tiga.
 
-    Rantai yang diukur security-reviewer 3.2: `reason` 839 aksara dibukukan sebagai 814
+    Rantai yang diukur tinjauan keamanan 3.2: `reason` 839 aksara dibukukan sebagai 814
     (`REASON_LIMIT` + penanda), tetapi route menyajikan 414 dan layar memotongnya lagi di 400 —
     sehingga klausa wajib item 1 hilang DAN kartu mencetak "terpotong sebelum dibukukan" untuk
     potongan yang ia buat sendiri. Yang dipatok di sini adalah angkanya, di ketiga titik.
@@ -1658,7 +1658,7 @@ def test_unspoken_is_spelled_out_instead_of_being_a_grey_number(client: TestClie
 
 
 def test_every_narration_line_is_labelled_beside_the_deterministic_reason(client: TestClient) -> None:
-    """Pagar PRESENTASI (security-reviewer 2.3): isi narasi TIDAK diverifikasi terhadap bukti.
+    """Pagar PRESENTASI (tinjauan keamanan 2.3): isi narasi TIDAK diverifikasi terhadap bukti.
 
     Penjaga kata-kunci di `narrate.py` ditolak dengan alasan, jadi penutupnya di sini: label
     eksplisit pada SETIAP baris, dan `reason` deterministik yang selalu berdampingan di baris

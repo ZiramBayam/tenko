@@ -381,7 +381,7 @@ def _crowded_with_payload(payload: str) -> Callable[[str, dict[str, Any], int], 
 
 
 def test_a_tool_payload_cannot_forge_a_row_of_this_table(tmp_path: Path) -> None:
-    """Serangan KRITIS security-reviewer 2.1b, ditulis ulang sebagai tes.
+    """Serangan KRITIS tinjauan keamanan 2.1b, ditulis ulang sebagai tes.
 
     Escape ANSI di `data_date` memindahkan kursor ke atas dan menimpa baris tabel yang alat ini
     sendiri hitung. Setelah `clean_text`, ia menjadi teks yang inert DAN terlihat — dan cacah

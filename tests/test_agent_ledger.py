@@ -1,6 +1,6 @@
 """Tes `agent/ledger.py` — koneksi buku besar HARUS benar-benar tidak bisa menulis.
 
-Berkas ini adalah pembayaran dua temuan security-reviewer 4 Sep 2026 yang keduanya dibuktikan
+Berkas ini adalah pembayaran dua temuan tinjauan keamanan 4 Sep 2026 yang keduanya dibuktikan
 dengan tulisan/penutupan yang BERHASIL, bukan dengan dugaan:
 
 * **TINGGI-3** — `f"file:{path}?mode=ro"` merakit URI dengan interpolasi tanpa escape, sehingga
@@ -186,7 +186,7 @@ def test_an_unreadable_card_is_simply_not_the_running_generation(card_json: str)
 
 
 def test_a_non_numeric_decision_id_is_a_ledger_error_not_a_raw_valueerror(tmp_path: Path) -> None:
-    """RENDAH (security-reviewer 4 Sep 2026): tick harus MELAPORKAN, bukan meledak.
+    """RENDAH (tinjauan keamanan 4 Sep 2026): tick harus MELAPORKAN, bukan meledak.
 
     `trade_events.decision_id` tidak dijaga tipe oleh SQLite (tabel tanpa STRICT), jadi nilai
     yang bukan angka mungkin ada di kolom itu.
@@ -205,7 +205,7 @@ def test_an_id_outside_the_sqlite_integer_range_is_a_ledger_error(tmp_path: Path
     sebesar itu tidak bisa ditanyakan, bukan sekadar tidak ada. Batas rentang di route HTTP
     (`ui/app.py`) sudah cukup untuk UI, tetapi pemanggil KEDUA sudah ada hari ini:
     `python -m agent.replay 9223372036854775808` memberi traceback sementara `agent.replay abc`
-    dijawab satu kalimat rapi (temuan security-reviewer 3.1).
+    dijawab satu kalimat rapi (temuan tinjauan keamanan 3.1).
     """
     path = tmp_path / "range.db"
     _seed(path)

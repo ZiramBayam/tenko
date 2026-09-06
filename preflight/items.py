@@ -587,7 +587,7 @@ def evaluate_freshness(evidence: Evidence) -> ItemOutcome:
     baris fixture salinan ``docs/samples`` yang sempat mencemari store (TASKS 0.19) — dan
     itulah yang dulu melahirkan klaim "``as_of`` RYO membeku ~2,5 hari", yang sudah dicabut.
     Menambah gigi jam dinding berarti item ke-12 baru + ADR + ``params_hash`` yang bergeser,
-    demi gejala yang 0 dari 2443 baris nyata pernah tunjukkan (keputusan product-manager,
+    demi gejala yang 0 dari 2443 baris nyata pernah tunjukkan (keputusan penjagaan ruang lingkup,
     5 Sep 2026). Kanari untuk gejala itu hidup di luar jalur keputusan, bukan sebagai item.
     """
     item_id = ITEM_FRESHNESS
@@ -1206,7 +1206,8 @@ def evaluate_confluence(evidence: Evidence) -> ItemOutcome:
     # Gate ber-`passed: null` DISEBUT, tidak hilang (TASKS 0.15). Ia masuk `gates_total` tetapi
     # tidak ke `passed` maupun `failed`, jadi sampai 0.15 kartu berbunyi "gates passed:
     # market_activity" tanpa menyebut bahwa satu gate DIAM — angka agregat tanpa `n`, persis
-    # yang dilarang CLAUDE.md. Terukur 19× di `data/ryo.db` (pertama id=1110), selalu gate
+    # yang dilarang aturan anti-halusinasi (`docs/api-facts.md`). Terukur 19× di `data/ryo.db`
+    # (pertama id=1110), selalu gate
     # `momentum`, selalu bersama `state=CONFIRMED score=1.0`.
     unspoken_gates = [
         _text_value(gate.get("name")) or _quote(gate.get("name"))
@@ -1319,13 +1320,13 @@ def _data_date_note(monitor: Any, *blocks: str) -> tuple[dict[str, str | None], 
         # ukur 2.1b, dan layar). Sampai 5 Sep 2026 ia SATU-SATUNYA string RYO di modul ini yang
         # melewati batas kepercayaan yang dieja di docstring modul — escape ANSI di
         # `data_date` bisa menimpa baris tabel/kartu di terminal (temuan KRITIS/TINGGI
-        # security-reviewer 2.1b). Tanggal yang sah tidak berubah sedikit pun oleh `clean_text`.
+        # tinjauan keamanan 2.1b). Tanggal yang sah tidak berubah sedikit pun oleh `clean_text`.
         text = _text_value(raw)
         dates[block] = text
         day = _as_date(text)
         if day is None:
             # `data_date` hilang/null TIDAK boleh dibaca sebagai "hari ini" dan tidak boleh
-            # didiamkan: null ≠ default (CLAUDE.md). Ia disebut sebagai tidak terucap.
+            # didiamkan: null ≠ default (ADR-013). Ia disebut sebagai tidak terucap.
             spoken.append(f"{block} date not stated")
         elif reference is None:
             spoken.append(f"{block} from {text} (age unknown: this envelope has no as_of)")
@@ -1366,7 +1367,7 @@ def evaluate_derivatives(evidence: Evidence) -> ItemOutcome:
 
     Kosakata "sesak"/"ekstrem" BELUM ADA di :mod:`preflight.params`: satu-satunya nilai yang
     pernah terlihat untuk kedua field ini adalah ``normal``. Karena itu jalur merah hanya
-    hidup lewat tabel yang di-override (tes) atau setelah api-verifier menambahkan nilai
+    hidup lewat tabel yang di-override (tes) atau setelah verifikasi API menambahkan nilai
     nyata — mengarang ``"crowded_long"`` di jalur produksi berarti memvonis dengan kosakata
     yang tidak pernah dikeluarkan RYO. Item ini OPSIONAL, jadi `unspoken` tidak memveto.
     """
@@ -1402,7 +1403,7 @@ def evaluate_derivatives(evidence: Evidence) -> ItemOutcome:
             warnings.append(
                 f"{item_id}: deep_analysis.data.derivatives is available for the first time; its "
                 "shape has never been observed (null in 294/294 rows) so market-wide evidence is "
-                "used and the per-token payload is left to api-verifier"
+                "used and the per-token payload is left to verifikasi API"
             )
 
     crowding_raw = _dig(monitor.data, "evidence", "funding", "crowding_state")
@@ -1480,7 +1481,7 @@ def evaluate_derivatives(evidence: Evidence) -> ItemOutcome:
         # crowding ber-qualifier `"sideways"` (atau `"Long"` dengan kapital berbeda) akan lolos
         # `crowd_side == plan` sebagai False dan jatuh ke cabang "sisi seberang" — GREEN, dengan
         # alasan yang MENGARANG bahwa kerumunan ada di seberang plan. Satu entri kosakata dari
-        # terjadi (temuan TINGGI security-reviewer 0.12). Qualifier di luar {long, short}
+        # terjadi (temuan TINGGI tinjauan keamanan 0.12). Qualifier di luar {long, short}
         # karena itu diperlakukan seperti tidak ada sisi sama sekali: RED tanpa syarat.
         if crowd_side not in (LONG, SHORT) or crowd_side == plan:
             hot.append(f"funding.crowding_state={_quote(crowding_raw)}")

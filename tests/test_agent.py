@@ -190,7 +190,7 @@ def test_exit_on_timeout_when_price_sits_between_stop_and_target(tmp_path: Path)
 
 
 def test_timeout_is_shorter_than_the_widest_observed_price_gap(tmp_path: Path) -> None:
-    """Angka batas waktu dipatok berikut sebabnya (api-verifier 4 Sep 2026).
+    """Angka batas waktu dipatok berikut sebabnya (verifikasi API 4 Sep 2026).
 
     docs/api-facts.md §A "Harga — `analyze_token.data.market.price_usd` — DIVERIFIKASI
     4 Sep 2026": celah harga maksimum yang teramati **1455 mnt (24,3 j)**, sementara jendela
@@ -242,7 +242,7 @@ def test_a_price_gap_that_swallows_the_deadline_is_reported_then_booked_late(tmp
 
 
 def test_a_forged_card_json_plan_cannot_close_a_position(tmp_path: Path) -> None:
-    """TINGGI-2 security-reviewer (4 Sep 2026) — DITUTUP: penutupan tidak membaca `card_json`.
+    """TINGGI-2 tinjauan keamanan (4 Sep 2026) — DITUTUP: penutupan tidak membaca `card_json`.
 
     Serangan aslinya: satu `UPDATE decisions SET card_json` (tanpa menyentuh satu hash pun)
     menggeser `stop`/`target`, `make replay` TETAP IDENTICAL, dan tick berikutnya membukukan
@@ -453,7 +453,7 @@ def test_partly_stale_evidence_becomes_unspoken_items_and_an_honest_no_go(tmp_pa
 def test_evidence_older_than_the_limit_writes_no_row_at_all(tmp_path: Path) -> None:
     """Nol bukti beku → `insufficient evidence`, TIDAK ada baris, kode keluar tetap 0.
 
-    Temuan SEDANG security-reviewer 4 Sep 2026: baris ber-`snapshot_ids=[]` membuat
+    Temuan SEDANG tinjauan keamanan 4 Sep 2026: baris ber-`snapshot_ids=[]` membuat
     `make replay` berkata "IDENTICAL … dari 0 snapshot beku" — vonis yang terlihat seperti
     verifikasi padahal tidak memverifikasi apa pun (bukti nyatanya `data/ryo.db` baris 20-23).
     """
@@ -505,7 +505,7 @@ def test_the_agent_uses_the_shared_definition_of_symbol_evidence(tmp_path: Path)
 
     Namanya sengaja tidak menyebut UI. Versi pertama tes ini bernama "agen dan UI memakai
     definisi yang sama" tetapi tidak mengimpor `ui.app` sama sekali — dan saat itu `ui/app.py`
-    memang masih memuat salinannya sendiri yang sudah berbeda (temuan SEDANG security-reviewer
+    memang masih memuat salinannya sendiri yang sudah berbeda (temuan SEDANG tinjauan keamanan
     0.13). Patok sisi UI-nya ada di `tests/test_ui.py`, yang memaku identitas objeknya.
     """
     store = build_store(tmp_path, symbols=("SOL",))
@@ -561,7 +561,7 @@ def test_symbol_evidence_needs_the_envelope_to_name_its_own_symbol() -> None:
 
 @pytest.mark.parametrize("tricky", ["{}", "{", "}", "7d"])
 def test_market_wide_tools_are_never_counted_as_symbol_scoped(tricky: str) -> None:
-    """Temuan TINGGI security-reviewer 0.13: uji substring atas teks JSON bisa dilewati.
+    """Temuan TINGGI tinjauan keamanan 0.13: uji substring atas teks JSON bisa dilewati.
 
     `json.dumps({}) == "{}"`, jadi `"{}" in json.dumps(args)` menjawab True untuk
     `market_overview` dan `monitor_market_sentiment_shift` — keduanya justru market-wide.
@@ -688,7 +688,7 @@ def test_watchlist_drops_unusable_entries_and_says_so() -> None:
 
 
 # --- TASKS 0.11: bentuk simbol disaring sebelum menulis ledger permanen ------------------
-# Keenam bentuk di bawah adalah yang dipakai security-reviewer 2.4 saat menunjukkan bahwa
+# Keenam bentuk di bawah adalah yang dipakai tinjauan keamanan 2.4 saat menunjukkan bahwa
 # `--symbols` menerima teks yang bukan simbol. (Angka "7 baris `decisions`" yang sempat
 # ditulis di sini DICABUT: sapuan `data/ryo.db` + 13 backup memberi 27 baris `decisions`
 # bersimbol SOL/BTC/ETH/BNB saja.) Semuanya LOLOS `normalize_symbol` — itu memang bukan
@@ -742,7 +742,7 @@ def test_mixed_script_lookalikes_cannot_become_two_ledger_rows() -> None:
 def test_single_script_lookalikes_are_NOT_closed_and_that_is_written_down(
     single_script: str,
 ) -> None:
-    """Batas yang diakui, bukan properti yang dijaga (security-reviewer 0.11, putaran 2).
+    """Batas yang diakui, bukan properti yang dijaga (tinjauan keamanan 0.11, putaran 2).
 
     `ВТС` Kiril penuh, `ᏚᎢᏞ` Cherokee, `ΒΤΑ` Yunani: masing-masing BERAKSARA TUNGGAL, jadi
     syarat 4 tidak menyentuhnya, dan `--symbols 'BTC,ВТС'` benar-benar menulis dua baris
@@ -763,7 +763,7 @@ def test_dropped_entries_cannot_forge_a_log_line(caplog: pytest.LogCaptureFixtur
 
     Yang dipatok adalah ISI LOG-nya. Versi pertama tes ini hanya memeriksa `symbols == ()`,
     sehingga mutan yang mengganti `repr(entry)` menjadi `entry` lolos seluruh suite
-    (mutation testing security-reviewer 0.11).
+    (mutation testing tinjauan keamanan 0.11).
     """
     forged = "EVIL\u2028WARNING watchlist: SOL dipanggil"
     with caplog.at_level(logging.WARNING, logger="agent.watchlist"):

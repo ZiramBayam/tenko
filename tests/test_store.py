@@ -479,7 +479,7 @@ def test_shifting_both_unhashed_columns_still_cannot_fake_freshness(store: Store
 
 
 def test_a_broken_payload_is_named_not_silently_dropped(store: Store) -> None:
-    """Baris rusak DISEBUT. Tanpa ini kartu berbohong (temuan SEDANG security-reviewer 2.2b).
+    """Baris rusak DISEBUT. Tanpa ini kartu berbohong (temuan SEDANG tinjauan keamanan 2.2b).
 
     Gejalanya halus: `store_reads` berbunyi "no snapshot within N min in the store" padahal
     snapshotnya ADA dan segar — ia dibuang karena `payload_json` tidak terurai. Pembaca kartu
@@ -1130,7 +1130,7 @@ def test_read_only_connection_is_enforced_by_sqlite_as_well(tmp_path: Path) -> N
 
 
 # --- TASKS 0.10: URI baca-saja tidak boleh bisa dibelokkan -------------------------------
-# Temuan TINGGI security-reviewer 2.4 (4 Sep 2026): `f"file:{path}?mode=ro"` menyerahkan arti
+# Temuan TINGGI tinjauan keamanan 2.4 (4 Sep 2026): `f"file:{path}?mode=ro"` menyerahkan arti
 # URI kepada isi path. Dua serangan reviewer direproduksi di bawah; keduanya HARUS gagal, dan
 # `test_the_old_f_string_uri_really_was_exploitable` membuktikan tesnya memang menggigit —
 # tanpa itu, dua tes di bawah bisa hijau hanya karena serangannya salah dirakit.
@@ -1155,7 +1155,7 @@ def _store_bypassing_the_resolver(
     Melewati resolver DENGAN SENGAJA: yang diuji di sini adalah lapis 2 dan 3 (rakitan URI dan
     `query_only`), yang harus berdiri sendiri seandainya lapis 1 kelak dilonggarkan. Konstruktor
     yang nyata yang dipanggil — bukan URI yang disalin ulang oleh tes — supaya regresi di
-    `Store.__init__` memerahkan tes ini (temuan TINGGI security-reviewer 0.10).
+    `Store.__init__` memerahkan tes ini (temuan TINGGI tinjauan keamanan 0.10).
     """
     monkeypatch.setattr("core.store._resolve_path", lambda _raw: path)
     return Store(path, read_only=read_only)

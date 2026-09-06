@@ -617,7 +617,7 @@ def test_clean_text_is_idempotent() -> None:
 
 
 # --- TASKS 1.5(c) ronde 2: batas berlaku di MODEL, bukan hanya di CLI --------------------
-# Temuan security-reviewer: `clean_text` semula hanya dipasang di `tool`/`summary.headline`,
+# Temuan tinjauan keamanan: `clean_text` semula hanya dipasang di `tool`/`summary.headline`,
 # sedangkan `request`/`warnings`/`availability` dibiarkan. Skill 2.2 merakit envelope-nya
 # SENDIRI, jadi pembatasan sisi CLI dibuang begitu skill mengembalikan envelope — envelope
 # stdout terukur 300.289 byte dengan pola `tests/helpers_skill_live.py`.

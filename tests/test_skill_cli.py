@@ -482,7 +482,7 @@ def test_huge_skill_name_does_not_reach_the_load_error_message(monkeypatch: pyte
     assert len(canonical_json(envelope)) < 4096
 
 
-# --- kontrak allowlist pesan (TASKS 1.5, catatan security-reviewer) -----------------------
+# --- kontrak allowlist pesan (TASKS 1.5, catatan tinjauan keamanan) -----------------------
 def test_speakable_errors_is_an_explicit_closed_list() -> None:
     """Menambah kelas ke `SPEAKABLE_ERRORS` = memberi hak cetak-ke-stdout kepadanya.
 

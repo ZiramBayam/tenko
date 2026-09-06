@@ -13,7 +13,7 @@ berjanji tidak menulis. Semua penulisan agen tetap lewat `core.store.Store`. Kal
 ditambah jalur tulis.
 
 **Bagaimana syarat itu ditegakkan, dan mengapa bentuk sebelumnya BOHONG** (temuan TINGGI
-security-reviewer, 4 Sep 2026, dibuktikan dengan tulisan yang benar-benar berhasil): URI
+tinjauan keamanan, 4 Sep 2026, dibuktikan dengan tulisan yang benar-benar berhasil): URI
 sebelumnya dirakit dengan `f"file:{path}?mode=ro"`. `sqlite3` mengurai teks setelah `file:`
 sebagai URI, sehingga path yang MEMUAT `?`/`#`/`&` — dan itu nama berkas yang SAH di POSIX —
 menyuntikkan parameternya sendiri: berkas bernama `evil.db?mode=rwc&x=` dibuka `rwc` dan
@@ -203,7 +203,7 @@ def read_decision(db_path: str | Path, decision_id: int) -> DecisionRow | None:
     docstring ini ("int atau `LedgerError`") tidak benar untuk sebagian int: `read_decision(2**63)`
     melempar `OverflowError` mentah dari `sqlite3`, dan `python -m agent.replay 9223372036854775808`
     memberi traceback sementara `agent.replay abc` dijawab satu kalimat rapi. Ditemukan
-    security-reviewer 3.1 — batas rentang di route HTTP sudah cukup untuk UI, tetapi pemanggil
+    tinjauan keamanan 3.1 — batas rentang di route HTTP sudah cukup untuk UI, tetapi pemanggil
     KEDUA (CLI replay) sudah ada hari ini.
     """
     if isinstance(decision_id, bool) or not isinstance(decision_id, int):
@@ -259,7 +259,7 @@ def algo_by_decision(db_path: str | Path, decision_ids: Sequence[int]) -> dict[i
     try:
         # `trade_events.decision_id` bertipe longgar di SQLite (tanpa STRICT), jadi nilai yang
         # bukan angka MUNGKIN ada di kolom itu. Melempar `ValueError` mentah dari sini membuat
-        # tick meledak alih-alih melaporkan (temuan RENDAH security-reviewer, 4 Sep 2026).
+        # tick meledak alih-alih melaporkan (temuan RENDAH tinjauan keamanan, 4 Sep 2026).
         wanted = sorted({int(i) for i in decision_ids})
     except (TypeError, ValueError) as exc:
         raise LedgerError(f"trade_events.decision_id memuat nilai yang bukan id baris: {exc}") from None

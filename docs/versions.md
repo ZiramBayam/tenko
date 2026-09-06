@@ -1,5 +1,5 @@
 # VERSIONS — versi yang dipakai
-Aturan: pin persis. Jangan upgrade/downgrade tanpa ADR. "BELUM DIVERIFIKASI" → api-verifier cek pypi.org sebelum pin (TASKS 0.1).
+Aturan: pin persis. Jangan upgrade/downgrade tanpa ADR. "BELUM DIVERIFIKASI" → verifikasi API cek pypi.org sebelum pin (TASKS 0.1).
 
 ## Runtime (diverifikasi lokal 1 Sep 2026)
 | Alat | Versi | Catatan |
@@ -8,7 +8,7 @@ Aturan: pin persis. Jangan upgrade/downgrade tanpa ADR. "BELUM DIVERIFIKASI" →
 | uv | 0.12.7 (lokal) | pengelola env & lock |
 | SQLite | 3.45.1 (stdlib `sqlite3`) | tidak perlu server DB |
 | Node/pnpm | TIDAK DIPAKAI (ADR-001) | |
-| openssl (binary sistem) | **3.0.13** (30 Jan 2024; `openssl version`, diverifikasi api-verifier 6 Sep 2026) | HANYA di `scripts/chaos.sh:304` untuk sertifikat self-signed umur 1 hari (`RyoClient` menolak base_url non-https, jadi server fixture 429 harus TLS). Bukan dependency Python: tidak ada di `uv.lock`/`pyproject.toml`, tidak diimpor, tidak di-vendor; sertifikat lahir di `mktemp -d` dan tidak pernah masuk repo. Sekelas `git`/`curl`/`make`/`bash`. Skrip sudah gagal-tertutup bila tidak ada (`record rate_limit_429 DILEWATI`), jadi ia tidak wajib terpasang. **Keputusan baris `DISCLOSURE.md` bukan milik berkas ini** — lihat rekomendasi api-verifier ke `@agent-pitch-writer` |
+| openssl (binary sistem) | **3.0.13** (30 Jan 2024; `openssl version`, diverifikasi verifikasi API 6 Sep 2026) | HANYA di `scripts/chaos.sh:304` untuk sertifikat self-signed umur 1 hari (`RyoClient` menolak base_url non-https, jadi server fixture 429 harus TLS). Bukan dependency Python: tidak ada di `uv.lock`/`pyproject.toml`, tidak diimpor, tidak di-vendor; sertifikat lahir di `mktemp -d` dan tidak pernah masuk repo. Sekelas `git`/`curl`/`make`/`bash`. Skrip sudah gagal-tertutup bila tidak ada (`record rate_limit_429 DILEWATI`), jadi ia tidak wajib terpasang. **Keputusan baris `DISCLOSURE.md` bukan milik berkas ini** — lihat rekomendasi verifikasi API ke `penulisan dokumen` |
 
 ## Python (pyproject.toml)
 | Paket | Versi | Status |
@@ -25,14 +25,14 @@ Aturan: pin persis. Jangan upgrade/downgrade tanpa ADR. "BELUM DIVERIFIKASI" →
 | mcp (python SDK) | BELUM DIVERIFIKASI | hanya bila transport MCP wajib; REST sudah cukup (api-facts §A) → tidak dipakai |
 | anthropic | **1.2.0** | **MASIH INI yang dipakai kode** (rencana pindah ke Google Gemini: lihat bagian "LLM narasi — kandidat pindah ke Google Gemini" di bawah; belum dipin, belum ber-ADR). MIT, py>=3.10; diverifikasi pypi.org 1 Sep 2026. Hanya untuk narasi kartu (ADR-003/011), tidak pernah menyentuh keputusan. DIPAKAI KODE sejak TASKS 2.3 (`preflight/narrate.py`) — bentuk request diverifikasi 4 Sep 2026, lihat "Bentuk request narasi" di bawah. Transitifnya di `uv.lock`: anyio, docstring-parser, **httpx2 2.12.0**, jiter, pydantic, sniffio, typing-extensions — semuanya sudah ada di DISCLOSURE.md; pemakaian `httpx2` di `tests/test_narrate.py` TIDAK menambah dependency baru |
 
-### Catatan verifikasi fastapi/uvicorn (api-verifier, 1 Sep 2026)
+### Catatan verifikasi fastapi/uvicorn (verifikasi API, 1 Sep 2026)
 - **TestClient tidak butuh paket tambahan yang dipin.** `fastapi.testclient.TestClient` = re-export `starlette.testclient.TestClient`; starlette 1.6.0 mencoba `import httpx2`, jatuh ke `httpx`, dan `RuntimeError` bila keduanya tidak ada. Di env proyek `httpx2==2.12.0` SUDAH ada sebagai transitif `anthropic==1.2.0` → TestClient memakai httpx2, nol warning. Dengan httpx 0.28.1 saja tetap jalan tapi memicu `StarletteDeprecationWarning` ("Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead"). Tidak ada `filterwarnings=error` di pyproject → tidak memblokir tes.
 - **Bukti (env scratch, pin persis proyek + fastapi/uvicorn, Python 3.12.3, uv 0.12.7):** `uv sync` resolve OK; `TestClient(app).get("/health")` → 200; `uvicorn ui.app:app --port 8731` (tanpa `[standard]`) → `GET /health 200 OK`; `pytest -q` → 1 passed.
 - **Paket baru yang masuk env** (butuh baris DISCLOSURE.md): fastapi 0.141.1 (MIT), uvicorn 0.52.4 (BSD-3-Clause), starlette 1.6.0 (BSD-3-Clause, transitif), click 8.5.0 (BSD-3-Clause, transitif), annotated-doc 0.0.5 (MIT, transitif). `h11` & `typing-inspection` sudah ada sebelumnya.
 
 Model LLM: `claude-opus-5` (id tanpa akhiran tanggal), `output_config.effort="low"` — tugas narasi sederhana dari data terstruktur.
 
-### Bentuk request narasi (anthropic 1.2.0, `preflight/narrate.py`) — DIVERIFIKASI api-verifier 4 Sep 2026
+### Bentuk request narasi (anthropic 1.2.0, `preflight/narrate.py`) — DIVERIFIKASI verifikasi API 4 Sep 2026
 Semua di bawah dibaca dari SDK yang TERPASANG di `.venv` (bukan ingatan) + dokumentasi resmi. Reproduksi:
 `.venv/bin/python -c "import inspect;from anthropic.resources.messages import Messages;print(inspect.signature(Messages.create))"`,
 `cat .venv/lib/python3.12/site-packages/anthropic/types/{output_config_param,json_output_format_param,refusal_stop_details}.py`,
@@ -53,9 +53,9 @@ Semua di bawah dibaca dari SDK yang TERPASANG di `.venv` (bukan ingatan) + dokum
 Kesimpulan: tidak perlu panggilan API untuk memastikan bentuk `output_config.format` — tipe SDK terpasang + dokumen resmi sudah menjawabnya. Yang butuh koreksi kode adalah isi `schema`-nya.
 Tanpa: pandas, sklearn, plotting lib. Chart untuk UI: canvas/SVG inline, atau library JS yang **di-vendor lokal** (lihat "Aset frontend JS" di bawah) — CDN saat runtime sudah gugur karena `make demo` wajib offline; putuskan di 4.2 dengan ADR. Chart.js sendiri BELUM DIVERIFIKASI dan belum dipin.
 
-## LLM narasi — kandidat pindah ke Google Gemini (diverifikasi api-verifier 6 Sep 2026; **BELUM DIPIN, BELUM ber-ADR**)
-Pemilik repo memutuskan memindahkan narasi kartu dari Anthropic ke Google Gemini (free tier). api-verifier hanya memverifikasi
-fakta; **memakai paket/sumber baru tetap butuh ADR + manusia** (CLAUDE.md) dan `sources.yaml` masih `llm_narration.provider: anthropic`.
+## LLM narasi — kandidat pindah ke Google Gemini (diverifikasi verifikasi API 6 Sep 2026; **BELUM DIPIN, BELUM ber-ADR**)
+Pemilik repo memutuskan memindahkan narasi kartu dari Anthropic ke Google Gemini (free tier). verifikasi API hanya memverifikasi
+fakta; **memakai paket/sumber baru tetap butuh ADR + manusia** (lihat `docs/decisions.md`) dan `sources.yaml` masih `llm_narration.provider: anthropic`.
 Sampai keduanya berubah, baris `anthropic 1.2.0` di atas TETAP yang dipakai kode (`preflight/narrate.py`).
 Fakta lengkap + kutipan ketentuan data: **docs/api-facts.md §B2**.
 
@@ -74,7 +74,7 @@ cffi 2.1.1 MIT-0 · pycparser 3.0 BSD-3-Clause.
 Yang **tidak** menambah baris karena sudah ada di proyek: httpx 0.28.1, pydantic 2.13.5 (+ pydantic_core, annotated-types,
 typing-inspection, typing_extensions, anyio, sniffio, h11, httpcore) — resolusi google-genai menarik versi yang **sama persis**
 dengan pin proyek. Perhatikan `certifi` **MPL-2.0** (lisensi copyleft-berkas, berbeda dari MIT/BSD/Apache lain di daftar) —
-pitch-writer perlu menulisnya apa adanya, bukan digeneralisasi jadi "MIT".
+penulisan dokumen perlu menulisnya apa adanya, bukan digeneralisasi jadi "MIT".
 
 **Perbandingan jejak dependency:** `anthropic 1.2.0` menarik 7 transitif (anyio, docstring-parser, httpx2, jiter, pydantic, sniffio,
 typing-extensions); `google-genai 2.22.0` menarik **24**, di antaranya `cryptography` + `cffi` (ekstensi native) dan `requests`
@@ -112,15 +112,15 @@ teknologi machine learning, *"human reviewers may read, annotate, and process yo
 *"Do not submit sensitive, confidential, or personal information to the Unpaid Services"*; untuk Paid Services justru
 *"Google doesn't use your prompts ... or responses to improve our products"*. Halaman pricing mengulangnya sebagai baris tabel
 `Used to improve our products | Yes (Free) | No (Paid)` di semua blok model. Prompt narasi kita memuat nilai keluaran tool RYO.
-api-verifier tidak menyimpulkan aman/tidak aman; keputusannya milik pemilik repo.
+verifikasi API tidak menyimpulkan aman/tidak aman; keputusannya milik pemilik repo.
 
-## Aset frontend JS (di-vendor lokal, TANPA CDN, TANPA npm) — diverifikasi api-verifier 1 Sep 2026
+## Aset frontend JS (di-vendor lokal, TANPA CDN, TANPA npm) — diverifikasi verifikasi API 1 Sep 2026
 Konteks: gaya awwwards (3D + GSAP + smooth scroll) untuk semua layar Fase 3.2. Runtime TIDAK boleh menyentuh CDN
 (`make demo` harus jalan offline dari fixture dengan dua run identik — spec §7; chaos test TASKS 4.5 mematikan host;
 docs/rules-compliance.md membatasi endpoint eksternal). Semua file disalin apa adanya ke `ui/static/vendor/<paket>/`
 tanpa build step — konsisten dengan ADR-001 (tidak ada Node/npm).
-**Status: PIN MENUNGGU ADR.** api-verifier hanya memverifikasi fakta (versi ada, lisensi, isi berkas, hash);
-memakai library baru tetap butuh ADR + manusia (CLAUDE.md: "Tanpa library di luar docs/versions.md tanpa ADR").
+**Status: PIN MENUNGGU ADR.** verifikasi API hanya memverifikasi fakta (versi ada, lisensi, isi berkas, hash);
+memakai library baru tetap butuh ADR + manusia (konvensi repo: "Tanpa library di luar docs/versions.md tanpa ADR").
 
 | Paket | Pin | Terbaru stabil (1 Sep 2026) | Lisensi | Bukti |
 |---|---|---|---|---|
@@ -243,7 +243,7 @@ Cek versi dari dalam file (tanpa jaringan): `head -c 120 ui/static/vendor/gsap/g
 - `three-mesh-bvh` (dipakai sebagian resep MeshTransmissionMaterial): BELUM DIVERIFIKASI, belum dipin, belum ber-ADR → jangan dipakai.
 - Alternatif ber-MIT bila lisensi GSAP ditolak pemilik proyek (versi & lisensi diverifikasi https://registry.npmjs.org/<paket> 1 Sep 2026,
   API-nya BUKAN drop-in): `motion` 13.1.1 (MIT) atau `animejs` 4.5.0 (MIT); scroll-trigger bisa diganti IntersectionObserver bawaan browser.
-  Penilaian api-verifier: **tidak perlu** — lisensi GSAP tidak membebani untuk pemakaian ini.
+  Penilaian verifikasi API: **tidak perlu** — lisensi GSAP tidak membebani untuk pemakaian ini.
 
 ## Zona waktu
 Semua tampilan JST (`Asia/Tokyo`); penyimpanan UTC ISO-8601.

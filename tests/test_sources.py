@@ -64,7 +64,7 @@ def test_usable_source_names_is_sorted_and_from_registry() -> None:
 # --- aturan approved ---------------------------------------------------------------------
 @pytest.mark.parametrize("approved", ["false", "null", '"true"', "'true'", "1", "~"])
 def test_approved_must_be_boolean_true(tmp_path: Path, approved: str) -> None:
-    """`approved: null` dan string "true" BUKAN persetujuan (CLAUDE.md, ADR-005)."""
+    """`approved: null` dan string "true" BUKAN persetujuan (ADR-005)."""
     path = _write_sources(tmp_path, approved)
     assert is_usable(RYO_TOOLS, path=path) is False
     with pytest.raises(SourceNotApprovedError):

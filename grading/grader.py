@@ -21,7 +21,7 @@ tercatat dua kali, bukan dua percobaan — dan itu bukan hipotesis: `data/ryo.db
 tick agen dalam rentang satu detik (id 28–39) yang membaca snapshot yang sama persis.
 
 Melipat ke `snapshot_id` saja TIDAK cukup, dan itu cacat yang pernah ada di sini (ditemukan
-security-reviewer, TINGGI): `docs/api-facts.md` mencatat bahwa delapan baris
+tinjauan keamanan, TINGGI): `docs/api-facts.md` mencatat bahwa delapan baris
 ``monitor_market_sentiment_shift`` ber-``funding.data_date = 2026-09-03`` (id 1976 · 2047 ·
 2106 · 2167 · 2231 · 2291 · 2356 · 2417) membawa ``crowding_state``/``pressure_state``/kedua
 persentil yang **identik sampai enam desimal** — "delapan kali polling atas SATU hari data
@@ -295,7 +295,7 @@ def _stance(item: Mapping[str, Any] | None, key: str) -> str:
     """`value[key]` sebagai teks bersih, atau "unspoken" bila tidak ada.
 
     "unspoken" adalah kelas Bunryo yang SAH dan berbeda dari kelas mana pun — bukan default yang
-    menyamar sebagai nilai (CLAUDE.md: null tidak pernah jadi 0).
+    menyamar sebagai nilai (ADR-013: null tidak pernah jadi 0).
     """
     value = item.get("value") if isinstance(item, Mapping) else None
     raw = value.get(key) if isinstance(value, Mapping) else None
