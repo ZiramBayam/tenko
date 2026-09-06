@@ -171,14 +171,31 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
       di bawah. Tesnya membaca CSS yang benar-benar dilayani `/ui/tenko.css` dan menolak warna
       baru yang tidak terdaftar di pasangan mana pun.
       → `test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`
-- [x] **Tanpa hover-only.** Nol `:hover` di CSS; tidak ada isi yang muncul karena kursor
-      melayang, jadi pemakai keyboard, layar sentuh, dan pembaca layar melihat kalimat yang sama.
-      → `test_the_stylesheet_has_no_animation_and_no_hover_only_information`
-- [x] **Tanpa animasi**, nol `transition`/`@keyframes` — aman untuk `prefers-reduced-motion`
-      dan untuk video demo. ADR-020 butir 8 menyebut "gerak halus" sebagai arah visual; ia
-      **sengaja tidak diambil**, karena batas a11y di baris ini lebih tua dan lebih mengikat
-      daripada rujukan estetika.
-      → `test_the_stylesheet_has_no_animation_and_no_hover_only_information`
+- [x] **Tanpa hover-only.** Tidak ada isi yang muncul karena kursor melayang, jadi pemakai
+      keyboard, layar sentuh, dan pembaca layar melihat kalimat yang sama. ADR-025 mencabut
+      larangan `:hover` itu sendiri; yang menggantikannya lebih tepat sasaran — **tiap aturan
+      `:hover` wajib punya padanan `:focus`**, diperiksa per-aturan di CSS yang dilayani.
+      → `test_motion_is_allowed_but_never_required_to_read_the_screen`
+- [x] **Gerak diizinkan, tetapi tidak pernah dibutuhkan untuk membaca layar** (ADR-025, 7 Sep
+      2026 — MENGGANTIKAN butir "tanpa animasi"). Landing memakai smooth scroll (Lenis) dan
+      reveal saat gulir (GSAP). Tiga hal yang menjaganya, dan ketiganya diuji, bukan dijanjikan:
+      (a) `prefers-reduced-motion` MEMATIKAN gerak seluruhnya — Lenis tidak pernah dibuat, dan
+      tesnya memeriksa bahwa pemeriksaan preferensi terjadi **sebelum** `new Lenis`, bukan
+      sekadar ada; (b) keadaan awal reveal (`opacity: 0`) hanya hidup di bawah kelas
+      `.js-motion` yang ditempel KLIEN, jadi HTML server tidak pernah menyembunyikan isi dan
+      halaman tanpa JS terlihat utuh; (c) Layar A dan B tidak diberi gerak sama sekali.
+      → `test_motion_is_allowed_but_never_required_to_read_the_screen`
+- [x] **Mode paksa-warna tidak menghilangkan judul** (`forced-colors: active`). Judul hero
+      memakai `background-clip: text` + `color: transparent`; mode paksa-warna membuang gambar
+      latar tetapi TIDAK membuang `color: transparent`, sehingga tanpa penawar judul utama
+      halaman **hilang sama sekali**. Cacat itu lahir 7 Sep bersama efeknya dan hanya terlihat
+      karena checklist ini diaudit ulang atas UI yang sekarang.
+      → `test_the_landing_is_reachable_and_readable_the_way_screen_a_and_b_are`
+- [x] **Landing (`/`) diuji dengan tuntutan yang sama seperti Layar A/B**: satu `h1` lalu `h2`
+      saja tanpa lompatan tingkat, tiap tautan bernama, aksara Jepang ber-`lang="ja"`, rel gulir
+      `aria-hidden` karena ia kanal kedua (posisi gulir sudah dibawa bilah gulir browser), dan
+      banner SIMULATED dirender server.
+      → `test_the_landing_is_reachable_and_readable_the_way_screen_a_and_b_are`
 
 - [x] **Nilai yang tidak ada adalah KATA, bukan tanda hubung.** Sel kosong dulu berisi em-dash
       abu-abu (`<span class="dim">—</span>`), yang di layar terbaca seperti sebuah nilai.
@@ -314,7 +331,19 @@ sebagai literal hanya akan membekukan laporan yang esok sudah berubah.
   (jadi layar yang dinilai juri tanpa JS tetap layar yang sama) dan
   `test_the_client_and_the_server_speak_one_sentence_not_two` untuk kalimat yang paling mahal
   bila menyimpang.
-- **Belum diuji dengan zoom 200%** maupun `prefers-contrast`/`forced-colors`.
+- **Zoom 200%: DIUJI** (7 Sep 2026) dengan merender landing pada viewport 640px — setara 200%
+  pada 1280px. Isi mengalir ulang, nol pemotongan, nol gulir mendatar; pil dan label sudut
+  membungkus. Yang **belum** diuji pada zoom itu adalah Layar A/B, yang tabelnya jauh lebih
+  lebar. `forced-colors` ditangani untuk judul hero (lihat checklist) tetapi **belum diuji
+  menyeluruh**; `prefers-contrast` belum disentuh sama sekali.
+- **`<title>` memuat `点呼` tanpa `lang="ja"`, dan itu tidak bisa diperbaiki.** HTML tidak
+  mengizinkan markup di dalam `<title>`, jadi tidak ada tempat memasang atributnya. Pembaca
+  layar berbahasa Inggris akan salah mengejanya. Disebut di sini, bukan disembunyikan; badan
+  halaman menandai setiap kemunculan lain dengan benar.
+- **Gerak baru (ADR-025) belum diuji dengan pembaca layar sungguhan.** Yang dijamin otomatis
+  adalah bahwa gerak mati total di bawah `prefers-reduced-motion` dan bahwa tidak ada isi yang
+  disembunyikan server — bukan bagaimana satu pembaca layar tertentu berperilaku saat
+  ScrollTrigger memindahkan elemen.
 
 ---
 

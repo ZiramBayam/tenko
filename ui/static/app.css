@@ -529,6 +529,12 @@ button:focus-visible {
     color: var(--ink);
   }
 }
+@media (forced-colors: active) {
+  .hero h1 {
+    background-image: none;
+    color: CanvasText;
+  }
+}
 html.lenis,
 html.lenis body {
   height: auto;

@@ -364,6 +364,15 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .hero h1 { background-image: none; color: var(--ink); }
 }
+/* Windows High Contrast dan mode paksa-warna lain MEMBUANG gambar latar, tetapi `color:
+   transparent` di atas akan tetap berlaku — hasilnya JUDUL UTAMA HALAMAN HILANG SAMA SEKALI.
+   Cacat ini lahir bersama efek dot-matrix-nya (7 Sep 2026) dan hanya terlihat karena 4.6
+   diaudit ulang atas UI yang sekarang, bukan atas UI yang dulu.
+
+   `CanvasText` adalah warna sistem, bukan hex, jadi ia tidak masuk himpunan yang diukur. */
+@media (forced-colors: active) {
+  .hero h1 { background-image: none; color: CanvasText; }
+}
 
 /* --- gerak: smooth scroll + reveal (ADR-025) ------------------------------------------------
    Kelas di bawah dipasang KLIEN, tidak pernah oleh server. Itu urutan yang menjaga jaminan

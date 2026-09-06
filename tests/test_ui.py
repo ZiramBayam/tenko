@@ -1970,6 +1970,73 @@ def test_no_asset_comes_from_any_host_but_this_app(client: TestClient) -> None:
     assert css.text == (ROOT / "ui" / "static" / "app.css").read_text(encoding="utf-8")
 
 
+def test_the_landing_is_reachable_and_readable_the_way_screen_a_and_b_are(
+    client: TestClient,
+) -> None:
+    """TASKS 4.6, DIAUDIT ULANG 7 Sep 2026 atas UI yang SEKARANG.
+
+    Checklist 4.6 ditulis 5 Sep atas dua layar dan palet abu-abu. Sejak itu ADR-021 menambah
+    layar KETIGA (landing), ADR-023/024 mengganti seluruh palet dua kali, ADR-025 menambahkan
+    gerak, dan judul hero menjadi dot-matrix. Jaminan yang tidak diperiksa ulang atas UI yang
+    benar-benar dilayani adalah jaminan yang sudah kedaluwarsa; tes ini memeriksa landing
+    dengan tuntutan yang sama seperti Layar A/B.
+
+    Temuan yang melahirkan butir `forced-colors` di bawah: efek dot-matrix memakai
+    `color: transparent` di atas `background-clip: text`. Mode paksa-warna (Windows High
+    Contrast) MEMBUANG gambar latar tetapi TIDAK membuang `color: transparent` — hasilnya judul
+    utama halaman hilang sama sekali. Cacat itu lahir 7 Sep bersama efeknya dan hanya terlihat
+    karena 4.6 diaudit ulang, bukan diasumsikan masih berlaku.
+    """
+    html = client.get("/").text
+
+    # 1. Urutan heading tidak melompat: satu h1, lalu h2 saja.
+    levels = [int(m) for m in re.findall(r"<h([1-6])[ >]", html)]
+    assert levels, "landing tanpa heading"
+    assert levels[0] == 1 and levels.count(1) == 1, f"h1 bukan satu-satunya/pertama: {levels}"
+    assert set(levels) <= {1, 2}, f"tingkat heading melompat: {levels}"
+
+    # 2. Tiap tautan punya nama aksesibel — teks sendiri atau `aria-label`.
+    links = re.findall(r"<a\b([^>]*)>(.*?)</a>", html, re.S)
+    assert links, "landing tanpa tautan"
+    for attrs, inner in links:
+        named = strip_tags(inner).strip() or 'aria-label="' in attrs
+        assert named, f"tautan tanpa nama aksesibel: {attrs[:80]}"
+    # CTA utama menyebut TUJUANnya, bukan hanya "the board".
+    assert 'aria-label="Open the watchlist board' in html
+
+    # 3. Aksara Jepang selalu ditandai bahasanya — pembaca layar Inggris akan mengejanya
+    #    sebagai omong kosong tanpa ini, dan mesin tanpa font CJK menampilkannya sebagai tofu.
+    # `<title>` DIKECUALIKAN dan itu bukan kelalaian: HTML tidak mengizinkan markup di dalam
+    # `<title>`, jadi `lang` tidak bisa dipasang di sana sama sekali. Batas itu disebut di
+    # checklist `ui/README.md`, bukan disembunyikan.
+    body_html = html.split("<body", 1)[1]
+    for kanji in ("点呼", "指差喚呼"):
+        idx = body_html.index(kanji)
+        assert 'lang="ja"' in body_html[max(0, idx - 120) : idx], f"{kanji} tanpa lang=ja"
+
+    # 4. Rel gulir adalah kanal KEDUA, bukan pembawa informasi: posisi gulir sudah dibawa bilah
+    #    gulir browser. Ia karena itu disembunyikan dari pembaca layar, dan tidak boleh membawa
+    #    satu pun teks yang tidak ada di tempat lain.
+    assert '<div class="railbar" aria-hidden="true">' in html
+
+    # 5. Banner SIMULATED ada SEBELUM satu baris JS pun jalan (rules-compliance + ADR-020 6).
+    assert BANNER in html
+    assert html.index("banner") < html.index("app.js") or 'class="banner"' in html
+
+    css = client.get("/ui/tenko.css").text
+    squashed = css.replace(" ", "").replace("\n", "")
+    # 6. Mode paksa-warna: judul dot-matrix WAJIB kembali padat. Tanpa ini ia hilang.
+    assert "@media(forced-colors:active)" in squashed, (
+        "tidak ada penawar forced-colors — judul dot-matrix akan HILANG di Windows High Contrast"
+    )
+    forced = squashed.split("@media(forced-colors:active)")[1]
+    assert "background-image:none" in forced and "color:CanvasText" in forced, forced[:160]
+    # Dan konfliknya nyata: efeknya memang memakai color:transparent.
+    assert "color:transparent" in squashed, (
+        "efek dot-matrix hilang — periksa apakah penawar forced-colors di atas masih perlu"
+    )
+
+
 def test_motion_is_allowed_but_never_required_to_read_the_screen(client: TestClient) -> None:
     """ADR-025 MENCABUT larangan animasi/transisi/`:hover`. Yang TIDAK dicabut ada di bawah.
 
@@ -3627,7 +3694,7 @@ def test_one_css_naming_rule_serves_both_renderers() -> None:
 #: Cara memperbaruinya: `make frontend` mencetak hash barunya. Menggantinya adalah perbuatan
 #: yang TERLIHAT di diff — dan itulah seluruh gunanya.
 BUNDLE_SHA256 = "9c53cb42aeecba10d2d98526ac2f685f6cb99e336686ac5f8746fec83597c137"
-STYLESHEET_SHA256 = "5ced71d44b5c182aaa24b69d866a2b1f579d3fa3c35f4b8f4607827887d42910"
+STYLESHEET_SHA256 = "8752479a59f58b807abc217df152d3e620f2d9f778a7c603dd695a77d50626fe"
 
 
 def test_the_shipped_bundle_is_pinned_byte_for_byte() -> None:
