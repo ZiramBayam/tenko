@@ -336,3 +336,56 @@ kembalikan ke narasi mati dan kirim.
 
 BELUM DIJAWAB penyelenggara (§E): apakah keluaran tool RYO boleh dikirim ke LLM pihak ketiga yang memakai data
 untuk pelatihan. Keputusan ini sengaja dibuat agar **tidak bergantung** pada jawaban itu.
+
+## ADR-020 (DITERIMA 6 Sep 2026) Frontend TypeScript yang dinamis; Node menjadi alat BUILD, bukan runtime
+Konteks: pemilik repo meminta (6 Sep 2026, eksplisit dan diulang setelah keberatan dicatat) frontend ditulis ulang
+dengan **TypeScript** dan dibuat **dinamis**, dengan getlayers.ai sebagai rujukan visual. ADR-001 mengunci "Python
+murni, tanpa Node" dan ADR-014 menegaskan "tanpa CDN, tanpa npm, tanpa build step". Keberatan yang diajukan
+koordinator sebelum keputusan diambil, dan yang tetap berlaku sebagai risiko yang diterima: deadline 8 Sep 2026,
+laporan juri 5.2 (T1 82 · T2 85 · T3 80) menilai UI yang ADA, checklist a11y 4.6 menggambarkan layar yang ADA,
+dan `Content-Security-Policy: default-src 'none'` hari ini melarang skrip sama sekali. Pemilik repo mengulang
+permintaannya sesudah membaca semua itu; ini keputusannya, bukan kelalaian.
+
+Keputusan:
+1. **ADR-001 dan ADR-014 DIPERSEMPIT, tidak dicabut.** Yang gugur hanya kalimat "tanpa Node/npm/build step"
+   untuk lapisan presentasi. Yang TETAP berlaku utuh: tidak ada Next/pnpm, tidak ada CDN, tidak ada framework
+   runtime, dan Python tetap satu-satunya yang melayani permintaan.
+2. **Node/npm adalah alat BUILD saja, dan tidak pernah dibutuhkan untuk menjalankan Tenko.** Hasil build
+   (`ui/static/app.js` + `ui/static/app.css`) **dilacak git dan ikut terkirim**. Clone bersih tanpa Node sama
+   sekali harus tetap bisa `make ui`, `make test`, dan `make demo`. Ini syarat penerimaan, bukan harapan:
+   ada tes yang gagal bila jalur runtime menyentuh Node. Alasannya langsung — mesin juri belum tentu punya
+   Node, dan ADR-001 lahir persis dari kekhawatiran itu.
+3. **Tanpa framework runtime.** TypeScript + DOM apa adanya. Bundler: **esbuild** (satu binary,
+   pohon transitif nyaris nol) — bukan Vite/webpack, supaya baris `DISCLOSURE.md` tetap bisa dibaca manusia.
+   Dependency runtime npm: **nol**.
+4. **"Dinamis" didefinisikan sempit dan jujur**: klien mengambil dari API JSON yang SUDAH ada
+   (`/api/watchlist`, `/api/decisions`, `/api/decision/{id}`, `/api/preflight/{symbol}`), berpindah antar Layar A
+   dan Layar B tanpa muat ulang, menyaring/mengurutkan di klien, dan menyegarkan berkala. Ia TIDAK menghitung
+   apa pun sendiri: setiap angka yang tampil berasal dari respons API. Tidak ada logika keputusan di klien
+   (ADR-003 utuh), dan `unspoken` tetap dirender sebagai `unspoken` — tidak pernah 0, tidak pernah kosong.
+5. **CSP dilonggarkan seminimal mungkin**: `script-src 'self'` menggantikan larangan total, sisanya tetap
+   (`default-src 'none'`, `img-src 'none'`, `base-uri 'none'`). Tanpa `unsafe-inline`, tanpa `unsafe-eval`,
+   tanpa host pihak ketiga. Skrip dan gaya disajikan dari origin sendiri sebagai berkas terpisah.
+   *Koreksi (tinjauan keamanan, 2026-09-06 — bukan keputusan baru):* butir ini kurang satu direktif.
+   `connect-src` adalah fetch-directive yang fallback-nya `default-src`, jadi `default-src 'none'`
+   tanpa menyebutnya = `connect-src 'none'` = setiap `fetch()` klien ditolak browser, termasuk ke
+   origin sendiri — butir 4 tidak akan pernah jalan. CSP terpasang karena itu juga memuat
+   `connect-src 'self'`, dan tidak lebih dari `'self'`.
+6. **Banner SIMULATED wajib dirender oleh server**, bukan oleh klien. Klien yang gagal memuat tidak boleh
+   menghasilkan halaman tanpa banner: HTML kerangka sudah membawa banner sebelum satu baris JS pun jalan.
+   Ini kewajiban `docs/rules-compliance.md`, dan ia tidak boleh bergantung pada JavaScript.
+7. **Jaminan 4.6 (a11y) tidak turun**: Tab/Enter/Esc, fokus terlihat, `aria-label` bernilai+bersumber,
+   kontras ≥4.5:1, tanpa hover-only — semuanya wajib tetap terbukti oleh tes sesudah penulisan ulang.
+   Konten dinamis wajib memakai `aria-live` supaya perubahan terdengar pembaca layar.
+8. **Rujukan visual getlayers.ai dipakai untuk ARAH, bukan disalin**: gelap, kontras tinggi, kartu bergrid,
+   ritme spasi longgar, gerak halus. Nol aset, nol font, nol CSS diambil dari sana.
+
+Konsekuensi: `ui/app.py` (CSP + kerangka HTML) · `ui/screens.py` (server-render menyusut jadi kerangka + banner) ·
+`frontend/` (baru: sumber TypeScript) · `ui/static/` (baru: hasil build yang dilacak) · `package.json` +
+`package-lock.json` (baru) · `Makefile` (target build) · `docs/versions.md` (pin Node/npm/typescript/esbuild) ·
+`DISCLOSURE.md` (baris dependensi baru) · `tests/test_ui.py` (tes yang memaku "nol `<script>`" WAJIB ditulis
+ulang jadi tes yang memaku CSP baru — jangan dihapus, jangan dilonggarkan).
+
+Risiko yang diterima sadar: laporan juri 5.2 menilai UI lama, jadi skor T2 85 **tidak lagi berlaku** sampai
+`hackathon-judge` dijalankan ulang atas UI baru. Bila penulisan ulang tidak selesai sebelum 8 Sep, jalan
+mundurnya adalah `git revert` commit-commit UI — bukan mengirim layar setengah jadi.

@@ -13,12 +13,12 @@
 // Kalau berkas ini gagal dimuat, yang tertinggal adalah layar lengkap hasil render server.
 
 import { getJson, ApiError } from "./api.js";
-import { append, clear, el } from "./dom.js";
+import { append, el } from "./dom.js";
 import type { Json } from "./json.js";
 import { dicts, num, text } from "./json.js";
 import { compare } from "./order.js";
 import { renderCard, renderWatchlist } from "./render.js";
-import { LOADING, OFFLINE_KEPT, UNVERIFIED_ENVELOPE } from "./text.js";
+import { LOADING, OFFLINE_KEPT, STALE_SCREEN, UNVERIFIED_ENVELOPE } from "./text.js";
 
 type Screen = "watchlist" | "card";
 
@@ -58,6 +58,11 @@ const state = {
   payload: {} as Record<string, Json>,
   loaded: false,
   timer: 0,
+  /** Layar yang BENAR-BENAR ada di DOM saat ini — dipakai untuk mengaku layar mana yang terlihat. */
+  shownScreen: "watchlist" as Screen,
+  shownId: null as number | null,
+  /** Sudah pernahkah klien mengganti isi render server? Selama belum, yang di layar milik server. */
+  rendered: false,
 };
 
 let liveNode: HTMLElement;
@@ -173,6 +178,25 @@ function paint(): void {
   say(`${filtered}Sorted by ${order}. Fetched at ${browserClock()}.`, "ok");
 }
 
+/** Catat bahwa DOM sekarang benar-benar menampilkan layar yang diminta. */
+function shown(): void {
+  state.shownScreen = state.screen;
+  state.shownId = state.decisionId;
+  state.rendered = true;
+}
+
+/**
+ * Kalimat yang mengaku LAYAR MANA yang tertinggal saat pengambilan gagal.
+ *
+ * Ketiganya berbeda dan tidak boleh tertukar: belum ada apa pun dari klien (yang di layar milik
+ * server), layar yang sama tetapi tua, atau layar SEBELUMNYA karena perpindahan gagal. Yang
+ * tidak pernah menjadi jawaban: layar kosong.
+ */
+function kept(): string {
+  if (state.shownScreen !== state.screen || state.shownId !== state.decisionId) return STALE_SCREEN;
+  return state.rendered ? OFFLINE_KEPT : "the server-rendered screen below is untouched";
+}
+
 async function load(spoken: boolean): Promise<void> {
   if (spoken) say(LOADING, "loading");
   try {
@@ -181,6 +205,7 @@ async function load(spoken: boolean): Promise<void> {
       state.payload = payload;
       state.loaded = true;
       renderCard(payload, viewNode);
+      shown();
       say(
         `card #${state.decisionId} re-fetched from /api/decision/${state.decisionId} at ${browserClock()}; ` +
           "the replay verdict on it was recomputed by the server, not by this client.",
@@ -192,13 +217,14 @@ async function load(spoken: boolean): Promise<void> {
       state.entries = dicts(payload["symbols"]);
       state.loaded = true;
       paint();
+      shown();
     }
   } catch (error) {
     const message =
       error instanceof ApiError && error.message.includes("`simulated: true`")
         ? UNVERIFIED_ENVELOPE
         : `could not refresh: ${error instanceof Error ? error.message : "unknown failure"}`;
-    say(`${message} — ${state.loaded ? OFFLINE_KEPT : "the server-rendered screen below is untouched"}.`, "error");
+    say(`${message} — ${kept()}.`, "error");
   }
   schedule();
 }
@@ -225,8 +251,12 @@ function go(path: string, push: boolean): void {
   state.loaded = false;
   if (push) window.history.pushState({ path }, "", path);
   controlsNode.hidden = state.screen !== "watchlist";
-  clear(viewNode);
-  append(viewNode, el("p", { class: "sub" }, LOADING));
+  // Isi lama DITAHAN sampai responsnya datang, dan tetap ditahan kalau ia tidak pernah datang.
+  // Versi sebelumnya `clear(viewNode)` lebih dulu: satu klik simbol dengan API yang gagal (atau
+  // CSP yang memblokir `fetch`) menghapus tabel hasil render server dan tidak pernah
+  // mengembalikannya — juri mendapat HALAMAN KOSONG permanen, karena cabang gagal `load()`
+  // hanya menyentuh baris status. Layar kosong tidak boleh mungkin; yang boleh adalah layar
+  // lama yang MENGAKU dirinya lama (`kept()`).
   void load(true);
 }
 
@@ -258,6 +288,10 @@ function start(): void {
   const screen = body.dataset["screen"];
   state.screen = screen === "card" ? "card" : "watchlist";
   state.decisionId = screen === "card" ? Number(body.dataset["decisionId"] ?? "0") || null : null;
+  // Yang ADA di DOM sekarang adalah layar hasil render server untuk URL ini — dicatat supaya
+  // kalimat kegagalan berikutnya bisa membedakan "layar ini, tua" dari "layar yang LAIN".
+  state.shownScreen = state.screen;
+  state.shownId = state.decisionId;
   controlsNode.hidden = state.screen !== "watchlist" || screen === "error";
   if (screen === "error") return;
 

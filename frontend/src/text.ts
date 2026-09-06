@@ -28,3 +28,4 @@ export const AGE_CLIENT_NOTE = "the relative age line is written by the server r
 export const UNVERIFIED_ENVELOPE = "this API response did not say `simulated: true`, so nothing from it was rendered; the screen you can see is the one the server rendered";
 export const LOADING = "loading from the API…";
 export const OFFLINE_KEPT = "the last successful response is still on screen and it is OLD; nothing was invented to replace it";
+export const STALE_SCREEN = "the screen below is the PREVIOUS one, not this URL; it was kept on purpose because a blank screen answers nothing, and nothing was invented to replace it";

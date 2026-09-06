@@ -1823,8 +1823,9 @@ def test_the_only_script_is_this_apps_own_bundle_and_the_csp_allows_nothing_else
     """DITULIS ULANG dari `test_the_screens_contain_no_script_at_all_and_the_csp_forbids_one`.
 
     Niat lama menutup permukaan `innerHTML` dengan menghapus JS sepenuhnya. ADR-020 butir 5
-    melonggarkan SATU direktif, jadi tes ini memaku pelonggaran itu tetap SEMPIT — dan ia
-    menggigit lebih keras daripada yang lama, karena sekarang ada sesuatu yang bisa salah:
+    melonggarkan DUA direktif (`script-src` dan — sejak tinjauan keamanan — `connect-src`, yang
+    tanpanya klien tidak bisa memanggil API-nya sendiri), jadi tes ini memaku pelonggaran itu
+    tetap SEMPIT — dan ia menggigit lebih keras daripada yang lama, karena ada yang bisa salah:
 
     * tepat SATU `<script>` di setiap halaman, dan ia `src`-nya `/ui/app.js` (origin sendiri);
     * `<script>` itu tidak punya isi sebaris satu aksara pun (`'unsafe-inline'` tidak ada, jadi
@@ -1845,9 +1846,19 @@ def test_the_only_script_is_this_apps_own_bundle_and_the_csp_allows_nothing_else
         assert "javascript:" not in lower, path
         csp = response.headers["content-security-policy"]
         assert "script-src 'self'" in csp, path
+        # `connect-src` disebut EKSPLISIT: fetch-directive yang tidak disebut jatuh ke
+        # `default-src 'none'`, dan klien yang tidak bisa memanggil `/api/...` adalah klien mati
+        # (lihat `test_the_csp_names_connect_src_or_every_fetch_this_client_makes_is_blocked`).
+        assert "connect-src 'self'" in csp, path
         for forbidden in ("unsafe-inline", "unsafe-eval", "data:", "blob:", "http", "*"):
             assert forbidden not in csp, f"{path}: CSP melonggar ke {forbidden}"
         assert "default-src 'none'" in csp and "img-src 'none'" in csp and "base-uri 'none'" in csp
+        # Dua pelonggaran, DAN TIDAK LEBIH: tiap direktif lain yang disebut bernilai 'none'.
+        assert sorted(name for name, value in csp_directives().items() if value != ["'none'"]) == [
+            "connect-src",
+            "script-src",
+            "style-src",
+        ], csp
         assert response.headers["x-content-type-options"] == "nosniff"
 
 
@@ -3104,3 +3115,279 @@ def test_every_screen_carries_the_hooks_the_client_needs_and_a_banner_without_it
         assert "<table" in html and "aria-label=" in html
     card = client.get("/ui/decision/1").text
     assert 'data-decision-id="1"' in card
+
+
+# --- tinjauan keamanan (BLOKIR): CSP yang mematikan klien, dan layar kosong ------------------
+
+
+def csp_directives() -> dict[str, list[str]]:
+    """CSP terpasang, di-parse jadi `{direktif: [nilai]}` — dibaca dari `ui/app.py`, bukan disalin."""
+    header = HTML_HEADERS["Content-Security-Policy"]
+    parsed: dict[str, list[str]] = {}
+    for chunk in header.split(";"):
+        parts = chunk.split()
+        if parts:
+            parsed[parts[0]] = parts[1:]
+    return parsed
+
+
+def client_fetch_targets() -> list[str]:
+    """Argumen literal setiap `fetch(...)` di sumber klien. Kosong = tesnya tidak menguji apa-apa."""
+    source = strip_comments((FRONTEND / "src" / "api.ts").read_text(encoding="utf-8"))
+    return re.findall(r"fetch\(\s*([A-Za-z_][A-Za-z0-9_]*|\"[^\"]*\")", source)
+
+
+def test_the_csp_names_connect_src_or_every_fetch_this_client_makes_is_blocked(
+    client: TestClient,
+) -> None:
+    """Temuan TINGGI: CSP tanpa `connect-src` membunuh SELURUH alasan ADR-020 ada.
+
+    `connect-src` adalah fetch-directive, dan fetch-directive yang tidak disebut jatuh ke
+    `default-src` (CSP Level 3). `default-src 'none'` karena itu berarti `connect-src 'none'`:
+    `fetch("/api/watchlist")` ditolak browser TERMASUK ke origin sendiri, muat pertama gagal,
+    auto-refresh tidak pernah berhasil, dan `CLIENT_NOTE` yang dirender server menjanjikan
+    ritme 30 detik yang tidak mungkin ditepati. Tidak ada browser di jalur tes — jadi yang
+    berdiri di tempat browser adalah tes ini.
+
+    Ia juga menjaga pelonggarannya tetap SEMPIT: `'self'` dan tidak satu token pun selain itu.
+    """
+    directives = csp_directives()
+    assert directives["default-src"] == ["'none'"], "prasyarat: yang tidak disebut memang ditolak"
+    assert "connect-src" in directives, (
+        "CSP tidak menyebut connect-src: ia jatuh ke default-src 'none' dan SETIAP fetch() klien "
+        "ditolak browser, termasuk ke origin sendiri"
+    )
+    assert directives["connect-src"] == ["'self'"], directives["connect-src"]
+    # Dan yang benar-benar diambil klien memang se-origin, sehingga `'self'` CUKUP: satu host
+    # asing di sini akan lolos CSP-nya sendiri dan gagal diam-diam di browser.
+    targets = client_fetch_targets()
+    assert targets, "prasyarat: klien memang memanggil fetch()"
+    for target in targets:
+        assert not target.startswith('"http'), target
+    main = (FRONTEND / "src" / "main.ts").read_text(encoding="utf-8")
+    paths = re.findall(r'getJson\(\s*[`"](/[^`"$]*)', main)
+    assert paths, "prasyarat: klien memang meminta path API"
+    for path in paths:
+        assert path.startswith("/api/"), path
+    # Header yang benar-benar dikirim, bukan hanya konstanta di modul.
+    for route in ("/", "/ui", "/ui/decision/1"):
+        assert "connect-src 'self'" in client.get(route).headers["content-security-policy"], route
+
+
+def test_the_csp_that_ui_readme_describes_is_not_a_second_copy_of_it() -> None:
+    """`ui/README.md` menjelaskan SIFAT CSP dan tidak mengutip nilainya — sengaja.
+
+    Nilai CSP yang harfiah di tiga berkas adalah tiga berkas yang harus diperbarui serempak,
+    dan yang ketiga selalu ketinggalan (itulah cara `img-src 'none'` sempat tertulis sebagai
+    direktif terakhir setelah `connect-src` masuk). Satu tempat: `ui/app.py:HTML_HEADERS`.
+    """
+    readme = (ROOT / "ui" / "README.md").read_text(encoding="utf-8")
+    assert "ui/app.py:HTML_HEADERS" in readme
+    assert HTML_HEADERS["Content-Security-Policy"] not in readme
+    assert "script-src 'self'; style-src" not in readme, "nilai CSP dikutip harfiah lagi"
+
+
+def test_a_poisoned_snapshot_id_is_cleaned_at_the_api_boundary_not_only_in_html(
+    client: TestClient, store: Store
+) -> None:
+    """Temuan SEDANG: `snapshot_id` dulu satu-satunya nilai asal-DB yang lolos tanpa `clean_text`.
+
+    Server menuliskannya terlihat lewat `_bdi`, tetapi klien merender sel ini dengan
+    `textContent` — jadi U+202E/ESC/NUL masuk DOM klien HIDUP-HIDUP, kelas serangan yang sama
+    dengan injeksi ANSI. Yang ditutup di sini adalah BATAS API, tempat kedua perender membaca.
+    """
+    poison = "‮12\x1b[31m\x0034"
+    from core.replay import decision_hash, freeze
+
+    bundle = freeze(store, [])
+    decision_id = store.insert_decision(
+        symbol="SOL",
+        decision="NO_GO",
+        blocking=["01_freshness"],
+        snapshot_ids=[],
+        params_hash=DEFAULT_PARAMS.params_hash(),
+        decision_hash=decision_hash(
+            bundle,
+            DEFAULT_PARAMS.as_dict(),
+            {"decision": "NO_GO", "blocking": ["01_freshness"], "item_status": {"01_freshness": "red"}},
+        ),
+        card={
+            "algo": ALGO,
+            "skill": {
+                "status": "ok",
+                "data": {
+                    "items": [
+                        {
+                            "id": "01_freshness",
+                            "status": "red",
+                            "value": {"age_min": 9},
+                            "reason": "too old",
+                            "source": {
+                                "tool": "core_data",
+                                "field": "data.age_min",
+                                "snapshot_id": poison,
+                                "as_of": "2026-09-06T06:15:00Z",
+                            },
+                        }
+                    ]
+                },
+            },
+            "agent": {},
+        },
+    )
+    body = client.get(f"/api/decision/{decision_id}").json()
+    (row,) = [item for item in body["items"] if item["item_id"] == "01_freshness"]
+    served = row["snapshot_id"]
+    assert isinstance(served, str)
+    for raw in ("‮", "\x1b", "\x00"):
+        assert raw not in served, f"{raw!r} sampai apa adanya ke klien"
+    assert served.startswith("\\u202e"), served  # dibuang? tidak — di-escape TERLIHAT
+    assert "\\u001b" in served and "\\u0000" in served
+    assert served == clean_text(poison, 64)
+    # Nomor snapshot yang JUJUR (angka) tidak boleh ikut berubah bentuk menjadi teks.
+    normal = card_payload(client)
+    assert any(isinstance(item["snapshot_id"], int) for item in normal["items"])
+
+
+def test_both_renderers_say_the_same_thing_about_a_snapshot_id_that_is_not_a_number() -> None:
+    """Sel dan `aria-label` tidak boleh berselisih — di server MAUPUN di klien.
+
+    Klien memakai `num()` untuk `aria-label` tetapi `said()` untuk selnya: `snapshot_id`
+    non-angka membuat pembaca layar mendengar "snapshot not stated" sementara selnya
+    MENAMPILKAN nilainya — persis yang dilarang
+    `test_a_row_label_never_carries_less_than_the_cell_shows` untuk sisi server.
+    """
+    payload: dict[str, Any] = {
+        "decision_id": 1,
+        "symbol": "SOL",
+        "decision": "NO_GO",
+        "generation": "current",
+        "blocking": ["01_freshness"],
+        "items": [
+            {
+                "item_id": "01_freshness",
+                "veto_rank": 1,
+                "status": "red",
+                "value": {"age_min": 9},
+                "tool": "core_data",
+                "field": "data.age_min",
+                "snapshot_id": "s-42",
+                "as_of_jst": "2026-09-06 06:15 JST",
+            }
+        ],
+    }
+    labels = re.findall(r'<tr aria-label="([^"]*)"', render_card(payload, BANNER, render_clock()))
+    assert any("snapshot s-42" in label for label in labels), labels
+    assert not any("snapshot not stated" in label for label in labels)
+    # Dan kembarannya di klien menurunkan klausa itu dengan penyaji yang SAMA dengan selnya.
+    render = strip_comments((FRONTEND / "src" / "render.ts").read_text(encoding="utf-8"))
+    assert 'num(item["snapshot_id"])' not in render, "klien kembali memakai num() untuk aria-label"
+    assert 'phrase("snapshot", item["snapshot_id"], "snapshot not stated")' in render
+
+
+def test_the_client_is_handed_the_cut_sentence_instead_of_deriving_it(client: TestClient) -> None:
+    """`_cut_marks` tidak punya kembaran di klien — jadi kalimatnya DIKIRIM, bukan ditiru.
+
+    Sesudah polling, `...(truncated)` tetap terlihat sementara kalimat yang menyebut SIAPA yang
+    memotong hilang. Yang dikirim adalah keluaran `ui.screens.cut_note` atas nilai payload yang
+    sama yang dibaca server-render: satu fungsi, dua perender, nol logika kedua yang bisa
+    menyimpang.
+    """
+    payload = card_payload(client)
+    assert payload["items"], "prasyarat: kartunya punya baris"
+    for item in payload["items"]:
+        assert "value_cut_note" in item and "reason_cut_note" in item
+        # Kartu sehat tidak memotong apa pun, dan itu dikatakan sebagai None — bukan "".
+        assert item["value_cut_note"] is None and item["reason_cut_note"] is None
+    booked = clean_text("y" * (TEXT_LIMIT + 50), TEXT_LIMIT)
+    assert ui_screens.cut_note(booked, REASON_LIMIT, ledger_limits=ui_screens.REASON_CEILINGS) == (
+        LEGACY_REASON_CUT_NOTE
+    )
+    assert ui_screens.cut_note("x" * 20 + TRUNCATED_MARK, REASON_LIMIT) == FOREIGN_MARK_NOTE
+    assert ui_screens.cut_note("z" * (VALUE_LIMIT + 5), VALUE_LIMIT) == SCREEN_CUT_NOTE.format(
+        limit=VALUE_LIMIT
+    )
+    assert ui_screens.cut_note(None, VALUE_LIMIT) is None
+    assert ui_screens.cut_note("pendek", VALUE_LIMIT) is None
+    # Dan klien merendernya sebagai KALIMAT yang diterima, tanpa menurunkan apa pun sendiri.
+    render = strip_comments((FRONTEND / "src" / "render.ts").read_text(encoding="utf-8"))
+    assert 'cut(item["value_cut_note"])' in render and 'cut(item["reason_cut_note"])' in render
+    assert TRUNCATED_MARK not in render, "klien tidak boleh menebak siapa yang memotong"
+    bundle = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "value_cut_note" in bundle and "reason_cut_note" in bundle
+
+
+def test_one_css_naming_rule_serves_both_renderers() -> None:
+    """`isidentifier()` (Unicode) di server vs regex ASCII di klien = dua layar untuk satu baris.
+
+    `status` bernilai `ｇreen` (U+FF47) dulu menghasilkan `class="s-ｇreen"` di server dan
+    `s-unknown` di klien. Bukan lubang — keduanya meng-escape — tetapi divergensi, di layar yang
+    seluruh nilai jualnya "dua render, satu kalimat".
+    """
+    assert ui_screens._css_word("green") and ui_screens._css_word("green_neutral")
+    assert not ui_screens._css_word("ｇreen"), "identifier Unicode kembali diterima"
+    assert not ui_screens._css_word("s-green") and not ui_screens._css_word("")
+    assert "ｇreen".isidentifier(), "prasyarat: inilah yang dulu lolos"
+    code = [
+        line
+        for line in (ROOT / "ui" / "screens.py").read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    ]
+    assert not [line for line in code if ".isidentifier()" in line], "aturan lama masih dipakai"
+    render = strip_comments((FRONTEND / "src" / "render.ts").read_text(encoding="utf-8"))
+    assert render.count("/^[A-Za-z_][A-Za-z0-9_]*$/") == 2
+    assert ui_screens.CSS_WORD.pattern == "^[A-Za-z_][A-Za-z0-9_]*$"
+
+
+#: SHA-256 artefak build yang DIKIRIM (`ui/static/`), dipaku di sini.
+#:
+#: Kenapa hash dan bukan "bangun ulang lalu bandingkan": tes ini harus jalan di clone bersih
+#: TANPA Node (ADR-020 butir 2, ADR-001) — mesin juri persis mesin itu, dan tes ber-`skipif npm`
+#: akan di-skip justru di sana. Yang dipaku karena itu adalah BYTE yang benar-benar dijalankan
+#: browser. Penjaga lain (`test_the_client_and_the_server_speak_one_sentence_not_two`, penjaga
+#: sink HTML) memeriksa ISI bundel; yang ditutup di sini adalah celah sebaliknya: bundel yang
+#: memuat kode TAMBAHAN yang tidak menyebut satu pun kalimat/nama yang dicari penjaga itu.
+#:
+#: Cara memperbaruinya: `make frontend` mencetak hash barunya. Menggantinya adalah perbuatan
+#: yang TERLIHAT di diff — dan itulah seluruh gunanya.
+BUNDLE_SHA256 = "d33a77f2343265e7c98bee7ce70616397c5e5b2dd34cc76bd04cd49b98fbe596"
+STYLESHEET_SHA256 = "71b692236b2721b505663887afdca7d1c4ab6213cde0e39dd7b7546d2d168702"
+
+
+def test_the_shipped_bundle_is_pinned_byte_for_byte() -> None:
+    """Artefak yang dijalankan mesin juri, dipaku sebagai BYTE — nol Node untuk memeriksanya."""
+    for path, expected in ((STATIC / "app.js", BUNDLE_SHA256), (STATIC / "app.css", STYLESHEET_SHA256)):
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        assert digest == expected, (
+            f"{path.name} berubah tanpa hash-nya diperbarui: {digest}. Kalau ini hasil "
+            "`make frontend` yang sah, perbarui konstantanya di tes ini pada commit yang sama."
+        )
+
+
+def test_moving_to_another_screen_can_never_leave_a_blank_one() -> None:
+    """Klik satu simbol tidak boleh menghasilkan halaman kosong permanen.
+
+    `go()` dulu `clear(viewNode)` DULU lalu memanggil `load(true)`; cabang gagal `load()` hanya
+    menyentuh baris status, jadi tabel hasil render server yang tadi ada terhapus dan tidak
+    pernah kembali. Dengan CSP yang memblokir `fetch` (temuan TINGGI di atas) itu berarti: juri
+    mengklik satu simbol dan mendapat LAYAR KOSONG. Perbaikannya berdiri sendiri — API yang
+    sedang mati harus menghasilkan layar lama yang mengaku lama, bukan kekosongan.
+
+    Diperiksa di sumber DAN di bundel, karena tidak ada browser di jalur tes.
+    """
+    main = strip_comments((FRONTEND / "src" / "main.ts").read_text(encoding="utf-8"))
+    go = main[main.index("function go(") : main.index("function isInternal(")]
+    assert "clear(" not in go, "go() mengosongkan layar sebelum tahu ada yang menggantikannya"
+    assert "load(true)" in go
+    dom_import = re.search(r'import \{([^}]*)\} from "\./dom\.js";', main)
+    assert dom_import is not None, "prasyarat: main.ts mengimpor dari dom.ts"
+    assert "clear" not in dom_import.group(1), "main.ts masih mengimpor clear(): pemakainya hanya go()"
+    # Kegagalan mengaku layar MANA yang tertinggal; tiga kalimat, dan tidak satu pun kekosongan.
+    for sentence in ("STALE_SCREEN", "OFFLINE_KEPT", "the server-rendered screen below is untouched"):
+        assert sentence in main, sentence
+    kept = main[main.index("function kept()") : main.index("async function load(")]
+    assert "STALE_SCREEN" in kept and "OFFLINE_KEPT" in kept
+    declared = client_constants()
+    assert "STALE_SCREEN" in declared and "blank screen" in declared["STALE_SCREEN"]
+    bundle = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert declared["STALE_SCREEN"] in bundle, "`make frontend` belum dijalankan?"

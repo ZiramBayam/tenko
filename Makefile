@@ -38,6 +38,8 @@ frontend:          ## bangun ulang ui/static/app.js + app.css dari frontend/ (BU
 	npx esbuild frontend/src/main.ts --bundle --format=iife --target=es2020 --charset=utf8 --legal-comments=none --outfile=ui/static/app.js
 	npx esbuild frontend/styles/app.css --bundle --charset=utf8 --legal-comments=none --outfile=ui/static/app.css
 	@echo "ui/static/ dibangun ulang. JANGAN lupa: git add ui/static/ — artefaknya dilacak."
+	@echo "SHA-256 artefak (paku ulang di tests/test_ui.py: BUNDLE_SHA256 / STYLESHEET_SHA256):"
+	@sha256sum ui/static/app.js ui/static/app.css
 ui:                ## nol Node: melayani ui/static/ yang sudah dilacak git
 	uv run uvicorn ui.app:app --port $${UI_PORT:-8000}
 demo:              ## naskah docs/spec.md §7 langkah 1-6 (fixture offline) — TASKS 3.4

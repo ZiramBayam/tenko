@@ -129,6 +129,7 @@
   var UNVERIFIED_ENVELOPE = "this API response did not say `simulated: true`, so nothing from it was rendered; the screen you can see is the one the server rendered";
   var LOADING = "loading from the API…";
   var OFFLINE_KEPT = "the last successful response is still on screen and it is OLD; nothing was invented to replace it";
+  var STALE_SCREEN = "the screen below is the PREVIOUS one, not this URL; it was kept on purpose because a blank screen answers nothing, and nothing was invented to replace it";
 
   // frontend/src/render.ts
   var CARD_COLUMNS = [
@@ -159,6 +160,10 @@
   }
   function mark(note) {
     return el("span", { class: "mark" }, note);
+  }
+  function cut(note) {
+    const line = text(note);
+    return line === null ? null : mark(line);
   }
   function badge(cls, label) {
     return el("span", { class: `badge ${cls}` }, label);
@@ -213,8 +218,7 @@
     if (tool === null && field === null) return ARIA_NO_SOURCE;
     const parts = [`source ${tool ?? "tool not stated"}.${field ?? "field not stated"}`];
     if ("snapshot_id" in item) {
-      const snapshot = num(item["snapshot_id"]);
-      parts.push(snapshot === null ? "snapshot not stated" : `snapshot ${snapshot}`);
+      parts.push(phrase("snapshot", item["snapshot_id"], "snapshot not stated"));
     }
     const asOf = text(item["as_of_jst"]);
     parts.push(asOf === null ? "as_of not stated" : `as_of ${asOf}`);
@@ -337,8 +341,8 @@
     }
     const held = heldCount(entries);
     const answer = el("p", { class: "answer" });
-    const shown = total !== null && total !== entries.length ? `n=${entries.length} of ` : "n=";
-    answer.textContent = `${shown}${total ?? entries.length} symbols read (one row = that symbol's LAST decision); ${held} held among the rows shown; `;
+    const shown2 = total !== null && total !== entries.length ? `n=${entries.length} of ` : "n=";
+    answer.textContent = `${shown2}${total ?? entries.length} symbols read (one row = that symbol's LAST decision); ${held} held among the rows shown; `;
     if ((num(nearest["n_blocking"]) ?? -1) > 0) {
       const blocker = obj(nearest["top_blocker"]);
       answer.textContent += `nothing is GO; the closest is ${text(nearest["symbol"]) ?? ABSENT_MARK}, held by ${scalarOrAbsent(nearest["n_blocking"])} rows, heaviest ${text(blocker["item_id"]) ?? ABSENT_MARK} (veto power ${scalarOrAbsent(blocker["veto_rank"])}).`;
@@ -395,9 +399,9 @@
     append(status, badge(css, label));
     if (note) append(status, mark(note));
     const reason = el("td");
-    append(reason, said(item["reason"], "en"));
+    append(reason, said(item["reason"], "en"), cut(item["reason_cut_note"]));
     const value = el("td", { class: "mono" });
-    append(value, said(item["value"], "en"));
+    append(value, said(item["value"], "en"), cut(item["value_cut_note"]));
     const source = el("td", { class: "mono", "aria-label": ariaSource(item) });
     append(
       source,
@@ -645,7 +649,12 @@
     entries: [],
     payload: {},
     loaded: false,
-    timer: 0
+    timer: 0,
+    /** Layar yang BENAR-BENAR ada di DOM saat ini — dipakai untuk mengaku layar mana yang terlihat. */
+    shownScreen: "watchlist",
+    shownId: null,
+    /** Sudah pernahkah klien mengganti isi render server? Selama belum, yang di layar milik server. */
+    rendered: false
   };
   var liveNode;
   var viewNode;
@@ -741,6 +750,15 @@
     const filtered = state.filter ? `filter "${state.filter}": showing n=${rows.length} of n=${state.entries.length} symbols. ` : `showing all n=${rows.length} symbols. `;
     say(`${filtered}Sorted by ${order}. Fetched at ${browserClock()}.`, "ok");
   }
+  function shown() {
+    state.shownScreen = state.screen;
+    state.shownId = state.decisionId;
+    state.rendered = true;
+  }
+  function kept() {
+    if (state.shownScreen !== state.screen || state.shownId !== state.decisionId) return STALE_SCREEN;
+    return state.rendered ? OFFLINE_KEPT : "the server-rendered screen below is untouched";
+  }
   async function load(spoken) {
     if (spoken) say(LOADING, "loading");
     try {
@@ -749,6 +767,7 @@
         state.payload = payload;
         state.loaded = true;
         renderCard(payload, viewNode);
+        shown();
         say(
           `card #${state.decisionId} re-fetched from /api/decision/${state.decisionId} at ${browserClock()}; the replay verdict on it was recomputed by the server, not by this client.`,
           "ok"
@@ -759,10 +778,11 @@
         state.entries = dicts(payload["symbols"]);
         state.loaded = true;
         paint();
+        shown();
       }
     } catch (error) {
       const message = error instanceof ApiError && error.message.includes("`simulated: true`") ? UNVERIFIED_ENVELOPE : `could not refresh: ${error instanceof Error ? error.message : "unknown failure"}`;
-      say(`${message} — ${state.loaded ? OFFLINE_KEPT : "the server-rendered screen below is untouched"}.`, "error");
+      say(`${message} — ${kept()}.`, "error");
     }
     schedule();
   }
@@ -787,8 +807,6 @@
     state.loaded = false;
     if (push) window.history.pushState({ path }, "", path);
     controlsNode.hidden = state.screen !== "watchlist";
-    clear(viewNode);
-    append(viewNode, el("p", { class: "sub" }, LOADING));
     void load(true);
   }
   function isInternal(link) {
@@ -813,6 +831,8 @@
     const screen = body.dataset["screen"];
     state.screen = screen === "card" ? "card" : "watchlist";
     state.decisionId = screen === "card" ? Number(body.dataset["decisionId"] ?? "0") || null : null;
+    state.shownScreen = state.screen;
+    state.shownId = state.decisionId;
     controlsNode.hidden = state.screen !== "watchlist" || screen === "error";
     if (screen === "error") return;
     document.addEventListener("click", (event) => {

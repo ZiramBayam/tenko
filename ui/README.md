@@ -19,8 +19,13 @@ pun jalan (ADR-020 butir 6) — lalu **klien TypeScript menambah perilaku di ata
 layar tanpa muat ulang, saring, urutkan, dan segarkan tiap 30 detik. Nol framework, nol CDN, nol
 dependency runtime npm. Dua aset, keduanya dari origin sendiri dan keduanya hasil build yang
 **dilacak git**: `/ui/tenko.css` (`ui/static/app.css`) dan `/ui/app.js` (`ui/static/app.js`).
-`Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'`
-menutup sisanya — tanpa `unsafe-inline`, tanpa `unsafe-eval`, tanpa satu pun host pihak ketiga.
+Satu `Content-Security-Policy` menutup sisanya; **nilainya tidak dikutip di sini** — ia hidup di
+satu tempat, `ui/app.py:HTML_HEADERS`, karena tiga berkas yang harus diperbarui serempak adalah
+tiga berkas yang akan menyimpang. Sifatnya: semua yang tidak disebut ditolak (`default-src
+'none'`), skrip/gaya/`fetch` hanya dari origin ini sendiri, gambar nol, tanpa `unsafe-inline`,
+tanpa `unsafe-eval`, tanpa satu pun host pihak ketiga. Direktif `fetch` disebut EKSPLISIT: ia
+fallback ke `default-src`, jadi tanpanya setiap `fetch()` klien ditolak browser — termasuk ke
+origin sendiri, yang membuat seluruh ADR-020 tidak jalan.
 Satu-satunya ikon adalah SVG **tertanam di HTML** (`ui/screens.py:BANNER_ICON`) — nol berkas,
 nol permintaan jaringan, jadi demo spec §7 tetap jalan tanpa jaringan dan tidak ada domain baru
 yang butuh baris `DISCLOSURE.md`.
@@ -92,7 +97,9 @@ Yang **tidak** berubah, dan dijaga tes:
   tidak ada yang perlu dihitung ulang. `--line` khususnya tetap `#646e84` (3.72:1) dan tidak
   dikembalikan ke `#2c3442` (1.52:1, GAGAL 1.4.11) demi rasa.
   → `test_the_restyle_did_not_move_a_single_measured_colour`
-- Nol animasi, nol `transition`, nol `:hover`, nol `position: fixed`, nol `<script>`.
+- Nol animasi, nol `transition`, nol `:hover`, nol `position: fixed`. (Sejak ADR-020 ada TEPAT SATU
+  `<script src="/ui/app.js" defer>`, tanpa satu aksara pun isi sebaris; yang dijaga tes sekarang
+  adalah jumlahnya = 1, bukan 0 — lihat baris CSP di atas.)
 - Warna tetap tidak pernah sendirian; `unspoken` tetap terbaca "tidak disebut", bukan 0.
 
 ---

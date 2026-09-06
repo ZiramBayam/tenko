@@ -56,6 +56,7 @@ Yang WAJIB terbaca di layar (dan kenapa)
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from html import escape
 from pathlib import Path
@@ -84,6 +85,22 @@ EVIDENCE_LANG = "en"
 #: di dalam `value` satu per satu, dan yang dibatasi di sini hanya panjang barisan `k=v` yang
 #: dirakit layar. Kalau ia menggigit, layar MENGATAKANNYA dan menunjuk JSON mentahnya.
 VALUE_LIMIT = 1500
+
+
+#: Nama kelas CSS yang boleh diturunkan dari nilai asal-DB, dan HANYA ini.
+#:
+#: Dulu `str.isidentifier()`, yang menerima identifier Unicode: `status` bernilai `ｇreen`
+#: (U+FF47) menghasilkan `class="s-ｇreen"` di server sementara klien (`render.ts`, regex ASCII)
+#: menghasilkan `s-unknown` untuk baris yang SAMA — dua layar berbeda untuk satu baris. Bukan
+#: lubang (kedua sisi meng-escape), tetapi divergensi, dan divergensi adalah cacat produk di
+#: layar yang menjual "dua render, satu kalimat". Regex-nya ditulis identik dengan klien.
+CSS_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _css_word(text: str) -> bool:
+    """Kembaran `render.ts:/^[A-Za-z_][A-Za-z0-9_]*$/` — satu aturan penamaan kelas, dua render."""
+    return bool(CSS_WORD.match(text))
+
 
 #: TIGA sebab yang WAJIB tidak tertukar, dan yang membedakannya adalah FAKTA terukur
 #: (:func:`_cut_marks`), bukan keberadaan substring `...(truncated)` di teks yang dirender.
@@ -498,7 +515,7 @@ def _replay_badge(entry: dict[str, Any]) -> str:
     bernama, bukan merah palsu.
     """
     tone = entry.get("replay_tone")
-    tone_css = tone if isinstance(tone, str) and tone.isidentifier() else "unknown"
+    tone_css = tone if isinstance(tone, str) and _css_word(tone) else "unknown"
     status = entry.get("replay_status") or "NOT RUN"
     label = entry.get("replay_label") or "not assessed"
     return (
@@ -694,7 +711,7 @@ def _status_words(item: dict[str, Any]) -> tuple[str, str, str]:
     status = item.get("status")
     text = _plain(status, KEY_LIMIT) if isinstance(status, str) else "?"
     stance = _stance_of(item.get("value"))
-    css = f"s-{text}" if text.isidentifier() else "s-unknown"
+    css = f"s-{text}" if _css_word(text) else "s-unknown"
     mark = ""
     if stance == "neutral":
         mark = NEUTRAL_MARK
@@ -788,19 +805,33 @@ def _cut_marks(source: Any, limit: int, *, ledger_limits: tuple[int, ...] = ()) 
       Nilai RYO yang kebetulan memuat literal itu karena itu tidak lagi membuat kartu mengaku
       menyembunyikan sesuatu yang tidak disembunyikannya (security review 3.2, RENDAH a).
     """
+    note = cut_note(source, limit, ledger_limits=ledger_limits)
+    return _mark(note) if note else ""
+
+
+def cut_note(source: Any, limit: int, *, ledger_limits: tuple[int, ...] = ()) -> str | None:
+    """Kalimat pemotongan sebagai TEKS POLOS, atau `None` bila tidak ada yang perlu dijelaskan.
+
+    Publik karena `ui.app` menitipkannya ke respons `/api/decision` (`value_cut_note`,
+    `reason_cut_note`): klien merender tabel yang sama tetapi TIDAK memotong apa pun sendiri,
+    jadi ia tidak bisa menurunkan kalimat ini — dan sebelum ada field ini, `TRUNCATED_MARK`
+    tetap terlihat sesudah polling sementara kalimat yang menyebut SIAPA yang memotong hilang.
+    Yang dikirim adalah keluaran fungsi INI atas nilai payload yang sama, jadi tidak ada logika
+    kedua yang bisa menyimpang: satu fungsi, dua perender.
+    """
     if source is None:
-        return ""
+        return None
     text = source if isinstance(source, str) else _scalar(source)
     cleaned = clean_text(text, limit)
     if cleaned != text and cleaned.endswith(TRUNCATED_MARK):
-        return _mark(SCREEN_CUT_NOTE.format(limit=limit))
+        return SCREEN_CUT_NOTE.format(limit=limit)
     if TRUNCATED_MARK not in text:
-        return ""
+        return None
     if text.endswith(TRUNCATED_MARK):
         for ceiling in ledger_limits:
             if len(text) == ceiling + len(TRUNCATED_MARK):
-                return _mark(ledger_cut_note(ceiling))
-    return _mark(FOREIGN_MARK_NOTE)
+                return ledger_cut_note(ceiling)
+    return FOREIGN_MARK_NOTE
 
 
 def _reason_cell(value: Any) -> str:

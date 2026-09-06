@@ -114,7 +114,10 @@ from preflight.skill import (
 )
 from ui.screens import (
     CLIENT_SCRIPT,
+    REASON_CEILINGS,
     STYLESHEET,
+    VALUE_LIMIT,
+    cut_note,
     render_card,
     render_error,
     render_watchlist,
@@ -134,10 +137,17 @@ BANNER = "SIMULATED — practice positions on read-only market intelligence. No 
 #: hanya mengizinkan `/ui/tenko.css`, `img-src 'none'` tetap melarang gambar, dan TIDAK ADA
 #: `'unsafe-inline'`, TIDAK ADA `'unsafe-eval'`, serta nol host pihak ketiga — jadi skrip
 #: sebaris, `eval`, dan CDN mana pun tetap ditolak browser, bukan hanya oleh sopan santun.
+#:
+#: `connect-src 'self'` adalah direktif KEDUA yang dilonggarkan, dan tanpa ia ADR-020 tidak ada
+#: gunanya: `connect-src` adalah fetch-directive yang fallback-nya `default-src`, jadi
+#: `default-src 'none'` tanpa menyebutnya = `connect-src 'none'` = SETIAP `fetch()` klien
+#: ditolak browser, TERMASUK ke origin sendiri (security review: TINGGI). Tidak ada browser di
+#: jalur tes, jadi tidak ada yang merah — yang merah sekarang adalah tes header di bawah.
+#: `'self'` DAN BUKAN LEBIH: klien hanya boleh bicara ke `/api/...` milik aplikasi ini.
 HTML_HEADERS = {
     "Content-Security-Policy": (
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; "
-        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+        "img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     ),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
@@ -469,7 +479,12 @@ def _items_of(skill: dict[str, Any], narration: dict[str, str]) -> tuple[list[di
                     "value": _clean(entry.get("value")),
                     "tool": _clean(source.get("tool"), KEY_LIMIT),
                     "field": _clean(source.get("field"), TEXT_LIMIT),
-                    "snapshot_id": source.get("snapshot_id"),
+                    # `_clean` seperti SEMUA tetangganya: ini satu-satunya nilai asal-DB yang
+                    # dulu lolos mentah, dan klien merender `snapshot_id` lewat `textContent`
+                    # tanpa `<bdi>` — jadi U+202E/ESC/NUL di sana masuk DOM klien hidup-hidup
+                    # (security review: SEDANG). Dibersihkan di batas API, tempat KEDUA
+                    # perender membacanya, bukan di salah satunya saja.
+                    "snapshot_id": _clean(source.get("snapshot_id"), KEY_LIMIT),
                     "as_of": _clean(as_of, KEY_LIMIT),
                     "as_of_jst": _jst(as_of),
                     # `REASON_LIMIT`, BUKAN `WARNING_LIMIT`: `core.skill.ItemResult` sudah
@@ -481,6 +496,15 @@ def _items_of(skill: dict[str, Any], narration: dict[str, str]) -> tuple[list[di
                     "reason": _clean(entry.get("reason"), REASON_LIMIT),
                     "narration": narration.get(item_id),
                 }
+            )
+            # Kalimat "siapa yang memotong" ikut dalam respons, bukan hanya dalam HTML.
+            # Server-render menurunkannya sendiri lewat `_cut_marks`; klien TIDAK memotong
+            # apa pun, jadi tanpa dua field ini `...(truncated)` tetap terlihat sesudah polling
+            # sementara penjelasnya hilang. Keduanya keluaran `ui.screens.cut_note` atas nilai
+            # payload yang SAMA yang dibaca server-render — satu fungsi, dua perender.
+            rows[-1]["value_cut_note"] = cut_note(rows[-1]["value"], VALUE_LIMIT)
+            rows[-1]["reason_cut_note"] = cut_note(
+                rows[-1]["reason"], REASON_LIMIT, ledger_limits=REASON_CEILINGS
             )
     else:
         availability = skill.get("availability")
@@ -500,6 +524,10 @@ def _items_of(skill: dict[str, Any], narration: dict[str, str]) -> tuple[list[di
                     "as_of": None,
                     "as_of_jst": None,
                     "reason": "",
+                    # Bentuk baris yang SAMA dengan cabang kartu sehat: tidak ada yang dipotong
+                    # di sini, dan `None` mengatakan itu — bukan key yang hilang diam-diam.
+                    "value_cut_note": None,
+                    "reason_cut_note": None,
                     "narration": narration.get(clean_id),
                 }
             )

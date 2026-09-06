@@ -65,6 +65,19 @@ function mark(note: string): HTMLElement {
   return el("span", { class: "mark" }, note);
 }
 
+/**
+ * Kalimat "siapa yang memotong teks ini", DITERIMA dari API — tidak diturunkan di sini.
+ *
+ * Kembaran `ui/screens.py:_cut_marks` bukan salinan logikanya melainkan hasilnya: server
+ * mengirim `value_cut_note`/`reason_cut_note` (keluaran `ui.screens.cut_note`) di setiap baris
+ * kartu, jadi sesudah polling `...(truncated)` tidak pernah lagi berdiri tanpa penjelasnya.
+ * Klien sendiri TIDAK memotong apa pun, dan karena itu tidak berhak menebak siapa yang memotong.
+ */
+function cut(note: Json): HTMLElement | null {
+  const line = text(note);
+  return line === null ? null : mark(line);
+}
+
 function badge(cls: string, label: string): HTMLElement {
   return el("span", { class: `badge ${cls}` }, label);
 }
@@ -125,8 +138,12 @@ function ariaSource(item: Record<string, Json>): string {
   if (tool === null && field === null) return ARIA_NO_SOURCE;
   const parts = [`source ${tool ?? "tool not stated"}.${field ?? "field not stated"}`];
   if ("snapshot_id" in item) {
-    const snapshot = num(item["snapshot_id"]);
-    parts.push(snapshot === null ? "snapshot not stated" : `snapshot ${snapshot}`);
+    // `phrase`, BUKAN `num`: selnya menampilkan `said(item["snapshot_id"])`, yang mencetak nilai
+    // apa pun. `num()` mengembalikan null untuk `snapshot_id` non-angka, jadi nama barisnya dulu
+    // berbunyi "snapshot not stated" untuk sel yang JELAS menampilkan sesuatu — pembaca layar
+    // menerima lebih sedikit daripada mata, persis yang dilarang
+    // `test_a_row_label_never_carries_less_than_the_cell_shows` untuk sisi server.
+    parts.push(phrase("snapshot", item["snapshot_id"], "snapshot not stated"));
   }
   const asOf = text(item["as_of_jst"]);
   parts.push(asOf === null ? "as_of not stated" : `as_of ${asOf}`);
@@ -357,10 +374,10 @@ function itemRow(item: Record<string, Json>): HTMLElement {
   if (note) append(status, mark(note));
 
   const reason = el("td");
-  append(reason, said(item["reason"], "en"));
+  append(reason, said(item["reason"], "en"), cut(item["reason_cut_note"]));
 
   const value = el("td", { class: "mono" });
-  append(value, said(item["value"], "en"));
+  append(value, said(item["value"], "en"), cut(item["value_cut_note"]));
 
   const source = el("td", { class: "mono", "aria-label": ariaSource(item) });
   append(
