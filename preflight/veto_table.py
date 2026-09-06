@@ -63,9 +63,18 @@ Batas yang diakui (baca sebelum mengutip angkanya; gaya ``core/replay.py``)
   untuknya — ia hanya mencacahnya (``skew-skipped``) supaya `unspoken` yang lahir dari sana
   tidak terbaca sebagai sifat item.
 
-Reproduksi::
+Reproduksi (sama dengan resep di :mod:`preflight.items`)::
 
-    uv run python -m preflight.veto_table --until 2026-09-05T12:32:00Z
+    cp data/ryo.db /tmp/frozen.db      # WAJIB — lihat alasannya di bawah
+    uv run python -m preflight.veto_table --db /tmp/frozen.db --until 2026-09-05T12:32:00Z
+
+``--until`` SAJA TIDAK cukup, dan itu terbukti di repo ini: angka yang dikutip ``n=201``
+diulang dengan ``--until`` yang persis sama beberapa jam kemudian dan memberi **n=237**.
+Sebabnya ada di peringatan ``FRESH_SCAN_LIMIT`` di atas — batas pindai bergerak relatif
+terhadap UJUNG DB, bukan terhadap ``--until``, jadi selama perekam hidup setiap run membaca
+populasi jangkar yang lain. Hanya ``--db <salinan beku>`` yang mengulang; dua run atas salinan
+yang sama terbukti byte-identik. Saat mengutip angka mana pun dari modul ini, sebutkan keadaan
+DB salinanmu (baris terakhir / ``max(id)``), bukan hanya ``--until``.
 """
 
 from __future__ import annotations

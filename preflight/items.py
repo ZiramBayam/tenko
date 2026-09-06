@@ -571,6 +571,16 @@ def evaluate_freshness(evidence: Evidence) -> ItemOutcome:
     bundel**, dan `reason`-nya mengatakan itu apa adanya ("says nothing about how old the
     bundle itself is").
 
+    **Namanya (`01_freshness`, peringkat daya veto 1) menjanjikan lebih dari yang bisa
+    ditahannya, dan itu STRUKTURAL.** Umur absolut sudah disaring lebih dulu oleh
+    :func:`preflight.skill.gather` lewat ``Store.latest_fresh(..., params.max_age_min)``:
+    envelope yang melewati batas TIDAK PERNAH sampai ke sini — ia tidak terpilih, dan yang
+    muncul di kartu adalah item lain yang kehilangan bukti. Karena itu item 1 tidak menahan
+    apa pun di n=237 amatan (`preflight/veto_table.py`): ia adalah **tanda terima** bahwa
+    umur bukti yang terpilih saling konsisten, bukan gerbang. Judulnya dan `reason` hijau
+    menyebut itu. Yang TIDAK diubah: id `01_freshness` — id ikut ke `item_status`, jadi
+    menggantinya menggeser `decision_hash` setiap baris `decisions` yang sudah tersimpan.
+
     Batas itu diterima secara sadar, bukan karena terlewat. Alasannya empiris: pada 2443 baris
     snapshot NYATA di ``data/ryo.db`` selisih ``ts_utc − as_of`` bermedian 0,00 jam dengan
     maksimum 0,02 jam (72 detik). Satu-satunya kelompok yang melenceng (60,7 jam, n=47) adalah
@@ -668,7 +678,9 @@ def evaluate_freshness(evidence: Evidence) -> ItemOutcome:
                 f"oldest evidence is {oldest} at {ages[oldest]:.1f} min (limit "
                 f"{params.max_age_min} min) -> every envelope is within the limit OF EACH OTHER; "
                 f"the clock is the newest as_of in this bundle ({_iso(reference)}), not the wall "
-                "clock, so this says nothing about how old the bundle itself is"
+                "clock, so this says nothing about how old the bundle itself is. Absolute age "
+                "was already enforced when the evidence was picked (Store.latest_fresh, same "
+                "limit), which is why this line is a receipt and has never blocked a departure"
             ),
             source=source,
             value=value,
@@ -1512,6 +1524,24 @@ def evaluate_derivatives(evidence: Evidence) -> ItemOutcome:
 
 
 # --- item 9: plan ada & layak ------------------------------------------------------------
+#: Sapuan SALINAN BEKU `data/ryo.db` 6 Sep 2026 (``id <= 3919``, baris terakhir
+#: ``2026-09-06T00:13:23Z``): dari 1496 baris ``deep_analysis``, **1476 membawa `trade_plan` dan
+#: SEMUANYA ber-``risk_reward = [1.0, 2.0]``**; 20 sisanya ``trade_plan=null`` → item 9
+#: `unspoken`. Konsekuensinya harus diucapkan di kartu, bukan hanya di `preflight/params.py`:
+#: ``min_rr`` (=1.0) BELUM PERNAH menolak satu plan pun, jadi baris hijau item 9 membuktikan
+#: "plan ADA", bukan "plan LAYAK". Kalimat "worth its risk" tanpa konteks ini adalah tautologi —
+#: persis jenis klaim yang produk ini dibangun untuk memberantas.
+#:
+#: Angka ini akan menua selama perekam hidup. Ulangi dengan resep yang sama seperti tabel veto
+#: (salinan beku + ``--db``), lalu perbarui angkanya di sini; jangan mengutipnya tanpa menyebut
+#: keadaan DB salinanmu.
+RR_ROWS_WITH_PLAN = 1476
+RR_CONSTANT_NOTE = (
+    f"[1,2] in every RYO plan ever observed ({RR_ROWS_WITH_PLAN}/{RR_ROWS_WITH_PLAN} rows that "
+    "carried a plan, frozen sweep 2026-09-06)"
+)
+
+
 @dataclass(frozen=True, slots=True)
 class PlanRead:
     """Hasil pembacaan `trade_plan`: outcome item 9 + arah acuan untuk item 3/4/5/7/8."""
@@ -1633,7 +1663,8 @@ def _read_plan(evidence: Evidence) -> PlanRead:
     if preview_only is not True:
         warnings.append(
             f"{item_id}: deep_analysis.data.trade_plan.preview_only={_quote(preview_only)} "
-            "(True in 294/294 observed rows); Tenko never executes anything either way"
+            f"(True in {RR_ROWS_WITH_PLAN}/{RR_ROWS_WITH_PLAN} observed rows with a plan); "
+            "Tenko never executes anything either way"
         )
     context: dict[str, float | None] = {}
     for name in ("atr_14_usd", "atr_14_pct", "atr_multiplier"):
@@ -1661,7 +1692,9 @@ def _read_plan(evidence: Evidence) -> PlanRead:
             reason=(
                 f"{direction} plan entry {entry_price:g} / stop {stop:g} / targets "
                 f"{', '.join(f'{t:g}' for t in targets)}, risk_reward[0]={risk_reward[0]:g} >= "
-                f"{evidence.params.min_rr:g} -> the plan is present and worth its risk"
+                f"{evidence.params.min_rr:g} -> the plan is PRESENT; whether it is worth its "
+                f"risk is NOT tested here: risk_reward was {RR_CONSTANT_NOTE}, so this "
+                "threshold has never rejected a plan"
             ),
             source=source,
             value=value,
@@ -1926,7 +1959,11 @@ ITEMS: tuple[ItemDef, ...] = (
         ITEM_FRESHNESS,
         TOOL_AGGREGATE,
         "as_of (every envelope) + monitor_market_sentiment_shift.data.observation_as_of",
-        "Freshness",
+        # spec §4 menamainya "Kesegaran". Umur ABSOLUT sudah ditegakkan lebih dulu di
+        # `preflight.skill.gather` (`Store.latest_fresh(..., max_age_min)`), jadi baris ini
+        # hanya bisa mengukur SELISIH umur antar-envelope di dalam satu bundel — tanda terima,
+        # bukan veto. Id `01_freshness` TIDAK diubah: id ikut `params_hash`/`decision_hash`.
+        "Envelope ages agree (absolute age enforced at selection)",
         evaluate_freshness,
     ),
     _definition(
@@ -1982,7 +2019,9 @@ ITEMS: tuple[ItemDef, ...] = (
         ITEM_PLAN,
         TOOL_DEEP,
         "data.trade_plan.{entry,stop,targets[],risk_reward[],preview_only}",
-        "Plan present and worth its risk",
+        # spec §4 menamainya "Plan ada & layak"; "layak" belum pernah diuji (RR_CONSTANT_NOTE),
+        # jadi judulnya menyebut yang benar-benar dibuktikan baris ini.
+        "Plan present (risk/reward has never varied)",
         evaluate_plan,
     ),
     _definition(
