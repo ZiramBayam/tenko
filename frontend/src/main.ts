@@ -328,17 +328,9 @@ function isInternal(link: HTMLAnchorElement): boolean {
 }
 
 
-/** Bilah gulir bergaya peta jalur (landing saja).
- *
- * Ia hanya menulis SATU custom property, `--p` (0..1), dan tidak menyentuh isi apa pun — jadi
- * landing tetap layar INERT dalam arti yang penting: nol permintaan, nol perubahan isi. Rel
- * sudah dirender server pada 0%, jadi kegagalan fungsi ini meninggalkan rel yang utuh dan diam,
- * bukan halaman yang rusak.
- *
- * `requestAnimationFrame` menggandeng pembaruan ke frame: `scroll` menyala jauh lebih sering
- * daripada layar menggambar, dan menulis gaya di setiap kejadian adalah cara membuat halaman
- * yang mulus terasa berat.
- */
+/* `railbar()` DIBUANG di ADR-030 bersama elemennya: pita mendatar kedua di atas hero yang
+   menduplikasi kepala halaman dengan kata yang berbeda untuk bagian yang sama, sementara posisi
+   gulir yang ia bawa sudah dibawa bilah gulir browser. */
 
 /** Smooth scroll (Lenis) + reveal saat gulir (GSAP ScrollTrigger). Landing SAJA.
  *
@@ -417,28 +409,6 @@ function motion(): void {
   }
 }
 
-function railbar(): void {
-  const bar = document.querySelector(".railbar");
-  if (!(bar instanceof HTMLElement)) return;
-  let queued = false;
-  const paint = (): void => {
-    queued = false;
-    const doc = document.documentElement;
-    const span = doc.scrollHeight - doc.clientHeight;
-    // Halaman yang tidak bisa digulir sudah SELESAI dibaca, bukan belum dimulai.
-    const p = span > 0 ? Math.min(1, Math.max(0, doc.scrollTop / span)) : 1;
-    bar.style.setProperty("--p", p.toFixed(4));
-  };
-  const onScroll = (): void => {
-    if (queued) return;
-    queued = true;
-    window.requestAnimationFrame(paint);
-  };
-  window.addEventListener("scroll", onScroll, { passive: true });
-  window.addEventListener("resize", onScroll, { passive: true });
-  paint();
-}
-
 function start(): void {
   const body = document.body;
   const main = document.getElementById("isi");
@@ -460,14 +430,17 @@ function start(): void {
   // `landing` dan `error` sama-sama INERT (ADR-021 butir 6). Tanpa cabang ini keduanya jatuh ke
   // `state.screen = "watchlist"` di atas, dan klien akan melukis Layar A di atas halaman yang
   // bukan Layar A — landing kehilangan seluruh isinya beberapa milidetik setelah dibuka.
-  if (screen === "landing") {
-    railbar();
-    motion();
-  }
+  if (screen === "landing") motion();
   const inert = screen === "error" || screen === "landing";
   liveNode.textContent = inert ? CLIENT_INERT : CLIENT_ATTACHED;
   main.appendChild(controlsNode);
-  main.appendChild(liveNode);
+  // Landing tidak mendapat baris status sama sekali (ADR-030). Dua alasan, dan keduanya cukup
+  // sendirian: tidak ada satu pun isi di sana yang pernah berubah, jadi tidak ada yang perlu
+  // diumumkan; dan kalimat inert itu berbunyi "on a failure page…", yaitu kalimat layar yang
+  // LAIN. Yang tersisa hanyalah sebuah kotak — pita mendatar kedua tepat di atas hero, di
+  // halaman yang seluruh nilainya adalah kekosongan yang tersisa. Layar gagal tetap
+  // mendapatkannya: di sana kalimat itu benar, dan di sana ada sesuatu yang harus diakui.
+  if (screen !== "landing") main.appendChild(liveNode);
   main.appendChild(viewNode);
   // Yang ADA di DOM sekarang adalah layar hasil render server untuk URL ini — dicatat supaya
   // kalimat kegagalan berikutnya bisa membedakan "layar ini, tua" dari "layar yang LAIN".

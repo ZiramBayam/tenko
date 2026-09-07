@@ -2037,10 +2037,11 @@ def test_the_landing_is_reachable_and_readable_the_way_screen_a_and_b_are(
         idx = body_html.index(kanji)
         assert 'lang="ja"' in body_html[max(0, idx - 120) : idx], f"{kanji} tanpa lang=ja"
 
-    # 4. Rel gulir adalah kanal KEDUA, bukan pembawa informasi: posisi gulir sudah dibawa bilah
-    #    gulir browser. Ia karena itu disembunyikan dari pembaca layar, dan tidak boleh membawa
-    #    satu pun teks yang tidak ada di tempat lain.
-    assert '<div class="railbar" aria-hidden="true">' in html
+    # 4. SATU pita mendatar di atas hero, dan tidak ada pita kedua (ADR-030). Railbar dibuang;
+    #    ia menduplikasi kepala halaman dengan kata yang BERBEDA untuk bagian yang SAMA, dan
+    #    posisi gulir yang ia bawa sudah dibawa bilah gulir browser.
+    assert "railbar" not in html, "pita rel kembali di atas hero"
+    assert html.count('<div class="headrow">') == 1
 
     # 5. Banner SIMULATED ada SEBELUM satu baris JS pun jalan (rules-compliance + ADR-020 6).
     assert BANNER in html
@@ -2085,7 +2086,7 @@ def test_motion_is_allowed_but_never_required_to_read_the_screen(client: TestCli
 
     # 1. Gerak dimatikan TOTAL saat pemakai memintanya — bukan dipercepat, bukan diperpendek.
     assert '"(prefers-reduced-motion: reduce)"' in main, "klien tidak pernah menanyakan preferensi gerak"
-    guard = slice_of(main, "function motion(): void {", "function railbar()")
+    guard = slice_of(main, "function motion(): void {", "function start(): void {")
     assert guard.index("prefers-reduced-motion") < guard.index("new Lenis"), (
         "Lenis dibuat SEBELUM preferensi gerak diperiksa"
     )
@@ -2785,6 +2786,9 @@ def test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed(clie
     assert round(contrast_ratio(palette["line"], palette["card"]), 2) == 3.06  # garis paling ketat
     assert round(contrast_ratio(palette["warn"], palette["ink"]), 2) == 10.47  # cincin fokus
     assert round(contrast_ratio(palette["nogo"], scrim), 2) == 5.64  # paling ketat di atas gambar
+    # Banner SIMULATED sesudah dilebur ke pita topnav (ADR-030): kotaknya berubah, warnanya
+    # TIDAK. Angka ini yang membuat "dilebur, bukan diperlemah" bisa dibantah oleh sebuah tes.
+    assert round(contrast_ratio(palette["bannerfg"], palette["bannerbg"]), 2) == 12.98
 
     measured = {colour for pair in text_pairs + non_text_pairs for colour in pair}
     decor = {palette[name] for name, role in PALETTE_ROLES.items() if role == "decor"}
@@ -3087,10 +3091,10 @@ def test_the_landing_is_laid_out_in_the_order_kage_lays_its_page_out(client: Tes
     ids = [name for name in order if name]
     assert ids == ["hero", "gate", "pathways", "lessons", "eternity"], ids
     assert (
-        html.index('<nav class="topnav"')
-        < html.index('<div class="railbar"')
+        html.index('<div class="headrow">')
+        < html.index('<nav class="topnav"')
         < html.index('<section class="hero" id="hero">')
-    ), "kepala halaman/rel tidak lagi berdiri di atas layar pertama"
+    ), "pita atas tidak lagi berdiri di atas layar pertama"
     assert html.index('id="pathways"') < html.index('id="eternity"'), (
         "papan jatuh ke dasar halaman — bagian yang membawa baris nyata harus di tengah"
     )
@@ -3098,9 +3102,10 @@ def test_the_landing_is_laid_out_in_the_order_kage_lays_its_page_out(client: Tes
     assert html.count("<footer>") == 1 and '<div class="foot-grid">' in html
     footer = html.split("<footer>")[1]
     assert footer.index('class="foot-grid"') < footer.index("All clocks are JST")
-    # ...dan keempat kalimat pengakuan `_shell` tidak berpindah, tidak hilang, tidak berubah.
-    for sentence in (ui_screens.KEYBOARD_NOTE, ui_screens.client_note("landing")):
-        assert sentence in unescape(footer), sentence
+    # ...dan kalimat pengakuan `_shell` yang MASIH dimiliki landing tidak berpindah dan tidak
+    # berubah. Kalimat klien bukan salah satunya sejak ADR-030 — jumlahnya dipatok, per layar,
+    # di `test_the_client_note_lives_inside_the_app_not_on_the_landing`.
+    assert ui_screens.KEYBOARD_NOTE in unescape(footer)
 
     # 2. Tautan lompat: pertama di dokumen, dan menunjuk id yang ada.
     links = re.findall(r'<a [^>]*href="([^"]+)"', html)
@@ -3126,6 +3131,134 @@ def test_the_landing_is_laid_out_in_the_order_kage_lays_its_page_out(client: Tes
     assert "/ui/kage.css" not in html and "kage.html" not in html
 
 
+#: Kalimat pengakuan kaki yang dicetak SETIAP layar, apa pun keadaannya. Yang KEEMPAT (kalimat
+#: klien) berbeda per layar dan tidak ada sama sekali di landing sejak ADR-030, jadi ia diperiksa
+#: terpisah — di sini yang berdiri hanya yang benar-benar universal.
+FOOT_ADMISSIONS = ("All clocks are JST.", "reads the store READ-ONLY")
+
+
+def test_the_client_note_lives_inside_the_app_not_on_the_landing(client: TestClient) -> None:
+    """ADR-030: kalimat klien dibuang dari `/` atas permintaan pemilik repo — dan HANYA dari `/`.
+
+    Kalimatnya benar dan tidak dicabut; yang salah adalah tempatnya. `/` adalah layar pertama
+    yang dilihat juri, dan di atasnya sudah bertumpuk empat pita mendatar sebelum mata sampai ke
+    isi; pengakuan tentang perilaku KLIEN adalah pengakuan tentang aplikasi, dan ia dibaca oleh
+    orang yang sudah masuk. Ia karena itu tetap dirender kata demi kata di Layar A, Layar B, dan
+    halaman gagal.
+
+    Yang dipatok di sini adalah ANGKANYA, per layar: tiga kalimat pengakuan di landing, empat di
+    ketiga layar lain. Sebuah "perapian" berikutnya yang membuang satu kalimat lagi — di layar
+    mana pun — merah di sini, bukan terlihat di video.
+    """
+    pages = {
+        "/": client.get("/").text,
+        "/app": client.get("/app").text,
+        "/app/decision/1": client.get("/app/decision/1").text,
+        "/app/decision/999999": client.get("/app/decision/999999").text,
+    }
+    notes = {
+        "/app": ui_screens.WATCHLIST_CLIENT_NOTE,
+        "/app/decision/1": ui_screens.CARD_CLIENT_NOTE,
+        "/app/decision/999999": ui_screens.ERROR_CLIENT_NOTE,
+    }
+    for path, html in pages.items():
+        readable = unescape(html)
+        for sentence in (*FOOT_ADMISSIONS, ui_screens.KEYBOARD_NOTE):
+            assert sentence in readable, f"{path} kehilangan pengakuan kaki: {sentence[:40]}"
+
+    # Landing: TIGA kalimat, dan kalimat klien tidak ada dalam bentuk apa pun — bukan sebagai
+    # kalimat layar lain, bukan sebagai paragraf kosong yang tetap memakan jarak.
+    landing = unescape(pages["/"])
+    assert ui_screens._CLIENT_NOTE_HEAD not in landing, "kalimat klien kembali ke landing"
+    for note in notes.values():
+        assert note not in landing
+    assert '<p class="sub"></p>' not in pages["/"], "paragraf kosong menggantikan kalimat itu"
+    assert ui_screens.client_note("landing") == ""
+
+    # ...dan klien tidak mengembalikannya lewat pintu belakang: baris status `#tenko-live`
+    # (kalimat inert yang berbunyi "on a failure page…") tidak pernah dipasang di landing.
+    # Itu pita mendatar KEDUA di atas hero, dan ia hanya ada ketika JS jalan — yaitu justru
+    # keadaan yang dilihat juri.
+    start = slice_of(main_source(), "function start(): void {", "document.addEventListener")
+    assert 'if (screen !== "landing") main.appendChild(liveNode);' in start, "baris status kembali ke landing"
+    assert "main.appendChild(viewNode);" in start
+
+    # Ketiga layar lain: EMPAT, dan masing-masing kalimatnya sendiri.
+    for path, note in notes.items():
+        assert note in unescape(pages[path]), path
+        assert ui_screens._CLIENT_NOTE_HEAD in unescape(pages[path]), path
+
+
+def test_one_band_stands_above_the_first_screen_and_it_still_says_simulated(
+    client: TestClient,
+) -> None:
+    """ADR-030: banner DILEBUR ke pita topnav — dan melebur bukan melemahkan.
+
+    Pemilik repo membaca `/` dan menghitung empat pita mendatar bertumpuk sebelum matanya
+    sampai ke isi: banner, kalimat klien, kepala halaman, railbar — ~250px dari 720px, di
+    halaman yang seluruh nilainya justru kekosongan yang tersisa. Tangkapan layar rujukannya
+    (`references/awwwards-3d/docs/screenshots/minimal-hero.png`) hanya punya SATU label mungil.
+
+    Yang TIDAK boleh ikut hilang adalah bannernya: kalimat itu kewajiban Official Rules §5
+    (`docs/rules-compliance.md`), dan `/` adalah layar pertama yang dilihat juri. Tes ini
+    karena itu menuntut keduanya sekaligus — satu pita, dan pita itu membawa kalimat utuh,
+    ber-`role="note"`, melekat, dan dengan tinggi yang benar-benar dikurangkan dari hero.
+    """
+    html = client.get("/").text
+    css = client.get("/ui/tenko.css").text
+    squashed = css.replace(" ", "").replace("\n", "")
+
+    # 1. SATU pita, dan ia memuat banner + kepala halaman.
+    band = slice_of(html, '<div class="headrow">', "</nav>")
+    assert html.count('<div class="headrow">') == 1, "pita atas bercabang menjadi dua"
+    assert BANNER in unescape(band), "banner tidak berada di dalam pita yang sama"
+    assert '<p class="banner" role="note">' in band, "banner kehilangan role=note saat dilebur"
+    assert '<nav class="topnav"' in band, "kepala halaman tidak ikut ke dalam pita"
+    assert "railbar" not in html, "pita rel kembali"
+    # Banner tetap berdiri SEBELUM `<main>`: ia terbaca tanpa gulir, apa pun isi halaman.
+    assert html.index('class="banner"') < html.index('<main id="isi">')
+
+    # 2. Ia melekat — bukan `fixed` (dilarang di berkas ini), dan bukan mengalir begitu saja.
+    rule = re.search(r"\n\.headrow \{([^{}]*)\}", css)
+    assert rule, "aturan `.headrow` hilang dari stylesheet yang dilayani"
+    assert "position: sticky" in rule.group(1) and "top: 0" in rule.group(1), rule.group(1)
+    assert "position: fixed" not in css and "position:fixed" not in squashed
+
+    # 3. Keterbacaan banner didahulukan saat lebar habis: ia tidak pernah menyusut, `nav` yang
+    #    mengalah. Tanpa dua deklarasi ini, teks 79 aksara itu membungkus menjadi pita KEDUA —
+    #    persis yang dibongkar ADR-030.
+    assert ".headrow.banner{flex:00auto" in squashed, "banner boleh menyusut di dalam pita"
+    assert ".topnav{" in squashed and "flex:11auto" in squashed
+
+    # 4. Tinggi yang dikurangkan hero adalah tinggi pita ITU (52px + garis 1px), bukan angka
+    #    warisan tiga pita yang sudah tidak ada.
+    assert "--chrome:53px" in squashed, "tinggi chrome tidak dihitung ulang sesudah pita dibuang"
+    assert "min-height:calc(100vh-var(--chrome))" in squashed
+
+    # 5. Label hero sependek label rujukannya, dan ia berhenti mengulang wordmark di atasnya.
+    label = re.search(r'<p class="kicker">(01 — [^<]*)</p>', html)
+    assert label, "label hero hilang"
+    assert label.group(1) == "01 — Roll call", label.group(1)
+    assert len(label.group(1)) <= 20, label.group(1)
+    # ...dan ia rata tepi kiri halaman: blok hero tidak lagi dipusatkan.
+    assert ".hero-in{width:100%;max-width:var(--wide);margin-inline:0" in squashed
+
+    # 6. Layar pertama adalah void RATA: nol gambar latar di kedua pita/kotak yang mengisinya.
+    for selector in (".headrow", ".hero"):
+        block = re.search(rf"\n\{selector} \{{([^{{}}]*)\}}", css)
+        assert block, selector
+        assert "url(" not in block.group(1), f"{selector} membawa gambar latar kembali"
+        assert "var(--ink)" in block.group(1), f"{selector} tidak menutup pemandangan `html`"
+
+    # 7. Kalimat "practice" tetap di layar pertama — dua kali, dan tidak satu pun berwarna
+    #    tautan: kalimat yang bukan tautan tidak boleh terbaca sebagai tautan.
+    assert "practice" in unescape(band)
+    assert '<p class="hero-note">' in html
+    note = re.search(r"\n\.hero-note \{([^{}]*)\}", css)
+    assert note and "color: var(--fg)" in note.group(1), note
+    assert "var(--link)" not in (note.group(1) if note else ""), "kalimat itu berwarna tautan"
+
+
 def test_the_visual_language_never_grows_new_structure_on_screen_a_and_b(client: TestClient) -> None:
     """ADR-029 mengganti BAHASA VISUAL landing; Layar A & B ikut warnanya, bukan susunannya.
 
@@ -3139,7 +3272,7 @@ def test_the_visual_language_never_grows_new_structure_on_screen_a_and_b(client:
         for landing_only in (
             'class="topnav"',
             'class="sec-head"',
-            'class="railbar"',
+            'class="headrow"',
             'class="band-art"',
             'class="foot-grid"',
             "<img",
@@ -4063,8 +4196,8 @@ def test_one_css_naming_rule_serves_both_renderers() -> None:
 #:
 #: Cara memperbaruinya: `make frontend` mencetak hash barunya. Menggantinya adalah perbuatan
 #: yang TERLIHAT di diff — dan itulah seluruh gunanya.
-BUNDLE_SHA256 = "0a89c3a02c76fc89907e2261e02e52df7cc4d214b294c62a1d161ee43c53f9f5"
-STYLESHEET_SHA256 = "f35c2f2a1411a8a77085cb274054f1d7cab44b61509b5a1724d0b2bc5732053e"
+BUNDLE_SHA256 = "04956f6e6d018f6e8aeecbc6e4f55794e143cd93489d71652718035497027184"
+STYLESHEET_SHA256 = "b5e1821f4c62ec9db0023fd6ac711404aa2119fcfef073986000ea67f759248f"
 
 
 def test_the_shipped_bundle_is_pinned_byte_for_byte() -> None:
@@ -4202,7 +4335,11 @@ def test_every_screen_promises_only_the_rhythm_that_screen_actually_has(client: 
     assert ui_screens.WATCHLIST_CLIENT_NOTE in watchlist
     assert ui_screens.CARD_CLIENT_NOTE in card
     assert ui_screens.ERROR_CLIENT_NOTE in failure
-    assert ui_screens.LANDING_CLIENT_NOTE in landing
+    # Landing tidak punya kalimat klien sama sekali sejak ADR-030 — dan justru karena itu ia
+    # tidak bisa menjanjikan ritme yang bukan miliknya. Yang dipatok di sini adalah ia tidak
+    # diam-diam jatuh ke kalimat watchlist (cadangan `client_note`), yang berjanji empat hal.
+    assert ui_screens.client_note("landing") == ""
+    assert ui_screens.WATCHLIST_CLIENT_NOTE not in landing
 
     # Dan itu memang yang dilakukan kliennya — bukan hanya yang dikatakan kalimatnya.
     main = main_source()

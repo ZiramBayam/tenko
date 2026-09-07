@@ -7740,26 +7740,6 @@
       });
     }
   }
-  function railbar() {
-    const bar = document.querySelector(".railbar");
-    if (!(bar instanceof HTMLElement)) return;
-    let queued = false;
-    const paint2 = () => {
-      queued = false;
-      const doc = document.documentElement;
-      const span = doc.scrollHeight - doc.clientHeight;
-      const p = span > 0 ? Math.min(1, Math.max(0, doc.scrollTop / span)) : 1;
-      bar.style.setProperty("--p", p.toFixed(4));
-    };
-    const onScroll = () => {
-      if (queued) return;
-      queued = true;
-      window.requestAnimationFrame(paint2);
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll, { passive: true });
-    paint2();
-  }
   function start() {
     const body = document.body;
     const main = document.getElementById("isi");
@@ -7773,14 +7753,11 @@
     state.decisionId = screen === "card" ? Number(body.dataset["decisionId"] ?? "0") || null : null;
     controlsNode = buildControls();
     liveNode = el("p", { id: "tenko-live", class: "live state-ok", role: "status", "aria-live": "polite" });
-    if (screen === "landing") {
-      railbar();
-      motion();
-    }
+    if (screen === "landing") motion();
     const inert = screen === "error" || screen === "landing";
     liveNode.textContent = inert ? CLIENT_INERT : CLIENT_ATTACHED;
     main.appendChild(controlsNode);
-    main.appendChild(liveNode);
+    if (screen !== "landing") main.appendChild(liveNode);
     main.appendChild(viewNode);
     state.shownScreen = state.screen;
     state.shownId = state.decisionId;

@@ -908,3 +908,79 @@ Konsekuensi: `ui/screens.py` (markup landing ditulis ulang, `_shell` menerima `f
 diperbaiki) · `frontend/styles/app.css` (blok LANDING ditulis ulang, `--nav-h` baru, `--chrome` 91px → 141px) ·
 `frontend/src/main.ts` (target reveal mengikuti nama bagian yang baru) · `ui/static/app.{css,js}` (build) ·
 `tests/test_ui.py` (dua tes baru, empat tes diperbarui, dua hash bundel) · `ui/README.md` · `DISCLOSURE.md`.
+
+---
+
+## ADR-030 (DITERIMA 8 Sep 2026) Kepala `/` dibongkar: satu pita, banner DILEBUR bukan dihapus, railbar dan kalimat klien keluar
+
+Konteks: pemilik repo membuka `/` di peramban (commit `5cf072f`) dan menghitung **empat pita mendatar bertumpuk**
+sebelum matanya sampai ke isi — banner SIMULATED (52px), baris status klien (`#tenko-live`, hanya muncul ketika JS
+jalan, yaitu justru keadaan yang dilihat juri), kepala halaman (50px), railbar (39px) — sekitar 250px dari layar
+720px, di halaman yang seluruh nilainya justru kekosongan yang tersisa. Rujukan tata letaknya
+(`references/awwwards-3d/docs/screenshots/minimal-hero.png`, ADR-028) hanya punya SATU label mungil di kiri atas.
+Keputusan ini menyentuh `/` SAJA: Layar A, Layar B, `/kage`, dan seluruh `/api/…` tidak berubah satu byte pun.
+
+1. **Banner SIMULATED DILEBUR ke pita topnav — dan melebur bukan menghapus.** Kalimatnya kewajiban Official Rules §5
+   (`docs/rules-compliance.md`: "banner SIMULATED"; informasi menyesatkan = diskualifikasi), dan `/` adalah layar
+   pertama yang dilihat juri, jadi menghapusnya tidak pernah menjadi pilihan. Yang berubah hanya kotaknya: banner dan
+   kepala halaman kini berbagi SATU pita (`.headrow`, 52px + garis 1px = 53px). Yang tidak berubah: teks `BANNER`
+   utuh apa adanya (dipaku `test_banner_is_the_one_sentence_the_video_shows`), `role="note"`, warnanya
+   (#ffd9d4 di atas #3a0d0b = **12.98:1**, diukur ulang dari `ui/static/app.css` yang dilayani), dan kelekatannya —
+   `.headrow` `position: sticky` (bukan `fixed`, yang tetap dilarang di seluruh berkas ini), jadi kalimat itu ada di
+   setiap posisi gulir dan di setiap frame video. Markupnya tetap SATU: `ui.screens._banner()` melayani keempat layar,
+   dan `_shell(masthead=...)` hanya memindahkan kotaknya.
+2. **Keterbacaan banner didahulukan; tautan bagian yang mengalah.** Pada 1280px banner memakan ~766px (79 aksara mono
+   13px + ikon + padding halaman), jadi wordmark + tombol `Screen A` + empat tautan bagian tidak muat di sisa ~500px
+   dan akan membungkus banner menjadi dua baris — persis pita bertumpuk yang dibongkar ADR ini. Yang dipatok CSS
+   karena itu bukan selera melainkan prioritas: banner `flex: 0 0 auto` (tidak pernah menyusut), `nav` `flex: 1 1 auto`
+   (yang mengalah). Tautan bagian **tidak hilang**: ia pindah utuh ke kolom "On this page" di kaki halaman, lengkap
+   dengan aturan `#pathways` yang ikut hilang ketika papannya hilang. Sisa lebar terukur pada 1280px: ~120px.
+3. **Railbar DIBUANG.** Ia menduplikasi kepala halaman dengan kata yang BERBEDA untuk bagian yang SAMA (`DEPARTURES`
+   di kepala vs `THE BOARD` di rel) — itu membingungkan, bukan sekadar mubazir — sementara posisi gulir yang ia bawa
+   sudah dibawa bilah gulir browser. `.railbar` dan `railbar()` (`frontend/src/main.ts`) ikut pergi, dan `--chrome`
+   dihitung ulang: 141px → **53px**.
+4. **Kalimat klien keluar dari landing, atas permintaan pemilik repo — dan HANYA dari landing.** `LANDING_CLIENT_NOTE`
+   dihapus; `client_note("landing")` kini mengembalikan string kosong lewat `SILENT_CLIENT_NOTE_SCREENS` yang
+   EKSPLISIT, bukan lewat cadangan `client_note` (yang akan memberinya kalimat watchlist, yaitu janji empat hal yang
+   tidak dimilikinya). Kalimatnya benar dan tidak dicabut: ia tetap dirender kata demi kata di Layar A, Layar B, dan
+   halaman gagal — "di dalam app saja". Landing karena itu mencetak TIGA kalimat pengakuan kaki, layar lain EMPAT, dan
+   angka itu dipatok per layar oleh `test_the_client_note_lives_inside_the_app_not_on_the_landing`. Baris status
+   `#tenko-live` ikut tidak dipasang di landing: tidak ada isi yang pernah berubah di sana, dan kalimat inert-nya
+   berbunyi "on a failure page…", yaitu kalimat layar yang lain. Tidak ada klaim yang hilang dari halaman itu: caption
+   papan sudah berkata ia dirender server dari store yang sama seperti aplikasi, dan kaki `_shell` sudah berkata
+   halaman ini dirender di server sebelum satu baris skrip jalan.
+5. **Label hero dipendekkan dan dirapatkan ke tepi kiri.** `01 — 点呼 TENKO · PRE-DEPARTURE ROLL CALL` mengulang
+   wordmark yang berdiri persis di atasnya; ia menjadi **`01 — Roll call`**, sependek `01 — HERO` pada rujukannya.
+   `.hero-in` berhenti dipusatkan (`margin-inline: 0`) dan `.hero-top` naik menjadi anak langsung `.hero`, jadi label
+   dan judul raksasa berdiri di absis yang SAMA — tepi kiri halaman — alih-alih menjorok ~140–180px pada jendela yang
+   lebih lebar dari `--wide`.
+6. **Hero menjadi void RATA.** Gambar latar `html` (pemandangan seluruh halaman) tidak boleh terlihat di layar
+   pertama: `.headrow` berlatar `--ink` PADAT dan `.hero` sudah `background-color: var(--ink)`, jadi yang tersisa di
+   layar pertama adalah hitam rata + SATU cahaya radial — kekuatan tangkapan layar rujukannya. Cahaya radialnya tidak
+   disentuh: perhentiannya tetap keempat permukaan yang sudah diukur, dan `rgba()` yang menerangi tetap dilarang.
+7. **Kalimat kanan atas diperbaiki, bukan dihapus.** "Every position here is a practice trade…" patah buruk
+   ("real execution." sendirian di baris kedua) dan berwarna abu-kebiruan yang terbaca sebagai tautan padahal ia bukan
+   tautan. Ia kini `.hero-note`: `color: var(--fg)` (15.99:1 di atas `--ink`), `max-width: 46ch`, `text-wrap: balance`.
+   Kata **practice** tetap di layar pertama — dua kali, karena banner di pita atas juga mengatakannya.
+8. **Pagar yang tidak bergerak satu pun.** CSP `HTML_HEADERS` identik (nol `<style>` sebaris, nol `style=`, nol
+   `data:`, nol host asing), `simulated: true` di tiap respons API, papan `03` tetap baris NYATA dari store dengan nol
+   dummy, `unspoken` ≠ 0 dan tiap agregat membawa `n`, gerak mati total di `prefers-reduced-motion`, tiap `:hover`
+   punya `:focus`, nol `position: fixed`, tautan lompat tetap ada, tetap terpotong sampai difokus, dan tetap elemen
+   fokusable PERTAMA — ia kini mendarat DI BAWAH pita (`top: 100%`) justru supaya ia tidak menutupi banner. Palet
+   identik (nol hex baru), dan angka kontrasnya diukur ulang dari stylesheet yang dilayani.
+
+Tesnya: `test_one_band_stands_above_the_first_screen_and_it_still_says_simulated` (satu pita, banner di dalamnya
+dengan `role="note"` dan teks utuh, `sticky`, prioritas lebar, `--chrome` = 53px, label hero `01 — Roll call` rata
+kiri, nol `url()` di kedua kotak layar pertama, kalimat "practice" bukan warna tautan) dan
+`test_the_client_note_lives_inside_the_app_not_on_the_landing` (tiga kalimat di landing, empat di ketiga layar lain).
+`test_the_landing_is_reachable_and_readable_the_way_screen_a_and_b_are` dan
+`test_the_landing_is_laid_out_in_the_order_kage_lays_its_page_out` diperbarui: railbar diganti menjadi larangan
+("pita rel kembali") dan urutan pita diperiksa sebagai `headrow` → `topnav` → `hero`.
+`test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed` kini ikut memaku 12.98:1 sebagai angka.
+
+Konsekuensi: `ui/screens.py` (`_banner()` dipisah, `_shell(masthead=)`, `_landing_masthead()` menggantikan
+`_landing_nav()`, `_landing_sections()`, kolom kaki ketiga, `LANDING_CLIENT_NOTE` dihapus) ·
+`frontend/styles/app.css` (`.headrow` baru; `.railbar`, `.topnav-links`, `--nav-h` dihapus; `--chrome` 141px → 53px;
+`.hero-in` tidak lagi dipusatkan; `.hero-top .sub` → `.hero-note`) · `frontend/src/main.ts` (`railbar()` dihapus,
+baris status tidak dipasang di landing) · `ui/static/app.{css,js}` (build) · `tests/test_ui.py` (dua tes baru, enam
+tes diperbarui, dua hash bundel) · `ui/README.md`. Nol dependency baru, jadi `DISCLOSURE.md` tidak berubah.

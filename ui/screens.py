@@ -584,28 +584,57 @@ ERROR_CLIENT_NOTE = (
 )
 
 
-LANDING_CLIENT_NOTE = (
-    _CLIENT_NOTE_HEAD + "The client script loads on the landing page too, and then stops: it "
-    "fetches nothing, refreshes nothing, and changes nothing on screen. The departures board in "
-    "section 03 is rendered by the server from the same store the app reads, or it is left out "
-    "entirely — it is never filled with example numbers, and its section number goes missing "
-    "with it. Every link works the ordinary way, with a reload."
-)
-
 #: Layar → kalimatnya. Kunci di sini HARUS sama dengan `data-screen` yang dipancarkan `_shell`.
 CLIENT_NOTES = {
     "watchlist": WATCHLIST_CLIENT_NOTE,
     "card": CARD_CLIENT_NOTE,
     "error": ERROR_CLIENT_NOTE,
-    "landing": LANDING_CLIENT_NOTE,
 }
+
+#: Layar yang TIDAK mencetak kalimat klien sama sekali (ADR-030, permintaan pemilik repo).
+#:
+#: Landing punya kalimatnya sendiri sampai ADR-030 dan kalimat itu BENAR — ia hanya berdiri di
+#: tempat yang salah. `/` adalah layar pertama yang dilihat juri, dan pengakuan tentang perilaku
+#: klien adalah pengakuan tentang APLIKASI: ia dibaca oleh orang yang sudah masuk, di Layar A,
+#: Layar B, dan halaman gagal — di mana ia tetap dirender kata demi kata. Yang HILANG bersamanya
+#: dari `/` tidak satu pun klaim yang tidak diucapkan di tempat lain di halaman yang sama:
+#: caption papan sudah berkata ia dirender server dari store yang sama seperti aplikasi, dan
+#: kaki `_shell` sudah berkata halaman ini dirender di server sebelum satu baris skrip jalan.
+SILENT_CLIENT_NOTE_SCREENS = frozenset({"landing"})
 
 
 def client_note(screen: str) -> str:
-    """Kalimat klien untuk `screen`. Layar tak dikenal jatuh ke kalimat watchlist — karena
-    ITULAH yang dilakukan `main.ts`: apa pun yang bukan `card` dan bukan `error` mendapat bar
-    kontrol dan timer polling."""
+    """Kalimat klien untuk `screen`, atau string kosong bila layar itu tidak mencetaknya.
+
+    Layar tak dikenal jatuh ke kalimat watchlist — karena ITULAH yang dilakukan `main.ts`: apa
+    pun yang bukan `card` dan bukan `error` mendapat bar kontrol dan timer polling. Landing
+    disebut EKSPLISIT di :data:`SILENT_CLIENT_NOTE_SCREENS`, bukan dibiarkan jatuh ke cadangan
+    itu: ia layar inert, jadi kalimat watchlist akan menjadi janji yang tidak dimilikinya.
+    """
+    if screen in SILENT_CLIENT_NOTE_SCREENS:
+        return ""
     return CLIENT_NOTES.get(screen, WATCHLIST_CLIENT_NOTE)
+
+
+def _client_note_p(screen: str) -> str:
+    """Kalimat klien sebagai satu paragraf kaki — atau TIDAK ADA PARAGRAF sama sekali.
+
+    Bukan paragraf kosong: sebuah `<p class="sub"></p>` yang tak berisi apa-apa adalah blok yang
+    diumumkan pembaca layar sebagai keheningan dan yang tetap memakan jarak di layar.
+    """
+    note = client_note(screen)
+    return f'<p class="sub">{escape(note, quote=True)}</p>' if note else ""
+
+
+def _banner(banner: str) -> str:
+    """Pita SIMULATED, satu bentuk untuk keempat layar (`docs/rules-compliance.md` §5).
+
+    Ia dipisahkan menjadi fungsi karena landing MELEBURKANNYA ke dalam satu pita mendatar
+    bersama kepala halaman (ADR-030): yang berbagi baris adalah kotaknya, sedangkan teks,
+    `role="note"`, ikon, warna, dan kelekatannya harus tetap SATU — dua salinan markup banner
+    adalah dua tempat untuk salah satu di antaranya menyimpang tanpa terlihat.
+    """
+    return f'<p class="banner" role="note">{BANNER_ICON}<span>{escape(banner, quote=True)}</span></p>'
 
 
 def _shell(
@@ -616,13 +645,23 @@ def _shell(
     screen: str,
     decision_id: int | None = None,
     foot_top: str = "",
+    masthead: str = "",
 ) -> str:
     """Kerangka halaman. Banner, isi, dan tiap `aria-label` ada SEBELUM satu baris JS pun jalan.
 
+    `masthead` adalah pita mendatar yang MEMUAT banner itu sendiri — dipakai landing, yang
+    meleburkan banner dan kepala halaman menjadi satu pita (ADR-030). Ia MENGGANTIKAN kotak
+    banner, tidak menghapus bannernya: :func:`render_landing` merakitnya dengan :func:`_banner`
+    yang sama, jadi tidak ada layar yang bisa kehilangan kalimat SIMULATED dengan mengoper
+    `masthead` — yang paling buruk yang bisa terjadi adalah ia dirender di kotak yang lain.
+
     `foot_top` adalah SATU blok yang boleh berdiri di atas kaki tetap — dipakai landing untuk
-    kisi tautan bergaya `kage.html` (ADR-029). Ia MENAMBAH, tidak menggantikan: keempat kalimat
-    di bawahnya (jam JST, "read-only, nol tool RYO, nol LLM", kalimat keyboard, kalimat klien)
-    dirender persis sama di setiap layar, dan tesnya menembak keempatnya di ketiga layar.
+    kisi tautan bergaya `kage.html` (ADR-029). Ia MENAMBAH, tidak menggantikan: kalimat-kalimat
+    di bawahnya (jam JST, "read-only, nol tool RYO, nol LLM", kalimat keyboard, dan — di layar
+    yang punya — kalimat klien) dirender persis sama di setiap layar. Layar A, Layar B, dan
+    halaman gagal mencetak KEEMPATNYA; landing mencetak TIGA, karena ADR-030 memindahkan
+    kalimat klien ke dalam aplikasi atas permintaan pemilik repo. Tesnya menembak angka itu
+    sebagai angka, per layar.
 
     `screen` adalah satu-satunya hal yang dibaca klien untuk memutuskan layar mana yang sedang
     terbuka; ia atribut `data-*` pada `<body>`, bukan tebakan atas URL di dalam JS.
@@ -643,15 +682,15 @@ def _shell(
         f'data-poll-ms="{POLL_INTERVAL_MS}"'
         + ("" if decision_id is None else f' data-decision-id="{decision_id:d}"')
         + ">"
-        f'<p class="banner" role="note">{BANNER_ICON}<span>{escape(banner, quote=True)}</span></p>'
-        f'<main id="isi">{body}</main>'
+        + (masthead or _banner(banner))
+        + f'<main id="isi">{body}</main>'
         f"<footer>{foot_top}<p>All clocks are JST. This page was rendered on the server at "
         f"{escape(_now_jst(now), quote=True)}, banner and all, before any script ran. Tenko "
         "reads the store READ-ONLY; no RYO tool and no LLM is called to show this screen. "
         'Every route this app serves is listed at <a href="/api/routes">/api/routes</a>.</p>'
         f'<p class="sub">{escape(KEYBOARD_NOTE, quote=True)}</p>'
-        f'<p class="sub">{escape(client_note(screen), quote=True)}</p>'
-        "</footer></body></html>"
+        + _client_note_p(screen)
+        + "</footer></body></html>"
     )
 
 
@@ -1403,14 +1442,16 @@ LANDING_STEPS = (
     ),
 )
 
-#: Bagian yang punya `id` dan karena itu boleh ditautkan kepala halaman, DALAM URUTAN DOKUMEN.
+#: Bagian yang punya `id` dan karena itu boleh ditautkan, DALAM URUTAN DOKUMEN. Sejak ADR-030
+#: yang menautkannya adalah KAKI halaman (kolom "On this page"), bukan pita atas: pita atas
+#: dilebur menjadi satu baris bersama banner SIMULATED, dan banner itu yang mendapat lebarnya.
 #: `pathways` (papan) sengaja TIDAK ada di sini: ia hanya dirender ketika store terbaca, dan
-#: tautan kepala yang menunjuk bagian yang tidak ada adalah tautan yang berbohong kepada
-#: keyboard. Ia disisipkan :func:`_landing_nav` — pada tempatnya, di antara `gate` dan
-#: `lessons` — HANYA ketika papannya benar-benar ikut. Urutan dokumen dan bukan "yang paling
-#: berguna dulu": kepala halaman yang menyebut bagian dengan urutan berbeda dari halamannya
-#: adalah peta yang harus dipelajari, dan jalan pintas ke papan sudah ada dua kali (tautan
-#: lompat dan tombol `Screen A`).
+#: tautan yang menunjuk bagian yang tidak ada adalah tautan yang berbohong kepada keyboard. Ia
+#: disisipkan :func:`_landing_sections` — pada tempatnya, di antara `gate` dan `lessons` —
+#: HANYA ketika papannya benar-benar ikut. Urutan dokumen dan bukan "yang paling berguna dulu":
+#: daftar yang menyebut bagian dengan urutan berbeda dari halamannya adalah peta yang harus
+#: dipelajari, dan jalan pintas ke papan sudah ada dua kali (tautan lompat dan tombol
+#: `Screen A`).
 LANDING_SECTIONS = (
     ("gate", "Without it"),
     ("lessons", "How it works"),
@@ -1456,42 +1497,71 @@ def _sec_head(number: str, title: str, japanese: str) -> str:
     )
 
 
-def _landing_nav(has_board: bool) -> str:
-    """Kepala halaman: tautan lompat, wordmark, tautan bagian, dan jalan ke Layar A.
+def _landing_sections(has_board: bool) -> tuple[tuple[str, str], ...]:
+    """Bagian yang boleh ditautkan, DALAM URUTAN DOKUMEN.
 
-    Susunannya `header.nav` milik `kage.html`, dengan tiga hal yang TIDAK ikut, dan ketiganya
-    disengaja: ia tidak `position: fixed` (dilarang di seluruh stylesheet ini — larangan yang
-    sekaligus membeli "nol perangkap fokus"), ia tidak menukar label Inggris dengan label
-    Jepang saat hover (itu akan menjadikan hover satu-satunya jalan ke sebuah kata), dan ia
-    tidak membawa tombol menu yang membuka apa pun (nol keadaan yang harus ditutup).
+    `pathways` (papan) hanya ada ketika store terbaca, jadi ia disisipkan pada tempatnya —
+    di antara `gate` dan `lessons` — dan HANYA ketika papannya benar-benar ikut: tautan yang
+    menunjuk bagian yang tidak ada adalah tautan yang berbohong kepada keyboard.
     """
     head, *rest = LANDING_SECTIONS
-    targets = (head, ("pathways", "Departures"), *rest) if has_board else LANDING_SECTIONS
-    links = "".join(
-        f'<li><a href="#{escape(anchor, quote=True)}">{escape(label, quote=True)}</a></li>'
-        for anchor, label in targets
-    )
+    return (head, ("pathways", "Departures"), *rest) if has_board else LANDING_SECTIONS
+
+
+def _landing_masthead(banner: str, has_board: bool) -> str:
+    """SATU pita mendatar di atas layar pertama: banner SIMULATED + wordmark + jalan ke Layar A.
+
+    ADR-030. Sebelumnya ada EMPAT pita bertumpuk sebelum mata sampai ke isi (banner, kalimat
+    klien, kepala halaman, railbar) — ~250px dari 720px, yaitu sepertiga layar pertama yang
+    seluruh nilainya justru kekosongan. Yang tersisa sekarang satu pita setinggi 53px.
+
+    Banner **dilebur, bukan dihapus**, dan itu batas yang tidak boleh salah dibaca: kalimatnya
+    kewajiban Official Rules §5 (`docs/rules-compliance.md`) di layar PERTAMA yang dilihat juri.
+    Yang berubah hanya kotaknya — teksnya utuh apa adanya, `role="note"`-nya utuh, warnanya
+    (12.98:1) utuh, dan kelekatannya utuh: pita ini `position: sticky`, jadi kalimat itu ada di
+    setiap posisi gulir dan di setiap frame video.
+
+    Tautan bagian TIDAK ikut ke pita ini, dan itu keputusan lebar bukan selera: pada 1280px
+    banner memakan ~770px, dan memaksa empat tautan bagian + wordmark + tombol ke sisa 500px
+    akan membungkus banner menjadi dua baris — yaitu persis pita bertumpuk yang dibongkar
+    ADR-030. Yang menang keterbacaan banner (perintah pemilik repo), dan tautan bagian itu tidak
+    hilang: ia pindah utuh ke kolom "On this page" di kaki halaman.
+
+    Tautan lompat berdiri di luar `<nav>` sebagai elemen fokusable PERTAMA halaman, dan saat
+    difokus ia mendarat DI BAWAH pita — bukan di atasnya, karena yang di atasnya adalah banner.
+    """
     skip = ("pathways", "Skip to the departures board") if has_board else ("hero", "Skip to the page")
     return (
-        '<nav class="topnav" aria-label="Sections of this page">'
+        '<div class="headrow">'
         f'<a class="skip" href="#{skip[0]}">{skip[1]}</a>'
+        f"{_banner(banner)}"
+        '<nav class="topnav" aria-label="Tenko">'
         '<a class="brand" href="#hero">'
         '<b>TENKO<span class="jp" lang="ja">点呼</span></b>'
-        "<i>pre-departure roll call — simulated</i></a>"
-        f'<ul class="topnav-links">{links}</ul>'
+        "<i>pre-departure roll call</i></a>"
         '<a class="topnav-go" href="/app" aria-label="Open the watchlist board — Screen A">'
         "Screen A</a>"
         "</nav>"
+        "</div>"
     )
 
 
-def _landing_footer() -> str:
+def _landing_footer(has_board: bool) -> str:
     """Kisi kaki halaman (`.foot-grid` milik `kage.html`), dipasang di ATAS kaki tetap `_shell`.
 
     Yang di bawahnya tidak berubah satu kalimat pun: jam JST, "read-only, no RYO tool, no LLM",
-    kalimat keyboard, dan kalimat klien. Kisi ini menambahkan jalan pulang, bukan menggantikan
-    pengakuan.
+    dan kalimat keyboard. Kisi ini menambahkan jalan pulang, bukan menggantikan pengakuan.
+
+    Kolom ketiga ("On this page") adalah tautan bagian yang dulu berdiri di kepala halaman;
+    ADR-030 memindahkannya ke sini supaya banner SIMULATED mendapat seluruh lebar yang ia
+    butuhkan di pita atas. `has_board` diteruskan apa adanya ke :func:`_landing_sections`, jadi
+    ketika store tak terbaca kolom ini kehilangan barisnya bersama papannya — kaki halaman
+    tidak boleh menjadi tempat kedua di mana `#pathways` menggantung.
     """
+    sections = (
+        "On this page",
+        tuple((f"#{anchor}", label) for anchor, label in _landing_sections(has_board)),
+    )
     columns = "".join(
         f'<div class="foot-col"><h2 class="foot-h">{escape(title, quote=True)}</h2><ul>'
         + "".join(
@@ -1499,7 +1569,7 @@ def _landing_footer() -> str:
             for href, label in entries
         )
         + "</ul></div>"
-        for title, entries in FOOTER_COLUMNS
+        for title, entries in (*FOOTER_COLUMNS, sections)
     )
     return (
         '<div class="foot-grid">'
@@ -1581,7 +1651,9 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
     Susunan bagiannya (ADR-029) diambil dari `kage.html` — karya teman pemilik repo yang dipakai
     dengan izin (ADR-026) — dan hero-nya tetap formula tangkapan layar awwwards (ADR-028):
 
-    * `nav` — wordmark, tautan bagian, jalan ke Layar A, tautan lompat;
+    * pita atas — SATU baris (ADR-030): banner SIMULATED, wordmark, jalan ke Layar A, tautan
+      lompat. Empat pita bertumpuk sebelumnya (banner · kalimat klien · kepala · railbar)
+      memakan ~250px dari layar 720px sebelum mata sampai ke isi;
     * `01 hero` — apa itu Tenko: void, satu cahaya, judul raksasa di sepertiga bawah;
     * `02 gate` — apa yang salah tanpa panggilan ini;
     * `03 pathways` — **papan keberangkatan, baris NYATA dari store** (hilang bila store mati);
@@ -1608,31 +1680,30 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
     # terbaca, dan celah itu lebih jujur daripada menomori ulang — bagian yang hilang memang
     # hilang, dan halaman tidak berpura-pura utuh.
     body = (
-        f"{_landing_nav(bool(board))}"
-        # Rel dirender server pada 0%: halaman tanpa JS tetap punya rel utuh, hanya keretanya
-        # yang diam. `aria-hidden` karena posisi gulir sudah dibawa bilah gulir browser — ini
-        # kanal kedua, bukan satu-satunya.
-        '<div class="railbar" aria-hidden="true"><div class="track">'
-        '<span class="train"></span></div>'
-        '<ul class="stops"><li>Departure</li><li>Without it</li><li>The board</li>'
-        "<li>How</li><li>Onward</li></ul>"
-        "</div>"
         # HERO (ADR-028, TIDAK dibongkar ADR-029). Tiga hal saja di layar pertama, dan yang
         # KETIGA adalah ruang kosong: label mono di kiri atas, kekosongan yang disengaja di
         # tengah, judul + satu kalimat + satu tautan di sepertiga bawah. Tidak ada gambar dan
         # tidak ada kolom kedua — hero dua-kolom teks|gambar terbaca seperti brosur, dan brosur
         # adalah hal yang paling tidak dipercaya seorang juri di detik pertama.
         '<section class="hero" id="hero">'
-        '<div class="hero-in">'
         # Baris atas: label bernomor di kiri, dan di kanan kalimat yang menyatakan seluruh
         # halaman ini simulasi. Kalimat itu tetap di layar PERTAMA dengan sengaja
         # (`docs/rules-compliance.md`), dan ia diletakkan di tepi atas justru supaya ia tidak
         # membayar dengan ruang kosong yang menjadi inti tata letak ini.
+        #
+        # Labelnya SEPENDEK label rujukannya (ADR-030). Bentuk lamanya — `01 — 点呼 TENKO ·
+        # PRE-DEPARTURE ROLL CALL` — mengulang wordmark yang berdiri persis di atasnya, dan
+        # tangkapan layar yang menjadi rujukan tata letak ini hanya punya `01 — HERO`.
         '<div class="hero-top">'
-        '<p class="kicker">01 — <span lang="ja">点呼</span> Tenko · pre-departure roll call</p>'
-        '<p class="sub">Every position here is a <strong>practice</strong> trade: no funds, no '
-        "wallet, no signing keys, no real execution.</p>"
+        '<p class="kicker">01 — Roll call</p>'
+        '<p class="hero-note">Every position here is a <strong>practice</strong> trade: no '
+        "funds, no wallet, no signing keys, no real execution.</p>"
         "</div>"
+        # Baris kedua: kekosongan, lalu judul + kalimat + tautan yang menempel ke dasarnya.
+        # `hero-in` membatasi LEBAR baca (--wide) tanpa memusatkannya; baris atas di atasnya
+        # sengaja tidak dibatasi, supaya label dan kalimat "practice" berdiri di kedua TEPI
+        # halaman seperti pada tangkapan layar rujukan.
+        '<div class="hero-in">'
         '<div class="hero-say">'
         "<h1>Point at the evidence.<br>Then decide.</h1>"
         '<p class="stand">Ten pieces of evidence, from five RYO tools, called out one at a '
@@ -1723,7 +1794,15 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         "</div>"
         "</section>"
     )
-    return _shell("Tenko (点呼) — simulated", banner, body, now, screen="landing", foot_top=_landing_footer())
+    return _shell(
+        "Tenko (点呼) — simulated",
+        banner,
+        body,
+        now,
+        screen="landing",
+        foot_top=_landing_footer(bool(board)),
+        masthead=_landing_masthead(banner, bool(board)),
+    )
 
 
 # --- halaman `/kage` ----------------------------------------------------------------------

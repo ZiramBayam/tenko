@@ -123,17 +123,15 @@
   --t-h2: clamp(20px, 2.2vw, 30px);
   --t-lede: clamp(16px, 1.35vw, 20px);
   --t-label: 11px;
-  /* Tinggi banner yang melekat: dipakai `top:` semua yang ikut melekat di bawahnya, supaya
-     kepala tabel tidak pernah mendarat DI BALIK banner. */
+  /* Tinggi pita melekat: dipakai `top:` semua yang ikut melekat di bawahnya, supaya kepala
+     tabel tidak pernah mendarat DI BALIK banner. Di landing ia juga tinggi `.headrow`. */
   --stick: 52px;
-  /* Kepala halaman landing (ADR-029). Ia MENGALIR, tidak melekat — 50px yang melekat di layar
-     720px adalah 7% dari layar pertama yang seluruh nilainya adalah kekosongan. */
-  --nav-h: 50px;
-  /* Tinggi TERPAKAI di atas hero: banner melekat (52px) + kepala halaman (50px) + railbar
-     (39px, terukur dari padding + track + baris nama perhentian). Hero mengurangkannya dari
-     100vh supaya layar pertama pas satu layar pada 1280x720 — tanpa ini, judul di sepertiga
-     bawah jatuh di bawah lipatan dan seluruh idenya hilang. */
-  --chrome: 141px;
+  /* Tinggi TERPAKAI di atas hero landing = SATU pita (`.headrow`, 52px + garis 1px) sejak
+     ADR-030. Sebelumnya 141px: banner melekat (52) + kepala halaman (50) + railbar (39), tiga
+     pita bertumpuk yang bersama kalimat klien memakan ~250px dari 720px sebelum mata sampai ke
+     isi. Hero mengurangkan angka ini dari 100vh supaya layar pertama pas satu layar pada
+     1280x720 — tanpa ini, judul di sepertiga bawah jatuh di bawah lipatan dan idenya hilang. */
+  --chrome: 53px;
 
   --sans: "Onest Vendored", "IBM Plex Sans Vendored", system-ui, -apple-system, "Segoe UI",
     Roboto, "Noto Sans", "DejaVu Sans", Arial,
@@ -220,7 +218,12 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 /* --- banner SIMULATED -----------------------------------------------------------------------
    `sticky`, BUKAN `fixed`: ia tetap mengalir di dalam dokumen (tidak menutupi apa pun, tidak
    menjadi overlay yang bisa menjebak fokus) tetapi tidak pernah keluar dari bingkai saat juri
-   menggulir. Kewajiban `docs/rules-compliance.md` ini terbukti di setiap frame video. */
+   menggulir. Kewajiban `docs/rules-compliance.md` ini terbukti di setiap frame video.
+
+   Di landing ia berbagi SATU pita dengan kepala halaman (ADR-030, blok `.headrow` di bawah).
+   Yang berbagi hanyalah barisnya: teks, `role="note"`, ikon, warna (#ffd9d4 di atas #3a0d0b =
+   12.98:1) dan kelekatannya tidak berubah — di sana `.headrow` yang `sticky`, dan banner ikut
+   melekat bersamanya. */
 .banner {
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; gap: var(--s3);
@@ -475,35 +478,62 @@ body[data-screen="landing"] #tenko-view {
     [full-end];
 }
 body[data-screen="landing"] #tenko-view > * { grid-column: wide; min-width: 0; }
-main > .hero, main > .band, main > .topnav, main > .railbar,
+/* Sejak ADR-030 pita atas berdiri DI LUAR `<main>` (ia menggantikan kotak banner), jadi ia
+   tidak perlu — dan tidak boleh — meminta jalur kisi apa pun di sini. Yang tersisa penuh-lebar
+   adalah hero dan pita gambar penutup. */
+main > .hero, main > .band,
 body[data-screen="landing"] #tenko-view > .hero,
-body[data-screen="landing"] #tenko-view > .band,
-body[data-screen="landing"] #tenko-view > .topnav,
-body[data-screen="landing"] #tenko-view > .railbar { grid-column: full; }
+body[data-screen="landing"] #tenko-view > .band { grid-column: full; }
 
-/* --- kepala halaman --------------------------------------------------------------------------
-   `header.nav` milik kage, dengan tiga hal dilepas (lihat catatan di atas). Ia MENGALIR, tidak
-   melekat: 50px yang melekat di layar setinggi 720px adalah 7% dari layar pertama yang dibeli
-   halaman ini dengan kekosongan, dan tautan yang sama ada lagi di dasar halaman. */
-.topnav {
-  position: relative;
-  display: flex; align-items: center; gap: var(--s4) var(--s5); flex-wrap: wrap;
-  min-height: var(--nav-h);
-  padding: var(--s3) var(--pad);
+/* --- pita atas: banner + kepala halaman, SATU baris (ADR-030) ---------------------------------
+   Sebelumnya ada EMPAT pita mendatar bertumpuk sebelum mata sampai ke isi — banner (52px),
+   kalimat klien, kepala halaman (50px), railbar (39px) — yaitu ~250px dari layar 720px, di
+   halaman yang seluruh nilainya adalah kekosongan yang tersisa. Sekarang satu: 52px + garis.
+
+   Banner DILEBUR, bukan dihapus: kalimatnya kewajiban Official Rules §5 di layar pertama yang
+   dilihat juri. Yang `sticky` sekarang pita ini, jadi kalimat itu tetap ada di setiap posisi
+   gulir; `sticky` dan bukan `fixed` karena `position: fixed` dilarang di seluruh berkas ini.
+
+   Prioritas lebarnya dipatok, bukan diserahkan ke flexbox: banner `flex: 0 0 auto` (ia tidak
+   pernah menyusut, jadi teksnya tidak pernah terpotong atau membungkus menjadi pita kedua) dan
+   `nav` `flex: 1 1 auto; min-width: 0` (ia yang mengalah). Itu urutan yang diminta pemilik
+   repo: keterbacaan banner lebih dulu, tautan kepala belakangan. */
+.headrow {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: stretch;
+  background: var(--ink);
   border-bottom: 1px solid var(--hair);
+  box-shadow: 0 18px 40px -28px rgba(0, 0, 0, .95);
+}
+/* Di dalam pita, banner membawa padding KIRI halaman (jadi kalimatnya mulai di tepi yang sama
+   dengan judul hero) dan padding kanan sependek jarak antar-blok. Bayangannya dilepas: pita
+   yang memilikinya sekarang, bukan kotak merah di dalamnya. */
+.headrow .banner {
+  flex: 0 0 auto; min-height: var(--stick);
+  padding: var(--s3) var(--s5) var(--s3) var(--pad);
+  border-bottom: 0; border-right: 2px solid var(--nogo);
+  box-shadow: none;
+}
+.topnav {
+  display: flex; align-items: center; gap: var(--s4) var(--s5); flex-wrap: wrap;
+  flex: 1 1 auto; min-width: 0;
+  justify-content: flex-end;
+  padding: var(--s3) var(--pad) var(--s3) var(--s5);
 }
 /* Tautan lompat: TERPOTONG sampai ia difokus, lalu ia menjadi tombol pertama yang diterima
    Tab. Ia bukan `display: none` (yang akan membuatnya tak terjangkau keyboard), bukan
    `position: fixed` (dilarang di berkas ini), dan bukan sebuah kotak yang digeser ke atas
    dengan `transform` — yang terakhir itu terlihat benar sampai seseorang menyadari kotaknya
-   mendarat DI ATAS banner SIMULATED, yang harus terlihat di setiap frame. */
+   mendarat DI ATAS banner SIMULATED, yang harus terlihat di setiap frame. Sejak ADR-030 pita
+   atas memuat banner ITU SENDIRI, jadi kotaknya mendarat di BAWAH pita (`top: 100%`) — di
+   tepi kiri yang sama dengan label hero, dan tidak menutupi satu huruf pun dari kalimat itu. */
 .skip {
   position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
   overflow: hidden; clip-path: inset(50%); white-space: nowrap;
   color: var(--link); font: 600 12px/1 var(--mono); text-decoration: none;
 }
 .skip:focus, .skip:focus-visible {
-  left: var(--pad); top: var(--s2); z-index: 6;
+  left: var(--pad); top: calc(100% + var(--s2)); z-index: 6;
   width: auto; height: auto; margin: 0; padding: var(--s2) var(--s3);
   overflow: visible; clip-path: none;
   border: 1px solid var(--line); border-radius: var(--r1); background: var(--card);
@@ -519,16 +549,11 @@ body[data-screen="landing"] #tenko-view > .railbar { grid-column: full; }
   font: 400 9.5px/1.2 var(--mono); letter-spacing: .22em; text-transform: uppercase;
 }
 .brand:hover b, .brand:focus b, .brand:focus-visible b { color: var(--link); }
-.topnav-links {
-  display: flex; flex-wrap: wrap; gap: var(--s3) var(--s5);
-  margin: 0 0 0 auto; padding: 0; list-style: none;
-}
-.topnav-links a, .topnav-go {
-  font: 600 var(--t-label)/1.4 var(--mono); letter-spacing: .18em; text-transform: uppercase;
-  text-decoration: none; color: var(--dim);
-}
-.topnav-links a:hover, .topnav-links a:focus, .topnav-links a:focus-visible { color: var(--fg); }
+/* Tautan bagian tidak lagi ada di pita ini (ADR-030): ia pindah ke kolom "On this page" di
+   kaki, karena banner yang mendapat lebarnya. Yang tinggal satu tombol — jalan ke Layar A. */
 .topnav-go {
+  font: 600 var(--t-label)/1.4 var(--mono); letter-spacing: .18em; text-transform: uppercase;
+  text-decoration: none;
   padding: 9px var(--s4); border: 1px solid var(--go); border-radius: var(--r1);
   background: var(--card); color: var(--go);
 }
@@ -556,12 +581,17 @@ body[data-screen="landing"] #tenko-view > .railbar { grid-column: full; }
    GEOMETRINYA dihitung, bukan dicoba-coba. Pusatnya 46% dan jari-jarinya 52%x72% dipilih agar
    cahaya sudah habis menjadi `--ink` di KEEMPAT tepi hero pada 1280x720: tepi atas berjarak
    0,64 dari pusat pada sumbu tegak, yaitu di antara perhentian `--panel` (42%) dan `--ink`
-   (74%) — praktis ink. Itu penting karena railbar di atasnya berlatar `--ink` PADAT, dan
-   cahaya yang belum habis di tepi atas akan terlihat sebagai jahitan mendatar tepat di bawah
-   banner. Tepi kiri/kanan berjarak 0,96 dari pusat: void penuh, seperti rujukannya. */
+   (74%) — praktis ink. Itu penting karena pita atas berlatar `--ink` PADAT, dan cahaya yang
+   belum habis di tepi atas akan terlihat sebagai jahitan mendatar tepat di bawahnya. Tepi
+   kiri/kanan berjarak 0,96 dari pusat: void penuh, seperti rujukannya.
+
+   LATARNYA PADAT, dan itu butir ADR-030: gambar latar `html` (pemandangan yang dipakai seluruh
+   halaman) tidak boleh terlihat di layar pertama sama sekali. `background-color: var(--ink)`
+   di sini plus `background: var(--ink)` pada `.headrow` menutupinya di kedua pita layar
+   pertama, jadi yang tersisa hitam rata + satu cahaya — kekuatan tangkapan layar rujukannya. */
 .hero {
   position: relative;
-  display: grid;
+  display: grid; grid-template-rows: auto 1fr; gap: var(--s6);
   min-height: calc(100vh - var(--chrome));
   padding: var(--s5) var(--pad) var(--s7);
   background-color: var(--ink);
@@ -569,18 +599,34 @@ body[data-screen="landing"] #tenko-view > .railbar { grid-column: full; }
     radial-gradient(52% 72% at 50% 46%,
       var(--card) 0%, var(--row) 18%, var(--panel) 42%, var(--ink) 74%);
 }
+/* Rata KIRI HALAMAN, tidak dipusatkan (ADR-030): pada tangkapan layar rujukannya label mono
+   dan judul raksasa berdiri di absis yang SAMA, di tepi kiri halaman. Dengan `margin-inline:
+   auto` keduanya menjorok ~140-180px ke dalam begitu jendela lebih lebar dari `--wide`, dan
+   label kecil yang mengambang di tengah-kiri terbaca seperti kesalahan tata letak. */
 .hero-in {
-  width: 100%; max-width: var(--wide); margin-inline: auto;
-  display: grid; grid-template-rows: auto 1fr; gap: var(--s6);
+  width: 100%; max-width: var(--wide); margin-inline: 0;
+  display: grid; align-content: end;
 }
 /* Baris pertama menempel ke TEPI ATAS dan tidak pernah tumbuh: label di kiri, kalimat
    "practice trade" di kanan. Keduanya kecil dengan sengaja — yang mahal di layar ini adalah
-   ruang tengahnya. */
+   ruang tengahnya. Ia anak langsung `.hero`, BUKAN anak `.hero-in`: kolom baca `--wide`
+   membatasi judul, sedangkan dua penanda tepi ini harus berdiri di TEPI halaman — itu yang
+   dilakukan tangkapan layar rujukannya, dan itu yang membuat label terbaca sebagai penomoran
+   halaman alih-alih sebagai teks yang mengambang. */
 .hero-top {
   display: flex; flex-wrap: wrap; gap: var(--s4) var(--s6);
   align-items: baseline; justify-content: space-between;
 }
-.hero-top .sub { margin: 0; max-width: 62ch; text-align: right; }
+/* Kalimat "practice trade" di kanan atas. Ia BUKAN tautan, jadi ia tidak boleh berwarna
+   tautan: `--fg` (15.99:1 di atas `--ink`) menyudahi kebingungan yang dilaporkan pemilik repo,
+   dan `text-wrap: balance` menyudahi patahan buruknya — pada 62ch baris kedua berisi dua kata
+   sendirian ("real execution."). 56ch ≈ 400px pada 13px: kalimat 97 aksara ini menjadi DUA
+   baris yang panjangnya seimbang, dan lebarnya dalam `ch` (bukan px) ikut bergerak bersama
+   ukuran huruf, jadi ia tidak bisa menjadi satu baris kesepian saat font gagal dimuat. */
+.hero-note {
+  margin: 0; max-width: 56ch; text-align: right; text-wrap: balance;
+  color: var(--fg); font-size: 13px; line-height: 1.55; font-weight: 300;
+}
 .hero .kicker { letter-spacing: .28em; }
 /* Titik merah di depan label hero: satu-satunya aksen `kage` yang ikut ke layar pertama, dan
    ia `::before` — nol elemen, nol teks, jadi ia tidak bisa menjadi pembawa informasi. */
@@ -823,10 +869,11 @@ body[data-screen="landing"] #tenko-view > .railbar { grid-column: full; }
 .fin .cta { justify-content: center; }
 
 /* --- kaki berkolom ----------------------------------------------------------------------------
-   `foot-grid` kage, di ATAS kaki tetap `_shell`. Ia menambahkan jalan pulang; keempat kalimat
-   pengakuan di bawahnya (jam JST, read-only, keyboard, klien) tidak berubah satu kata pun. */
+   `foot-grid` kage, di ATAS kaki tetap `_shell`. Ia menambahkan jalan pulang; kalimat pengakuan
+   di bawahnya (jam JST, read-only, keyboard) tidak berubah satu kata pun. Kolom KETIGA sejak
+   ADR-030: tautan bagian yang dulu berdiri di pita atas. */
 .foot-grid {
-  display: grid; grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, .8fr));
+  display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, .7fr));
   gap: var(--s5) var(--s7);
   margin: 0 0 var(--s6); padding: var(--s6) 0 var(--s5);
   border-bottom: 1px solid var(--hair);
@@ -837,36 +884,11 @@ body[data-screen="landing"] #tenko-view > .railbar { grid-column: full; }
 .foot-col ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s3); }
 .foot-col a { font-size: 13.5px; }
 
-/* --- bilah gulir bergaya peta jalur -----------------------------------------------------------
-   Rel melintang di bawah banner dengan kereta yang bergerak sepanjangnya seiring gulir. Ia
-   dirender SERVER pada 0%, jadi halaman tanpa JS tetap punya rel utuh — hanya keretanya yang
-   diam. Ia BUKAN pembawa informasi (posisi gulir sudah dibawa bilah gulir browser), karena itu
-   `aria-hidden`. `--p` (0..1) ditulis klien; CSS hanya membacanya. */
-.railbar {
-  --p: 0;
-  position: sticky; top: var(--stick); z-index: 4;
-  margin: 0; padding: var(--s2) var(--pad) 10px;
-  background: var(--ink);
-  border-bottom: 1px solid var(--hair);
-}
-.railbar .track { position: relative; height: 2px; background: var(--hair); border-radius: 2px; }
-.railbar .track::before {
-  content: ""; position: absolute; inset: 0 auto 0 0;
-  width: calc(var(--p) * 100%); background: var(--go); border-radius: 2px;
-}
-.railbar .train {
-  position: absolute; top: -4px; left: calc(var(--p) * 100%);
-  width: 26px; height: 10px; margin-left: -13px;
-  background: var(--go); border-radius: 2px;
-}
-.railbar .train::after {
-  content: ""; position: absolute; top: 3px; left: 5px; width: 16px; height: 4px;
-  background: var(--ink); border-radius: 1px;
-}
-.railbar .stops {
-  display: flex; justify-content: space-between; margin: var(--s2) 0 0; padding: 0; list-style: none;
-  font: 600 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
-}
+/* Railbar DIBUANG di ADR-030. Ia pita mendatar KEDUA di atas hero yang menduplikasi kepala
+   halaman dengan kata yang BERBEDA untuk bagian yang SAMA (`DEPARTURES` vs `THE BOARD`) — itu
+   membingungkan, bukan sekadar mubazir — dan posisi gulir yang ia bawa sudah dibawa bilah gulir
+   browser. `--p`, `.track`, `.train`, `.stops`, dan `railbar()` di `frontend/src/main.ts` ikut
+   pergi bersamanya. */
 
 /* --- gerak (ADR-025) ---------------------------------------------------------------------------
    Kelas di bawah dipasang KLIEN, tidak pernah oleh server. Itu urutan yang menjaga ADR-020
@@ -908,10 +930,14 @@ html.lenis, html.lenis body { height: auto; }
      kosong: hero kembali setinggi isinya. */
   .hero { min-height: 0; padding-top: var(--s7); }
   .hero-say { grid-template-columns: minmax(0, 1fr); }
-  .hero-top .sub { text-align: left; }
+  .hero-note { text-align: left; }
   .hero .cta { justify-content: flex-start; }
   .gate-grid h2 { max-width: none; }
   .les { grid-template-columns: 34px minmax(0, 1fr); }
   .les .t { grid-column: 2; text-align: left; }
-  .topnav-links { margin-left: 0; }
+  /* Di bawah lebar ini pita atas BOLEH menjadi dua baris: banner yang utuh mengalahkan pita
+     setinggi satu baris, dan 1280x720 (layar yang dinilai) tidak pernah sampai ke sini. */
+  .headrow { flex-wrap: wrap; }
+  .headrow .banner { flex: 1 1 100%; border-right: 0; border-bottom: 2px solid var(--nogo); }
+  .topnav { justify-content: flex-start; padding-left: var(--pad); }
 }

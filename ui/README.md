@@ -25,8 +25,13 @@ sama banyak di tiap layar:
 | Halaman gagal | tidak ada: klien berhenti sebelum permintaan pertamanya | tanpa fetch, tanpa refresh, tanpa saring/urut |
 
 Kalimat di kaki halaman menyesuaikan diri dengan layarnya (`ui.screens.client_note`) — halaman
-yang tidak menyegarkan tidak boleh mengatakan ia menyegarkan.
-→ `test_every_screen_promises_only_the_rhythm_that_screen_actually_has`
+yang tidak menyegarkan tidak boleh mengatakan ia menyegarkan. Landing tidak mencetaknya sama
+sekali sejak ADR-030 (permintaan pemilik repo: kalimat itu "di dalam app saja"), dan klien pun
+tidak memasang baris status `#tenko-live` di sana: tidak ada isi yang pernah berubah di landing,
+dan kalimat inert-nya berbunyi "on a failure page…", yaitu kalimat layar yang lain. Jumlahnya
+dipatok per layar — tiga kalimat pengakuan kaki di `/`, empat di ketiga layar lain.
+→ `test_every_screen_promises_only_the_rhythm_that_screen_actually_has`,
+`test_the_client_note_lives_inside_the_app_not_on_the_landing`
 
 Umur yang tercetak di baris status adalah jam pengambilan **sukses terakhir**, bukan jam saat
 layar dilukis: menyaring dan mengurutkan tidak mengambil apa pun, jadi keduanya tidak boleh
@@ -157,20 +162,21 @@ Urutan bagiannya sekarang, dan pertanyaan yang dijawab masing-masing:
 
 | Bagian | `id` | Pertanyaan yang dijawab | Sumber datanya |
 |---|---|---|---|
-| kepala halaman | — | "ke mana saya bisa pergi dari sini?" | tautan statis; papan hanya disebut kalau papannya ada |
+| pita atas | — | "ini simulasi, dan ke mana saya pergi dari sini?" | banner SIMULATED **dilebur** ke baris yang sama (ADR-030) + wordmark + `Screen A` |
 | `01` hero | `hero` | "ini apa?" | teks |
 | `02` gate | `gate` | "apa yang salah tanpanya?" | teks |
 | `03` pathways | `pathways` | "simbol mana yang paling dekat GO?" | **`/api/watchlist`, baris NYATA dari store** |
 | `04` lessons | `lessons` | "bagaimana satu panggilan dibuat?" | teks + lima nama berkas yang ada di repo ini |
 | `05` eternity | `eternity` | "sekarang ke mana?" | tautan `/app` |
-| kaki | — | "apa lagi yang dilayani aplikasi ini?" | tautan; keempat kalimat pengakuan `_shell` |
+| kaki | — | "apa lagi yang dilayani aplikasi ini?" | tautan (termasuk kolom "On this page", pindahan dari pita atas); **tiga** kalimat pengakuan `_shell` — kalimat klien tinggal di dalam app (ADR-030) |
 
 Empat hal dari halaman itu sengaja **tidak** ikut, dan tiap alasannya keras:
 
 - **`position: fixed`** (nav, kanvas, grain, rail, kursor) — dilarang di seluruh
   `frontend/styles/app.css`, dan larangan itu yang membeli "nol overlay, nol perangkap fokus".
-  Kepala halaman `/` karena itu MENGALIR, dan tingginya (50px) dihitung ke dalam `--chrome`
-  supaya hero tetap persis satu layar.
+  Pita atas `/` karena itu `sticky`, bukan `fixed` — ia tetap mengalir di dalam dokumen dan
+  tidak pernah menjadi overlay — dan tingginya (53px) dihitung ke dalam `--chrome` supaya hero
+  tetap persis satu layar.
 - **Lapisan `.fg`** (gambar latar depan di tiap bagian) — itu teks di atas piksel gambar, yaitu
   satu-satunya cara membatalkan seluruh pengukuran kontras halaman ini. Kedua gambar landing
   tetap sendirian di dalam kotaknya.
@@ -183,9 +189,36 @@ Empat hal dari halaman itu sengaja **tidak** ikut, dan tiap alasannya keras:
 
 Yang ikut hanya susunan dan bentuk tipografinya: nol `@import`, nol warna, nol aset baru.
 Layar A dan B ikut **warnanya**, bukan strukturnya — `test_the_visual_language_never_grows_new_
-structure_on_screen_a_and_b` melarang `topnav`/`sec-head`/`railbar`/`band-art`/`foot-grid`/`<img>`
+structure_on_screen_a_and_b` melarang `topnav`/`sec-head`/`headrow`/`band-art`/`foot-grid`/`<img>`
 muncul di sana, karena "merapikan Layar A seperti landing" adalah cara paling mudah mendorong
 tabel yang dinilai ke bawah lipatan 1280×720.
+
+---
+
+## Kepala `/` (ADR-030, 8 Sep 2026) — satu pita, dan banner tetap ada di dalamnya
+
+Pemilik repo membuka `/` dan menghitung **empat pita mendatar bertumpuk** sebelum matanya sampai
+ke isi: banner SIMULATED (52px) → baris status klien `#tenko-live` (hanya muncul ketika JS jalan,
+yaitu justru keadaan yang dilihat juri) → kepala halaman (50px) → railbar (39px). Sekitar 250px
+dari 720px, di halaman yang seluruh nilainya justru kekosongan yang tersisa.
+
+Sekarang **satu** pita, **53px**: `.headrow` = banner SIMULATED + wordmark + tombol `Screen A`.
+
+| Yang berubah | Yang TIDAK berubah |
+|---|---|
+| banner berbagi baris dengan kepala halaman | teks `BANNER` utuh apa adanya, `role="note"`, ikon, warna **12.98:1**, `position: sticky` (bukan `fixed`) |
+| tautan bagian pindah ke kolom "On this page" di kaki | tiap tautan tetap menunjuk `id` yang ada / route yang 200; `#pathways` tetap hilang bersama papannya |
+| railbar dibuang seluruhnya (`.railbar`, `railbar()`) | posisi gulir tetap dibawa bilah gulir browser — kanal yang sudah ada |
+| kalimat klien keluar dari `/` | ia tetap dirender kata demi kata di Layar A, Layar B, dan halaman gagal |
+| label hero `01 — Roll call`, rata tepi kiri halaman | penomoran bagian `01…05`, judul dua baris, satu cahaya radial, tautan `/app` di dalam layar pertama |
+| kalimat "practice trade" jadi `.hero-note` (`--fg`, `text-wrap: balance`) | kata **practice** tetap di layar pertama — dua kali, karena banner juga mengatakannya |
+
+Kenapa banner **dilebur** dan bukan dihapus: kalimat itu kewajiban Official Rules §5
+(`docs/rules-compliance.md`), dan `/` adalah layar pertama yang dilihat juri. Yang boleh berubah
+hanyalah kotaknya. Ketika lebar habis, yang mengalah adalah kepala halaman: banner `flex: 0 0
+auto`, `nav` `flex: 1 1 auto` — pada 1280px banner memakan ~766px dan sisa lebarnya ~120px.
+→ `test_one_band_stands_above_the_first_screen_and_it_still_says_simulated`,
+`test_the_client_note_lives_inside_the_app_not_on_the_landing`
 
 ---
 
@@ -324,8 +357,8 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
       dan tiap tingkat berikutnya paling banyak satu langkah lebih dalam (ADR-029 melonggarkan
       ini dari "h2 saja": lima langkah bagian `04` ADALAH anak dari `h2`-nya, dan merendahkannya
       menjadi paragraf akan menghapus struktur yang benar dari pembaca layar demi memuaskan
-      sebuah tes), tiap tautan bernama, aksara Jepang ber-`lang="ja"`, rel gulir `aria-hidden`
-      karena ia kanal kedua (posisi gulir sudah dibawa bilah gulir browser), dan banner
+      sebuah tes), tiap tautan bernama, aksara Jepang ber-`lang="ja"`, **satu** pita mendatar
+      di atas hero (ADR-030; rel gulir dibuang dan tesnya kini melarangnya kembali), dan banner
       SIMULATED dirender server.
       → `test_the_landing_is_reachable_and_readable_the_way_screen_a_and_b_are`
 - [x] **Susunan `/` dipaku sebagai URUTAN** (ADR-029), bukan sebagai daftar bagian yang
@@ -347,10 +380,11 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
       `/ui/decision/{id}` → "lompat ke sepuluh baris tunjuk→sebut" (`#panggilan`). Keduanya
       SELALU terlihat — tidak ada tautan yang hanya muncul saat fokus, karena kedua layar itu
       tidak menyembunyikan apa pun dari siapa pun. `/` menambah yang KETIGA sejak ADR-029, dan
-      ia satu-satunya yang terpotong sampai difokus (`.skip`): ia berdiri di depan kepala
-      halaman, jadi menampilkannya terus-menerus berarti menaruh sebuah tombol di atas
-      wordmark — sementara menyembunyikannya dari MATA tidak menyembunyikannya dari Tab, dan
-      Tab pertama itulah gunanya. Ia menunjuk `#pathways` ketika papannya ada dan `#hero`
+      ia satu-satunya yang terpotong sampai difokus (`.skip`): ia berdiri di depan pita atas,
+      jadi menampilkannya terus-menerus berarti menaruh sebuah tombol di atas banner SIMULATED
+      — sementara menyembunyikannya dari MATA tidak menyembunyikannya dari Tab, dan Tab pertama
+      itulah gunanya. Saat difokus ia mendarat DI BAWAH pita (`top: 100%`), bukan di atasnya,
+      justru karena yang di atasnya adalah kalimat yang harus terlihat di setiap frame. Ia menunjuk `#pathways` ketika papannya ada dan `#hero`
       ketika tidak; tautan yang menunjuk bagian yang tidak dirender adalah tombol yang
       berbohong kepada keyboard.
       → `test_every_skip_link_points_at_an_id_that_exists_on_the_page`,
@@ -359,9 +393,9 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
       dibatasi 1240px, **sembilan** kolom kartu dan sembilan kolom watchlist berlebar tetap
       supaya kolom `reason` (Layar B) dan kolom "apa yang menahan" (Layar A) tidak terhimpit,
       teks minimum 12,5px. Hero ADR-028 setinggi persis satu layar (`100vh - var(--chrome)`,
-      dengan `--chrome` = banner melekat 52px + kepala halaman 50px + railbar 39px = 141px),
-      jadi judul di sepertiga bawah
-      berada DI ATAS lipatan pada 720px — bukan di bawahnya. Di bawah 1000px lebar tetap itu
+      dengan `--chrome` = **satu** pita melekat, 52px + garis 1px = **53px**, sejak ADR-030
+      meleburkan banner dan kepala halaman menjadi satu baris dan membuang railbar), jadi judul
+      di sepertiga bawah berada DI ATAS lipatan pada 720px — bukan di bawahnya. Di bawah 1000px lebar tetap itu
       dilepas kembali (`table-layout: auto`), kolom bukti/rails menumpuk jadi satu, hero
       kembali setinggi isinya (`min-height: 0`), dan gambar hiasan `.proofs-art` menghilang
       sama sekali.

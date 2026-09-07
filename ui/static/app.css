@@ -96,8 +96,7 @@
   --t-lede: clamp(16px, 1.35vw, 20px);
   --t-label: 11px;
   --stick: 52px;
-  --nav-h: 50px;
-  --chrome: 141px;
+  --chrome: 53px;
   --sans:
     "Onest Vendored",
     "IBM Plex Sans Vendored",
@@ -633,23 +632,37 @@ body[data-screen=landing] #tenko-view > * {
 }
 main > .hero,
 main > .band,
-main > .topnav,
-main > .railbar,
 body[data-screen=landing] #tenko-view > .hero,
-body[data-screen=landing] #tenko-view > .band,
-body[data-screen=landing] #tenko-view > .topnav,
-body[data-screen=landing] #tenko-view > .railbar {
+body[data-screen=landing] #tenko-view > .band {
   grid-column: full;
 }
+.headrow {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: stretch;
+  background: var(--ink);
+  border-bottom: 1px solid var(--hair);
+  box-shadow: 0 18px 40px -28px rgba(0, 0, 0, .95);
+}
+.headrow .banner {
+  flex: 0 0 auto;
+  min-height: var(--stick);
+  padding: var(--s3) var(--s5) var(--s3) var(--pad);
+  border-bottom: 0;
+  border-right: 2px solid var(--nogo);
+  box-shadow: none;
+}
 .topnav {
-  position: relative;
   display: flex;
   align-items: center;
   gap: var(--s4) var(--s5);
   flex-wrap: wrap;
-  min-height: var(--nav-h);
-  padding: var(--s3) var(--pad);
-  border-bottom: 1px solid var(--hair);
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+  padding: var(--s3) var(--pad) var(--s3) var(--s5);
 }
 .skip {
   position: absolute;
@@ -668,7 +681,7 @@ body[data-screen=landing] #tenko-view > .railbar {
 .skip:focus,
 .skip:focus-visible {
   left: var(--pad);
-  top: var(--s2);
+  top: calc(100% + var(--s2));
   z-index: 6;
   width: auto;
   height: auto;
@@ -709,28 +722,11 @@ body[data-screen=landing] #tenko-view > .railbar {
 .brand:focus-visible b {
   color: var(--link);
 }
-.topnav-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s3) var(--s5);
-  margin: 0 0 0 auto;
-  padding: 0;
-  list-style: none;
-}
-.topnav-links a,
 .topnav-go {
   font: 600 var(--t-label)/1.4 var(--mono);
   letter-spacing: .18em;
   text-transform: uppercase;
   text-decoration: none;
-  color: var(--dim);
-}
-.topnav-links a:hover,
-.topnav-links a:focus,
-.topnav-links a:focus-visible {
-  color: var(--fg);
-}
-.topnav-go {
   padding: 9px var(--s4);
   border: 1px solid var(--go);
   border-radius: var(--r1);
@@ -746,6 +742,8 @@ body[data-screen=landing] #tenko-view > .railbar {
 .hero {
   position: relative;
   display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--s6);
   min-height: calc(100vh - var(--chrome));
   padding: var(--s5) var(--pad) var(--s7);
   background-color: var(--ink);
@@ -760,10 +758,9 @@ body[data-screen=landing] #tenko-view > .railbar {
 .hero-in {
   width: 100%;
   max-width: var(--wide);
-  margin-inline: auto;
+  margin-inline: 0;
   display: grid;
-  grid-template-rows: auto 1fr;
-  gap: var(--s6);
+  align-content: end;
 }
 .hero-top {
   display: flex;
@@ -772,10 +769,15 @@ body[data-screen=landing] #tenko-view > .railbar {
   align-items: baseline;
   justify-content: space-between;
 }
-.hero-top .sub {
+.hero-note {
   margin: 0;
-  max-width: 62ch;
+  max-width: 56ch;
   text-align: right;
+  text-wrap: balance;
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.55;
+  font-weight: 300;
 }
 .hero .kicker {
   letter-spacing: .28em;
@@ -1227,7 +1229,7 @@ body[data-screen=landing] #tenko-view > .railbar {
 }
 .foot-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, .8fr));
+  grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, .7fr));
   gap: var(--s5) var(--s7);
   margin: 0 0 var(--s6);
   padding: var(--s6) 0 var(--s5);
@@ -1259,61 +1261,6 @@ body[data-screen=landing] #tenko-view > .railbar {
 }
 .foot-col a {
   font-size: 13.5px;
-}
-.railbar {
-  --p: 0;
-  position: sticky;
-  top: var(--stick);
-  z-index: 4;
-  margin: 0;
-  padding: var(--s2) var(--pad) 10px;
-  background: var(--ink);
-  border-bottom: 1px solid var(--hair);
-}
-.railbar .track {
-  position: relative;
-  height: 2px;
-  background: var(--hair);
-  border-radius: 2px;
-}
-.railbar .track::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: calc(var(--p) * 100%);
-  background: var(--go);
-  border-radius: 2px;
-}
-.railbar .train {
-  position: absolute;
-  top: -4px;
-  left: calc(var(--p) * 100%);
-  width: 26px;
-  height: 10px;
-  margin-left: -13px;
-  background: var(--go);
-  border-radius: 2px;
-}
-.railbar .train::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 5px;
-  width: 16px;
-  height: 4px;
-  background: var(--ink);
-  border-radius: 1px;
-}
-.railbar .stops {
-  display: flex;
-  justify-content: space-between;
-  margin: var(--s2) 0 0;
-  padding: 0;
-  list-style: none;
-  font: 600 10px/1 var(--mono);
-  letter-spacing: .18em;
-  text-transform: uppercase;
-  color: var(--dim);
 }
 html.lenis,
 html.lenis body {
@@ -1384,7 +1331,7 @@ html.lenis body {
   .hero-say {
     grid-template-columns: minmax(0, 1fr);
   }
-  .hero-top .sub {
+  .hero-note {
     text-align: left;
   }
   .hero .cta {
@@ -1400,7 +1347,16 @@ html.lenis body {
     grid-column: 2;
     text-align: left;
   }
-  .topnav-links {
-    margin-left: 0;
+  .headrow {
+    flex-wrap: wrap;
+  }
+  .headrow .banner {
+    flex: 1 1 100%;
+    border-right: 0;
+    border-bottom: 2px solid var(--nogo);
+  }
+  .topnav {
+    justify-content: flex-start;
+    padding-left: var(--pad);
   }
 }
