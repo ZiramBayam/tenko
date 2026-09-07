@@ -39,9 +39,16 @@ Satu `Content-Security-Policy` menutup sisanya; **nilainya tidak dikutip di sini
 satu tempat, `ui/app.py:HTML_HEADERS`, karena tiga berkas yang harus diperbarui serempak adalah
 tiga berkas yang akan menyimpang. Sifatnya: semua yang tidak disebut ditolak (`default-src
 'none'`), skrip/gaya/`fetch` hanya dari origin ini sendiri, dan — sejak ADR-022 — gambar,
-font serta media juga HANYA dari origin ini sendiri (`'self'`, tidak pernah `*` dan tidak
-pernah `data:`), tanpa `unsafe-inline`,
-tanpa `unsafe-eval`, tanpa satu pun host pihak ketiga. Direktif `fetch` disebut EKSPLISIT: ia
+font serta media juga HANYA dari origin ini sendiri (`'self'`, tidak pernah `*` dan — di
+layar yang dinilai — tidak pernah `data:`), tanpa `unsafe-inline`,
+tanpa `unsafe-eval`, tanpa satu pun host pihak ketiga.
+Satu pengecualian, dan hanya satu (ADR-026 butir 11): respons `/kage` memakai
+`ui/app.py:KAGE_HTML_HEADERS`, yaitu `HTML_HEADERS` dengan `img-src` ditambahi `data:` — karena
+lapisan grain halaman itu dilukis dari `canvas.toDataURL()` dan diblokir diam-diam tanpanya.
+`/`, Layar A & B, seluruh `/api/…`, dan seluruh route aset TIDAK ikut; tidak ada direktif lain
+yang berubah dan tidak ada `unsafe-*` yang masuk.
+→ `test_the_kage_csp_is_the_ordinary_one_plus_data_on_img_src_and_nothing_else`,
+`test_no_judged_screen_and_no_api_response_allows_a_data_url_in_any_directive` Direktif `fetch` disebut EKSPLISIT: ia
 fallback ke `default-src`, jadi tanpanya setiap `fetch()` klien ditolak browser — termasuk ke
 origin sendiri, yang membuat seluruh ADR-020 tidak jalan.
 Satu-satunya ikon adalah SVG **tertanam di HTML** (`ui/screens.py:BANNER_ICON`) — nol berkas,

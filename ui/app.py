@@ -149,8 +149,10 @@ BANNER = "SIMULATED — practice positions on read-only market intelligence. No 
 #: `'self'` membiarkan aset yang KITA layani hidup sambil membuat setiap aset pihak ketiga
 #: tetap ditolak browser — dan itulah yang menjaga janji "nol permintaan jaringan saat
 #: render" (ADR-014 butir 4) yang membuat `make demo` bisa jalan tanpa jaringan (spec §7).
-#: `data:` sengaja TIDAK ditambahkan: ia menghidupkan kembali permukaan penyuntikan lewat
-#: nilai asal-RYO/DB yang seluruh modul `ui/screens.py` dibangun untuk menutup.
+#: `data:` sengaja TIDAK ditambahkan DI SINI: ia menghidupkan kembali permukaan penyuntikan
+#: lewat nilai asal-RYO/DB yang seluruh modul `ui/screens.py` dibangun untuk menutup. Ia
+#: ditambahkan pada `img-src` di SATU tempat lain — :data:`KAGE_HTML_HEADERS`, dipakai hanya
+#: oleh `/kage`, halaman yang tidak membaca store sama sekali (ADR-026 butir 11).
 #:
 #: `connect-src 'self'` adalah direktif KEDUA yang dilonggarkan, dan tanpa ia ADR-020 tidak ada
 #: gunanya: `connect-src` adalah fetch-directive yang fallback-nya `default-src`, jadi
@@ -167,6 +169,28 @@ HTML_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store",
+}
+
+#: SATU-SATUNYA pelonggaran CSP di aplikasi ini, dan ia hanya dipasang pada respons `/kage`.
+#:
+#: ADR-026 butir 2 berbunyi "CSP TIDAK dilonggarkan sepotong pun". Itu tidak lagi benar, dan
+#: ADR-026 butir 11 mengoreksinya terbuka. Sebabnya: `kage-scene.js` melukis lapisan `#grain`
+#: dengan `style.backgroundImage = 'url(' + canvas.toDataURL('image/png') + ')'` — sebuah URL
+#: `data:`, yang `img-src 'self'` tolak TANPA gejala apa pun di server: halaman tetap 200, tes
+#: tetap hijau, dan satu lapisan halaman itu diam-diam tidak pernah terlukis.
+#:
+#: Lingkupnya sesempit yang bisa: SATU direktif (`img-src`), SATU token (`data:`), SATU route.
+#: Yang TIDAK ikut: `/` (landing), `/app` + `/app/decision/{id}` (Layar A & B — layar yang
+#: dinilai juri dan satu-satunya yang merender nilai asal-RYO/DB ke DOM), seluruh `/api/...`,
+#: seluruh route aset, dan setiap halaman GAGAL termasuk yang di sekitar `/kage` sendiri.
+#: `script-src`/`style-src`/`connect-src`/`font-src`/`media-src` tidak disentuh, dan tidak ada
+#: `unsafe-inline`/`unsafe-eval` yang masuk ke mana pun. Diturunkan dari `HTML_HEADERS`, bukan
+#: disalin, supaya direktif yang berubah di sana tidak bisa tertinggal di sini.
+KAGE_HTML_HEADERS = {
+    **HTML_HEADERS,
+    "Content-Security-Policy": HTML_HEADERS["Content-Security-Policy"].replace(
+        "img-src 'self'", "img-src 'self' data:"
+    ),
 }
 
 #: Jam tampilan: JST (spec §7 & deadline lomba). `ts_utc` tetap ikut supaya angkanya bisa dicek.
@@ -815,17 +839,27 @@ def _now_jst() -> datetime:
     return datetime.now(tz=JST)
 
 
-def _html(body: str, status_code: int = 200, headers: dict[str, str] | None = None) -> Response:
+def _html(
+    body: str,
+    status_code: int = 200,
+    headers: dict[str, str] | None = None,
+    policy: dict[str, str] | None = None,
+) -> Response:
     """Satu-satunya cara halaman keluar dari modul ini — termasuk halaman GAGAL.
 
-    `headers` hanya MENAMBAH (mis. `Allow` pada 405); ia tidak bisa mencopot `HTML_HEADERS`,
+    `headers` hanya MENAMBAH (mis. `Allow` pada 405); ia tidak bisa mencopot header kebijakan,
     karena halaman tanpa CSP adalah halaman yang mengizinkan skrip.
+
+    `policy` adalah SATU-SATUNYA cara memilih kebijakan lain, dan satu-satunya pemanggilnya
+    adalah `/kage` dengan :data:`KAGE_HTML_HEADERS`. Ia parameter tersendiri (bukan bagian
+    `headers`) justru supaya pelonggaran itu tidak bisa datang dari pemanggil HTTP: default-nya
+    tetap `HTML_HEADERS` untuk setiap halaman lain, termasuk halaman GAGAL.
     """
     return Response(
         content=body,
         media_type="text/html; charset=utf-8",
         status_code=status_code,
-        headers={**(headers or {}), **HTML_HEADERS},
+        headers={**(headers or {}), **(policy or HTML_HEADERS)},
     )
 
 
@@ -1066,8 +1100,13 @@ def screen_kage() -> Response:
 
     Ia tidak bisa gagal karena sebab data: satu-satunya masukannya adalah aset statis yang sudah
     ada di memori sejak impor, dan banner SIMULATED-nya dirender server seperti di layar lain.
+
+    Ini SATU-SATUNYA respons di aplikasi ini yang membawa :data:`KAGE_HTML_HEADERS` — CSP yang
+    sama persis dengan yang lain kecuali `img-src 'self' data:`, karena lapisan `#grain`-nya
+    dilukis dari `canvas.toDataURL()`. Alasan lengkap ada di konstanta itu dan di ADR-026
+    butir 11; Layar A/B, `/`, dan `/api/...` tidak ikut.
     """
-    return _html(render_kage(BANNER, _now_jst()))
+    return _html(render_kage(BANNER, _now_jst()), policy=KAGE_HTML_HEADERS)
 
 
 @app.get("/api/routes")

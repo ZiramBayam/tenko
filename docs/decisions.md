@@ -662,6 +662,32 @@ Utang yang diakui terbuka, bukan disembunyikan:
    biasa, global `THREE`), sedangkan 0.185.x sudah membuangnya — naik berarti pindah ke ESM + import map + vendor
    dua berkas, bukan tukar satu berkas. Sehari sebelum deadline, itu bukan pertukaran yang masuk akal.
 
+11. **Butir 2 di atas SALAH sejak 7 Sep 2026, dan dikoreksi di sini, bukan disunting diam-diam.** Butir 2 berbunyi
+   "CSP TIDAK dilonggarkan sepotong pun". Itu benar untuk `eval`/`new Function` — pemeriksaannya berdiri — tetapi
+   ia melewatkan satu baris: `ui/static/vendor/kage-scene.js` di dalam `makeGrain()` menulis
+   `$('#grain').style.backgroundImage = 'url(' + c.toDataURL('image/png') + ')'`. Itu URL `data:`, dan `img-src
+   'self'` **memblokirnya tanpa gejala apa pun di sisi kita**: `/kage` tetap 200, seluruh tes tetap hijau, dan
+   lapisan grain (`#grain`, `ui/static/kage.html` baris 4, `ui/static/kage.css` baris 52) tidak pernah terlukis.
+   Kegagalan yang hanya terlihat di konsol browser adalah kegagalan yang tidak pernah kita lihat.
+
+   **Yang dilonggarkan:** satu direktif, satu token, satu route — `img-src 'self' data:`, hanya pada respons
+   `GET/HEAD /kage`, lewat `ui/app.py:KAGE_HTML_HEADERS` yang DITURUNKAN dari `HTML_HEADERS` (bukan salinan kedua,
+   supaya ia tidak bisa menyimpang).
+
+   **Yang TIDAK ikut, dan ini setengah dari keputusannya:** `/` (landing), `/app` + `/app/decision/{id}` beserta
+   alias `/ui` — Layar A & B adalah satu-satunya layar yang merender nilai asal-RYO/DB ke DOM, jadi `data:` di sana
+   membuka kembali permukaan penyuntikan yang seluruh `ui/screens.py` dibangun untuk menutup; seluruh `/api/…`;
+   seluruh route aset (`/ui/kage.css`, `/ui/img/…`, `/ui/vendor/…`, `/ui/fonts/…` — CSP sebuah respons aset tidak
+   mengatur apa pun yang dilakukan halaman yang memuatnya, jadi melonggarkannya tidak akan menyalakan grain dan
+   hanya memperluas permukaan); dan setiap halaman GAGAL, termasuk `POST /kage`. `script-src`, `style-src`,
+   `connect-src`, `font-src`, `media-src` tetap `'self'`; `default-src`/`base-uri`/`form-action`/`frame-ancestors`
+   tetap `'none'`; **nol `unsafe-inline`, nol `unsafe-eval`, nol `blob:`, nol host** di mana pun. Butir 4 tetap
+   berdiri: font TIDAK dikembalikan ke bentuk `data:` — `font-src` tidak disentuh.
+
+   Dipaku tes, bukan niat: `test_the_kage_csp_is_the_ordinary_one_plus_data_on_img_src_and_nothing_else` (diff
+   terhadap `HTML_HEADERS` harus persis satu direktif), 
+   `test_no_judged_screen_and_no_api_response_allows_a_data_url_in_any_directive`, `test_no_response_this_app_can_send_ever_allows_unsafe_inline_or_unsafe_eval`.
+
 Konsekuensi: `ui/app.py` (route aset baru) · `ui/screens.py` (`FONT_NAMES`, halaman baru) · `ui/static/` (14 webp,
 2 vendor JS + LICENSE.three.txt, kage.css, 7 woff2) · `ui/README.md` · `DISCLOSURE.md` · `docs/versions.md`
 (pin three.js — ditulis `api-verifier`).

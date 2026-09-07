@@ -63,7 +63,15 @@ from core.store import Store, StoreReadOnlyError
 from preflight.params import DEFAULT_PARAMS, ITEM_ORDER
 from preflight.skill import symbol_evidence, symbol_tools
 from tests.helpers_agent import ANALYZE, CORE, DEEP, build_store
-from ui.app import BANNER, HTML_HEADERS, TONE_FINDING, TONE_NO_EVIDENCE, TONE_NOT_ASSESSED, app
+from ui.app import (
+    BANNER,
+    HTML_HEADERS,
+    KAGE_HTML_HEADERS,
+    TONE_FINDING,
+    TONE_NO_EVIDENCE,
+    TONE_NOT_ASSESSED,
+    app,
+)
 from ui.app import JST as UI_JST
 from ui.screens import (
     FOREIGN_MARK_NOTE,
@@ -3486,9 +3494,13 @@ def test_every_screen_carries_the_hooks_the_client_needs_and_a_banner_without_it
 # --- tinjauan keamanan (BLOKIR): CSP yang mematikan klien, dan layar kosong ------------------
 
 
-def csp_directives() -> dict[str, list[str]]:
-    """CSP terpasang, di-parse jadi `{direktif: [nilai]}` — dibaca dari `ui/app.py`, bukan disalin."""
-    header = HTML_HEADERS["Content-Security-Policy"]
+def csp_directives(header: str | None = None) -> dict[str, list[str]]:
+    """CSP jadi `{direktif: [nilai]}`. Tanpa argumen: yang terpasang di `ui/app.py`, bukan disalin.
+
+    `header` diterima supaya CSP yang benar-benar DIKIRIM sebuah respons bisa di-parse dengan
+    parser yang sama — dua parser adalah dua kesempatan untuk membaca hal berbeda.
+    """
+    header = HTML_HEADERS["Content-Security-Policy"] if header is None else header
     parsed: dict[str, list[str]] = {}
     for chunk in header.split(";"):
         parts = chunk.split()
@@ -3925,10 +3937,15 @@ def test_the_kage_page_is_a_screen_that_still_says_simulated(client: TestClient)
     """`/kage` boleh menjadi papan gambar; ia TIDAK boleh menjadi halaman tanpa banner.
 
     Kewajibannya sama dengan layar lain (docs/rules-compliance.md): kalimat SIMULATED dirender
-    server, sebelum satu baris JS pun jalan, dan header CSP-nya tidak dilonggarkan seujung
-    direktif pun untuk membuat halaman ini bergerak. Ditambah satu kewajiban yang khusus milik
-    halaman ini: ia harus MENGATAKAN bahwa angka-angka di dalamnya bukan pengukuran, karena
-    "1611" dan "92 minutes" di sebelah produk yang menjual bukti akan terbaca sebagai temuan.
+    server, sebelum satu baris JS pun jalan. Ditambah satu kewajiban yang khusus milik halaman
+    ini: ia harus MENGATAKAN bahwa angka-angka di dalamnya bukan pengukuran, karena "1611" dan
+    "92 minutes" di sebelah produk yang menjual bukti akan terbaca sebagai temuan.
+
+    DIPERBARUI (ADR-026 butir 11): kalimat lama di sini berbunyi "header CSP-nya tidak
+    dilonggarkan seujung direktif pun". Itu tidak lagi benar — `img-src` halaman ini menerima
+    `data:`. Jaminannya tidak dihapus, ia dipindahkan dan dipersempit: setiap header selain CSP
+    HARUS identik dengan `HTML_HEADERS`, dan CSP-nya harus persis `KAGE_HTML_HEADERS` — yang
+    tes di bawah paku sebagai `HTML_HEADERS` + satu token pada satu direktif.
     """
     response = client.get("/kage")
     assert response.status_code == 200
@@ -3938,21 +3955,29 @@ def test_the_kage_page_is_a_screen_that_still_says_simulated(client: TestClient)
     # Jalan pulang ke layar yang DINILAI ada di halaman itu sendiri, bukan hanya di riwayat
     # browser: halaman hiasan tanpa pintu keluar adalah cara termahal kehilangan 30 detik juri.
     assert '<a href="/app">' in response.text and '<a href="/">' in response.text
-    for name, value in HTML_HEADERS.items():
+    for name, value in KAGE_HTML_HEADERS.items():
         assert response.headers[name] == value, name
+    for name, value in HTML_HEADERS.items():
+        if name != "Content-Security-Policy":
+            assert response.headers[name] == value, name  # nosniff/no-referrer/no-store utuh
     assert client.head("/kage").status_code == 200
 
 
 def test_the_kage_page_carries_no_inline_script_no_inline_style_and_no_foreign_host(
     client: TestClient,
 ) -> None:
-    """CSP halaman ini tidak dilonggarkan, jadi markupnya harus HIDUP di bawah CSP yang ada.
+    """`script-src`/`style-src` halaman ini tidak dilonggarkan, jadi markupnya harus HIDUP di
+    bawah CSP yang ada.
 
     `style-src 'self'` menolak atribut `style=` sama seperti ia menolak `<style>`; `script-src
     'self'` menolak skrip sebaris. Markup yang dibawa masuk memuat tiga atribut `style=` (tiga
     cahaya kartu) — nilainya pindah ke kelas di `ui/static/kage.css`, dan tes ini menjaga
     keduanya tidak kembali. Nol host asing: tiap byte halaman ini berasal dari origin sendiri,
     jadi `make demo` tanpa jaringan tetap menampilkan halaman yang sama (spec §7).
+
+    ADR-026 butir 11 melonggarkan `img-src` saja. Tes ini karena itu menjaga apa yang TIDAK
+    ikut longgar: kedua `<script>` tetap `src` + `defer` dari origin sendiri, nol `<style>`,
+    nol atribut ` style=`, nol `on…=` — semua yang butuh `unsafe-inline`, yang tidak ada.
     """
     text = client.get("/kage").text
     lower = text.lower()
@@ -3961,11 +3986,117 @@ def test_the_kage_page_carries_no_inline_script_no_inline_style_and_no_foreign_h
     assert scripts == ["", ""], "ada skrip SEBARIS, yang CSP-nya sendiri melarang"
     assert '<script src="/ui/vendor/three.min.js" defer></script>' in text
     assert '<script src="/ui/vendor/kage-scene.js" defer></script>' in text
+    # ...dan TIDAK ADA `<script>` ketiga yang lolos dengan bentuk lain: tiap tag punya `src`
+    # relatif ke origin sendiri dan `defer`, dihitung dari tag yang benar-benar ada di badan.
+    tags = re.findall(r"<script\b[^>]*>", text)
+    assert len(tags) == 2, tags
+    for tag in tags:
+        assert re.search(r'\ssrc="/ui/vendor/[^":]+"', tag), tag
+        assert " defer" in tag, tag
     assert '<link rel="stylesheet" href="/ui/kage.css">' in text
     assert "<style" not in lower and " style=" not in lower
     assert not re.search(r"\son[a-z]+\s*=", lower), "penangan kejadian sebaris"
     assert "javascript:" not in lower
     assert "http://" not in lower and "https://" not in lower, "aset dari host asing"
+
+
+#: Setiap route yang MENGIRIM sesuatu ke browser, dikelompokkan menurut apa yang dijanjikan
+#: tentang CSP-nya (ADR-026 butir 11). Daftar ini sengaja harfiah: yang menjaga lingkup
+#: pelonggaran tetap sempit adalah menyebut satu per satu apa yang ADA DI LUAR-nya.
+JUDGED_SCREENS = ("/", "/app", "/app/decision/1", "/ui", "/ui/decision/1", "/ui/decision/999999")
+API_ROUTES = (
+    "/api/routes",
+    "/api/health",
+    "/api/watchlist",
+    "/api/decisions",
+    "/api/decision/1",
+    "/api/preflight/SOL",
+)
+
+
+def asset_routes() -> tuple[str, ...]:
+    """Route aset, namanya diambil dari daftar TERTUTUP di `ui/screens.py` — bukan ditebak."""
+    return (
+        "/ui/tenko.css",
+        "/ui/app.js",
+        "/ui/kage.css",
+        f"/ui/fonts/{ui_screens.FONT_NAMES[0]}",
+        f"/ui/img/{ui_screens.IMAGE_NAMES[0]}",
+        f"/ui/vendor/{ui_screens.VENDOR_NAMES[0]}",
+    )
+
+
+def test_the_kage_csp_is_the_ordinary_one_plus_data_on_img_src_and_nothing_else(
+    client: TestClient,
+) -> None:
+    """ADR-026 butir 11: pelonggarannya SATU direktif, SATU token, SATU route.
+
+    Tes ini tidak puas dengan "kage punya `data:`" — kalimat itu juga benar untuk CSP yang
+    kehilangan `default-src 'none'` atau yang diam-diam menumbuhkan `img-src * data:`. Yang
+    dipaku: DIFF antara CSP `/kage` dan `HTML_HEADERS` persis satu direktif, dan isi direktif
+    itu persis `'self' data:`. Setiap direktif lain harus identik nilai DAN urutannya.
+    """
+    sent = client.get("/kage").headers["content-security-policy"]
+    assert sent == KAGE_HTML_HEADERS["Content-Security-Policy"], "header terpasang ≠ konstanta"
+    strict, relaxed = csp_directives(), csp_directives(sent)
+    assert set(strict) == set(relaxed), "daftar direktif berubah, bukan hanya isinya"
+    assert relaxed["img-src"] == ["'self'", "data:"], relaxed["img-src"]
+    differ = [name for name in strict if strict[name] != relaxed[name]]
+    assert differ == ["img-src"], f"lebih dari satu direktif dilonggarkan: {differ}"
+    # Direktif yang paling mahal kalau ikut hanyut, disebut namanya supaya kegagalannya terbaca.
+    for name in ("script-src", "style-src", "connect-src", "font-src", "media-src"):
+        assert relaxed[name] == ["'self'"], f"{name}: {relaxed[name]}"
+    for name in ("default-src", "base-uri", "form-action", "frame-ancestors"):
+        assert relaxed[name] == ["'none'"], f"{name}: {relaxed[name]}"
+    assert "data:" not in " ".join(
+        token for name, value in relaxed.items() if name != "img-src" for token in value
+    ), sent
+
+
+def test_no_judged_screen_and_no_api_response_allows_a_data_url_in_any_directive(
+    client: TestClient,
+) -> None:
+    """Yang TIDAK ikut longgar — dan itulah setengah dari keputusannya.
+
+    Layar A & B adalah satu-satunya layar yang merender nilai asal-RYO/DB ke DOM, jadi `data:`
+    di sana menghidupkan kembali permukaan penyuntikan yang seluruh `ui/screens.py` dibangun
+    untuk menutup. `/kage` tidak membaca store sama sekali; itulah kenapa ia boleh dan mereka
+    tidak. Halaman GAGAL di sekitar `/kage` pun tidak ikut: ia tidak melukis grain apa pun.
+    """
+    for path in JUDGED_SCREENS:
+        csp = client.get(path).headers["content-security-policy"]
+        assert csp == HTML_HEADERS["Content-Security-Policy"], path
+        assert "data:" not in csp, f"{path}: CSP layar yang dinilai melonggar ke data:"
+    for path in API_ROUTES:
+        assert "data:" not in client.get(path).headers.get("content-security-policy", ""), path
+    for path in asset_routes():
+        csp = client.get(path).headers["content-security-policy"]
+        assert csp == HTML_HEADERS["Content-Security-Policy"], f"{path}: aset ikut dilonggarkan"
+    for response in (client.post("/kage"), client.get("/kage/nope"), client.get("/ui/nope")):
+        csp = response.headers.get("content-security-policy", "")
+        assert "data:" not in csp, f"halaman gagal {response.status_code} melonggar ke data:"
+
+
+def test_no_response_this_app_can_send_ever_allows_unsafe_inline_or_unsafe_eval(
+    client: TestClient,
+) -> None:
+    """Satu tes untuk SELURUH aplikasi: pelonggaran ADR-026 tidak membawa penumpang.
+
+    `'unsafe-inline'`/`'unsafe-eval'` adalah dua token yang membuat sisa CSP tidak berarti, dan
+    keduanya paling mudah masuk saat satu direktif lain sedang dilonggarkan "sedikit saja".
+    """
+    paths = (*JUDGED_SCREENS, *API_ROUTES, *asset_routes(), "/kage")
+    for path in paths:
+        csp = client.get(path).headers.get("content-security-policy", "")
+        for forbidden in ("unsafe-inline", "unsafe-eval", "blob:", "http", "*"):
+            assert forbidden not in csp, f"{path}: CSP melonggar ke {forbidden}"
+    for response in (client.post("/ui"), client.post("/kage"), client.get("/ui/nope")):
+        csp = response.headers.get("content-security-policy", "")
+        assert "unsafe-inline" not in csp and "unsafe-eval" not in csp, response.status_code
+    # Dan tidak ada token itu di dalam KONSTANTA-nya sendiri, termasuk yang dilonggarkan.
+    for headers in (HTML_HEADERS, KAGE_HTML_HEADERS):
+        policy = headers["Content-Security-Policy"]
+        assert "unsafe-" not in policy, policy
 
 
 def test_every_kage_asset_route_serves_a_closed_list_and_builds_no_path_from_the_request(
