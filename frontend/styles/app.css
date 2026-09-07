@@ -126,11 +126,14 @@
   /* Tinggi banner yang melekat: dipakai `top:` semua yang ikut melekat di bawahnya, supaya
      kepala tabel tidak pernah mendarat DI BALIK banner. */
   --stick: 52px;
-  /* Tinggi TERPAKAI di atas hero: banner melekat (52px) + railbar (39px, terukur dari
-     padding + track + baris nama perhentian). Hero mengurangkannya dari 100vh supaya
-     layar pertama pas satu layar pada 1280x720 — tanpa ini, judul di sepertiga bawah
-     jatuh di bawah lipatan dan seluruh idenya hilang. */
-  --chrome: 91px;
+  /* Kepala halaman landing (ADR-029). Ia MENGALIR, tidak melekat — 50px yang melekat di layar
+     720px adalah 7% dari layar pertama yang seluruh nilainya adalah kekosongan. */
+  --nav-h: 50px;
+  /* Tinggi TERPAKAI di atas hero: banner melekat (52px) + kepala halaman (50px) + railbar
+     (39px, terukur dari padding + track + baris nama perhentian). Hero mengurangkannya dari
+     100vh supaya layar pertama pas satu layar pada 1280x720 — tanpa ini, judul di sepertiga
+     bawah jatuh di bawah lipatan dan seluruh idenya hilang. */
+  --chrome: 141px;
 
   --sans: "Onest Vendored", "IBM Plex Sans Vendored", system-ui, -apple-system, "Segoe UI",
     Roboto, "Noto Sans", "DejaVu Sans", Arial,
@@ -196,8 +199,8 @@ main {
     [full-end];
 }
 main > * { grid-column: wide; min-width: 0; }
-main > .hero, main > .band { grid-column: full; }
-/* Sesudah klien menempel, isi layar pindah ke `#tenko-view` (satu anak `main`). */
+/* Sesudah klien menempel, isi layar pindah ke `#tenko-view` (satu anak `main`). Kisi landing
+   yang mengulang kisi ini — supaya full-bleed selamat — ada di blok LANDING di bawah. */
 #tenko-view { min-width: 0; }
 footer { padding: 0 var(--pad); }
 footer > * { max-width: var(--wide); margin-inline: auto; }
@@ -429,8 +432,108 @@ footer p { max-width: 108ch; }
 .live.state-stale { color: var(--warn); border-left-color: var(--warn); font-weight: 600; }
 
 /* ============================================================================================
-   LANDING
-   ============================================================================================ */
+   LANDING (ADR-029)
+   ============================================================================================
+   Susunan bagiannya diambil dari `ui/static/kage.html` — halaman yang dibawa masuk pemilik repo
+   (karya temannya, dipakai dengan izin, ADR-026): `nav` → `hero` → `gate` → `pathways` →
+   `lessons` → `eternity` → kaki berkolom. Yang dipinjam adalah RITME dan bentuk tipografinya,
+   bukan berkasnya: `ui/static/kage.css` sengaja TIDAK di-`@import` (tesnya melarang, dan CSP
+   `style-src 'self'` hanya melayani satu berkas gaya per halaman), dan tidak satu pun warnanya
+   ikut — setiap warna di bawah ini adalah token ADR-027 yang sudah diukur.
+
+   Yang TIDAK ikut dari halaman itu, dan tiap alasannya keras:
+   * `position: fixed` (nav, kanvas, grain, rail, kursor) — dilarang di seluruh berkas ini, dan
+     larangan itu yang membeli "nol overlay, nol perangkap fokus";
+   * kanvas WebGL-nya — `script-src 'self'` boleh melayaninya, tetapi `/` adalah layar yang
+     dinilai dan `test_the_kage_page_never_hijacks_the_screen_that_is_judged` menuntut nol
+     `/ui/vendor/` di sini; grain-nya pun butuh `img-src data:` yang tidak akan pernah dibuka
+     untuk layar yang merender nilai asal-DB;
+   * lapisan `.fg` (gambar latar depan di tiap bagian) — itu teks di atas piksel gambar, yaitu
+     satu-satunya cara membatalkan seluruh pengukuran kontras halaman ini. Gambar tetap tinggal
+     di kotaknya sendiri;
+   * tukar-label EN→JP saat hover — hover tidak boleh menjadi satu-satunya jalan ke sebuah kata.
+
+   Hero-nya TIDAK dibongkar: formula tangkapan layar awwwards (ADR-028) tetap berlaku apa
+   adanya, dan bagian di bawahnya yang menyesuaikan diri dengannya. */
+
+/* --- kisi: full-bleed yang selamat setelah klien menempel -----------------------------------
+   `start()` memindahkan seluruh isi `<main>` ke dalam `#tenko-view`, jadi `main > .hero`
+   berhenti cocok begitu satu baris JS jalan — hero yang penuh-lebar tanpa JS menjadi hero
+   selebar kolom baca DENGAN JS. Perbaikannya: `#tenko-view` landing mengulang kisi yang sama
+   persis, jadi kedua render menghasilkan tata letak yang sama.
+
+   Dipagari `body[data-screen="landing"]` DENGAN SENGAJA: Layar A/B tidak boleh ikut berpindah
+   dari aliran blok ke kisi, karena margin bersebelahan yang tadinya menyatu akan berhenti
+   menyatu dan jarak antar-blok di layar yang dinilai berubah tanpa satu pun keputusan desain. */
+body[data-screen="landing"] #tenko-view {
+  grid-column: full;
+  display: grid; align-content: start;
+  grid-template-columns:
+    [full-start] minmax(var(--pad), 1fr)
+    [wide-start] minmax(0, var(--wide))
+    [wide-end] minmax(var(--pad), 1fr)
+    [full-end];
+}
+body[data-screen="landing"] #tenko-view > * { grid-column: wide; min-width: 0; }
+main > .hero, main > .band, main > .topnav, main > .railbar,
+body[data-screen="landing"] #tenko-view > .hero,
+body[data-screen="landing"] #tenko-view > .band,
+body[data-screen="landing"] #tenko-view > .topnav,
+body[data-screen="landing"] #tenko-view > .railbar { grid-column: full; }
+
+/* --- kepala halaman --------------------------------------------------------------------------
+   `header.nav` milik kage, dengan tiga hal dilepas (lihat catatan di atas). Ia MENGALIR, tidak
+   melekat: 50px yang melekat di layar setinggi 720px adalah 7% dari layar pertama yang dibeli
+   halaman ini dengan kekosongan, dan tautan yang sama ada lagi di dasar halaman. */
+.topnav {
+  position: relative;
+  display: flex; align-items: center; gap: var(--s4) var(--s5); flex-wrap: wrap;
+  min-height: var(--nav-h);
+  padding: var(--s3) var(--pad);
+  border-bottom: 1px solid var(--hair);
+}
+/* Tautan lompat: TERPOTONG sampai ia difokus, lalu ia menjadi tombol pertama yang diterima
+   Tab. Ia bukan `display: none` (yang akan membuatnya tak terjangkau keyboard), bukan
+   `position: fixed` (dilarang di berkas ini), dan bukan sebuah kotak yang digeser ke atas
+   dengan `transform` — yang terakhir itu terlihat benar sampai seseorang menyadari kotaknya
+   mendarat DI ATAS banner SIMULATED, yang harus terlihat di setiap frame. */
+.skip {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  color: var(--link); font: 600 12px/1 var(--mono); text-decoration: none;
+}
+.skip:focus, .skip:focus-visible {
+  left: var(--pad); top: var(--s2); z-index: 6;
+  width: auto; height: auto; margin: 0; padding: var(--s2) var(--s3);
+  overflow: visible; clip-path: none;
+  border: 1px solid var(--line); border-radius: var(--r1); background: var(--card);
+  letter-spacing: .1em; text-transform: uppercase;
+}
+.brand { display: flex; flex-direction: column; gap: 3px; color: var(--fg); text-decoration: none; }
+.brand b {
+  font: 600 13px/1 var(--mono); letter-spacing: .3em; color: var(--fg);
+  display: flex; align-items: baseline; gap: var(--s2);
+}
+.brand i {
+  font-style: normal; color: var(--dim);
+  font: 400 9.5px/1.2 var(--mono); letter-spacing: .22em; text-transform: uppercase;
+}
+.brand:hover b, .brand:focus b, .brand:focus-visible b { color: var(--link); }
+.topnav-links {
+  display: flex; flex-wrap: wrap; gap: var(--s3) var(--s5);
+  margin: 0 0 0 auto; padding: 0; list-style: none;
+}
+.topnav-links a, .topnav-go {
+  font: 600 var(--t-label)/1.4 var(--mono); letter-spacing: .18em; text-transform: uppercase;
+  text-decoration: none; color: var(--dim);
+}
+.topnav-links a:hover, .topnav-links a:focus, .topnav-links a:focus-visible { color: var(--fg); }
+.topnav-go {
+  padding: 9px var(--s4); border: 1px solid var(--go); border-radius: var(--r1);
+  background: var(--card); color: var(--go);
+}
+.topnav-go:hover, .topnav-go:focus, .topnav-go:focus-visible { color: var(--fg); background: var(--row); }
+
 /* --- 01 · hero: satu ruang kosong, satu cahaya ------------------------------------------------
    Formulanya diambil dari DUA TANGKAPAN LAYAR di `references/awwwards-3d/docs/screenshots/`
    sebagai rujukan VISUAL (ADR-028) — void nyaris hitam yang RATA, SATU sumber cahaya dengan
@@ -479,6 +582,13 @@ footer p { max-width: 108ch; }
 }
 .hero-top .sub { margin: 0; max-width: 62ch; text-align: right; }
 .hero .kicker { letter-spacing: .28em; }
+/* Titik merah di depan label hero: satu-satunya aksen `kage` yang ikut ke layar pertama, dan
+   ia `::before` — nol elemen, nol teks, jadi ia tidak bisa menjadi pembawa informasi. */
+.hero .kicker::before {
+  content: ""; display: inline-block; vertical-align: middle;
+  width: 5px; height: 5px; margin: -2px var(--s2) 0 0; border-radius: 50%;
+  background: var(--nogo);
+}
 /* Baris kedua adalah KEKOSONGAN, dan isinya menempel ke dasarnya. Itu satu-satunya alasan
    `1fr` ada di sini: ruang yang tidak dipakai adalah bagian dari desainnya, bukan sisa.
 
@@ -502,6 +612,14 @@ footer p { max-width: 108ch; }
   font-size: var(--t-lede); line-height: 1.5; color: var(--fg); font-weight: 300;
 }
 .hero .cta { margin: 0; justify-content: flex-end; }
+/* Tanda tegak di tepi kanan, pinjaman langsung dari `.hero-side` milik kage. Ia `aria-hidden`
+   dan kata yang sama sudah dibacakan wordmark, jadi ia hiasan yang kehilangannya tidak
+   menghilangkan satu pun informasi. */
+.hero-side {
+  position: absolute; right: calc(var(--pad) / 2); bottom: var(--s7); margin: 0;
+  writing-mode: vertical-rl;
+  font: 400 12px/1 var(--mono); letter-spacing: .6em; color: var(--dim);
+}
 /* --- judul dot-matrix ------------------------------------------------------------------------
    Huruf diisi kisi titik, seperti papan LED peron. CSS murni: `radial-gradient` sebagai pola,
    `background-clip: text` sebagai masker — nol gambar, nol berkas, nol permintaan jaringan.
@@ -527,16 +645,55 @@ footer p { max-width: 108ch; }
   }
 }
 
-/* --- 02 · ritual ------------------------------------------------------------------------------
-   Prosa yang dulu berdesakan di dalam hero. Di sini ia punya lebar baca penuh dan tidak
-   membayar dengan ruang layar pertama. */
-.ritual { padding: var(--s7) 0 var(--s6); }
+/* --- bagian bernomor: kepala, garis, istilah ---------------------------------------------------
+   `.sec-head` milik kage, dengan label ADR-028 di tempat label kage: nomor + kata, garis rambut
+   yang mengisi sisa lebar, lalu satu istilah Jepang di ujung kanan. Ia yang membuat kelima
+   bagian terbaca sebagai satu urutan, bukan sebagai lima blok yang kebetulan bertumpuk. */
+.sec { padding: var(--s7) 0 var(--s6); }
+.sec-head { display: flex; align-items: baseline; gap: var(--s4); margin: 0 0 var(--s6); }
+.sec-head .kicker { flex: 0 0 auto; }
+.rule { flex: 1 1 auto; height: 1px; background: var(--hair); }
+.jp { letter-spacing: .22em; }
+.sec-head .jp { flex: 0 0 auto; font-size: 12px; color: var(--dim); }
 /* Jarak label bernomor → judul, satu angka untuk keempat bagian. `h2` bawaan memakai
    `margin-top: var(--s6)`, yang di bawah sebuah label terbaca sebagai dua blok terpisah. */
 .kicker + h2 { margin-top: var(--s3); }
-.lede {
-  margin: 0 0 var(--s5); max-width: 54ch;
+
+/* --- 02 · apa yang salah tanpanya --------------------------------------------------------------
+   `gate-grid` kage: judul pendek yang mengambil kolom kiri, prosa di kanan, lalu satu baris
+   fakta struktural di bawah garis. Judulnya sengaja sempit (`max-width: 12ch`) — itu yang
+   membuat sebuah kalimat terbaca sebagai pernyataan, bukan sebagai paragraf. */
+.gate-grid {
+  display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr);
+  gap: var(--s5) var(--s7); align-items: start;
+}
+.gate-grid h2 { margin: 0; max-width: 12ch; font-size: var(--t-h1); line-height: 1.04; }
+.gate-copy { min-width: 0; }
+.lead {
+  margin: 0 0 var(--s4); max-width: 58ch;
   font-size: var(--t-lede); line-height: 1.6; color: var(--fg); font-weight: 300;
+}
+.gate-copy .body { margin: 0 0 var(--s5); max-width: 58ch; color: var(--dim); }
+.arrowlink {
+  display: inline-flex; align-items: center; gap: var(--s3);
+  font: 600 12.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+  text-decoration: none;
+}
+.arrowlink .ar {
+  display: grid; place-items: center; width: 30px; height: 30px;
+  border: 1px solid var(--line); border-radius: 50%;
+}
+.arrowlink:hover .ar, .arrowlink:focus .ar, .arrowlink:focus-visible .ar { border-color: var(--warn); }
+/* Tiga fakta struktural di bawah garis — bentuk `gate-stats` kage, isi ADR-027. Tidak satu pun
+   dari ketiganya angka: sebuah pengukuran yang berdiri tanpa `n` di halaman ini akan terbaca
+   sebagai temuan, dan halaman ini punya tempat lain untuk pengukuran. */
+.rails {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4);
+  margin: var(--s7) 0 0; padding: var(--s4) 0 0; border-top: 1px solid var(--hair);
+}
+.rails p { margin: 0; }
+.rails .rail-label + span {
+  display: block; color: var(--fg); font-size: 17px; font-weight: 300; margin-top: var(--s2);
 }
 .pills { display: flex; flex-wrap: wrap; gap: var(--s2); margin: 0 0 var(--s5); padding: 0; list-style: none; }
 .pills li {
@@ -546,7 +703,7 @@ footer p { max-width: 108ch; }
   color: var(--dim);
 }
 .pills .on { border-color: var(--go); color: var(--go); }
-.cta { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; margin: 0 0 var(--s4); }
+.cta { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; margin: var(--s5) 0 0; }
 .cta a {
   display: inline-block; padding: 15px var(--s6); border-radius: var(--r1);
   font: 600 12.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
@@ -554,27 +711,21 @@ footer p { max-width: 108ch; }
 }
 .cta .go { background: var(--card); border: 1px solid var(--go); color: var(--go); }
 .cta .alt { border: 1px solid var(--line); color: var(--dim); }
-.cta .go:hover, .cta .go:focus { color: var(--fg); background: var(--row); }
-.cta .alt:hover, .cta .alt:focus { border-color: var(--warn); color: var(--warn); }
+.cta .go:hover, .cta .go:focus, .cta .go:focus-visible { color: var(--fg); background: var(--row); }
+.cta .alt:hover, .cta .alt:focus, .cta .alt:focus-visible { border-color: var(--warn); color: var(--warn); }
 /* Keterangan gambar: satu baris yang menyatakan gambar itu PEMANDANGAN. Tanpa baris ini, sebuah
    kuil di sebelah papan keberangkatan bisa terbaca sebagai bagian dari bukti. */
 .art-note {
-  color: var(--dim);
+  color: var(--dim); max-width: 74ch;
   font: 400 var(--t-label)/1.6 var(--mono); letter-spacing: .16em; text-transform: uppercase;
 }
-.rails {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4);
-  margin: var(--s6) 0 0; padding: var(--s4) 0 0; border-top: 1px solid var(--hair);
-}
-.rails p { margin: 0; }
-.rails .rail-label + span { display: block; color: var(--fg); font-size: 14px; margin-top: var(--s1); }
 
-/* --- papan keberangkatan ---------------------------------------------------------------------
+/* --- 03 · papan keberangkatan -----------------------------------------------------------------
    Bukan tabel yang menempel di prosa: kartu penuh, baris tinggi, simbol besar. Urutan kolom
    tetap — As of · Symbol · Call · Held by — karena itu urutan yang tidak perlu dipelajari
-   ulang oleh orang yang baru pertama melihatnya. */
-.board { padding: var(--s7) 0 var(--s6); }
-.board > h2 { margin-top: var(--s3); }
+   ulang oleh orang yang baru pertama melihatnya, dan karena kolom papan ini adalah bagian yang
+   DINILAI: ADR-029 mengganti pakaian bagiannya dan tidak menyentuh tabelnya. */
+.board > h2 { margin-top: 0; }
 .lb { margin: var(--s4) 0 0; font-size: 14px; }
 .lb caption { margin: 0 0 var(--s4); }
 .lb col.c-when { width: 24%; }
@@ -594,23 +745,31 @@ footer p { max-width: 108ch; }
 .lb .d-go { color: var(--go); border-left-color: var(--go); }
 .lb .d-no_go { color: var(--nogo); border-left-color: var(--nogo); }
 
-/* --- tiga angka -------------------------------------------------------------------------------
-   Kartu, bukan kolom telanjang: tiap angka duduk di permukaannya sendiri, dan tiap angka
-   membawa kalimat yang menyebut PERINTAH yang membuktikannya. */
-.proofs {
-  padding: var(--s6) 0;
-  display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: var(--s6); align-items: end;
+/* --- 04 · cara kerjanya ------------------------------------------------------------------------
+   `cur-head` + `cur`/`les` kage: kepala dua kolom, lalu daftar langkah bergaris rambut di mana
+   tiap baris membawa nomor, judul, satu kalimat, dan — kolom yang kage tidak punya — nama
+   BERKAS yang menjalankannya. Kolom terakhir itu yang membuat daftar ini bukan daftar fitur:
+   ia menunjuk, dengan cara yang sama seperti tiap baris kartu menunjuk `tool.field`-nya. */
+.cur-head {
+  display: grid; grid-template-columns: minmax(0, 1fr) 230px;
+  gap: var(--s5) var(--s7); align-items: end;
 }
-.proofs-in { min-width: 0; }
-.proofs-in > h2 { margin-top: var(--s3); }
+.cur-say { min-width: 0; }
+.cur-say > h2 { margin-top: 0; }
+.lede {
+  margin: 0; max-width: 56ch;
+  font-size: var(--t-lede); line-height: 1.6; color: var(--fg); font-weight: 300;
+}
 /* Lentera batu: potongan latar-tembus, DEKORASI, dan ia hilang begitu lebarnya habis — tidak
    ada satu pun informasi yang tinggal di dalamnya. */
 .proofs-art { min-width: 0; }
 .proofs-art img { width: 100%; height: auto; display: block; opacity: .85; }
-.proofs .art-note { grid-column: 2; margin: var(--s3) 0 0; }
+.lessons .art-note { margin: var(--s4) 0 0; }
+/* Tiga angka: kartu, bukan kolom telanjang: tiap angka duduk di permukaannya sendiri, dan tiap
+   angka membawa kalimat yang menyebut PERINTAH yang membuktikannya. */
 .figs {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4);
-  margin: var(--s5) 0 0; padding: 0; list-style: none;
+  margin: var(--s6) 0 0; padding: 0; list-style: none;
 }
 .figs li {
   padding: var(--s5); border: 1px solid var(--hair); border-radius: var(--r2);
@@ -623,15 +782,30 @@ footer p { max-width: 108ch; }
 }
 .fig-label { margin: 0 0 var(--s3); font-weight: 500; font-size: 16px; line-height: 1.35; color: var(--fg); }
 .figs .sub { margin: 0; max-width: none; }
+.cur { margin: var(--s7) 0 0; padding: 0; list-style: none; border-top: 1px solid var(--hair); }
+.les {
+  display: grid;
+  grid-template-columns: 44px minmax(0, .8fr) minmax(0, 1.5fr) auto;
+  gap: var(--s4); align-items: baseline;
+  padding: var(--s5) 0; border-bottom: 1px solid var(--hair);
+}
+.les .k {
+  font: 600 12px/1 var(--mono); letter-spacing: .16em; color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.les h3 { margin: 0; font: 500 clamp(17px, 1.5vw, 22px)/1.2 var(--sans); letter-spacing: -.02em; color: var(--fg); }
+.les h3 .jp { display: block; margin-top: var(--s2); font-size: 12px; font-weight: 400; color: var(--dim); font-style: normal; }
+.les p { margin: 0; color: var(--dim); font-size: 14px; line-height: 1.6; }
+.les .t { text-align: right; font: 400 12px/1.4 var(--mono); color: var(--dim); }
+.les:hover .k, .les:focus-within .k { color: var(--warn); }
 
-/* --- pita penuh-lebar dengan gambar ------------------------------------------------------------ */
-
-.band { position: relative; margin: var(--s7) 0 0; padding: 0 var(--pad) var(--s7); }
-/* Pita gambar penuh-lebar, lalu teksnya DI BAWAHNYA — bukan di atasnya. Alasannya sama dengan
+/* --- 05 · penutup, dengan pita gambar penuh-lebar ----------------------------------------------
+   Pita gambar penuh-lebar, lalu teksnya DI BAWAHNYA — bukan di atasnya. Alasannya sama dengan
    hero: kontras yang bisa dibuktikan mengalahkan gambar di belakang huruf. */
+.band { position: relative; margin: var(--s7) 0 0; padding: 0 var(--pad) var(--s8); }
 .band-art {
   position: relative; height: clamp(180px, 26vw, 380px); overflow: hidden;
-  margin: 0 calc(var(--pad) * -1) var(--s6);
+  margin: 0 calc(var(--pad) * -1) var(--s7);
 }
 .band-art img { width: 100%; height: 100%; object-fit: cover; object-position: center 42%; display: block; }
 .band-art::after {
@@ -640,7 +814,28 @@ footer p { max-width: 108ch; }
 }
 .band-in { position: relative; max-width: var(--wide); margin-inline: auto; }
 .band h2 { margin-top: var(--s3); }
-.why .answer { max-width: 78ch; }
+/* `.fin` kage: penutup yang berdiri di tengah dengan judul sebesar judul bagian. Ia TIDAK
+   setinggi satu layar penuh seperti aslinya — layar terakhir yang kosong adalah layar yang
+   membuat juri mengira halamannya habis sebelum kakinya terbaca. */
+.fin .band-in { max-width: 76ch; text-align: center; }
+.fin h2 { margin: var(--s3) 0 var(--s4); font-size: var(--t-fig); line-height: 1; letter-spacing: -.03em; }
+.fin .lede { margin-inline: auto; }
+.fin .cta { justify-content: center; }
+
+/* --- kaki berkolom ----------------------------------------------------------------------------
+   `foot-grid` kage, di ATAS kaki tetap `_shell`. Ia menambahkan jalan pulang; keempat kalimat
+   pengakuan di bawahnya (jam JST, read-only, keyboard, klien) tidak berubah satu kata pun. */
+.foot-grid {
+  display: grid; grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, .8fr));
+  gap: var(--s5) var(--s7);
+  margin: 0 0 var(--s6); padding: var(--s6) 0 var(--s5);
+  border-bottom: 1px solid var(--hair);
+}
+.brand-mark { margin: 0 0 var(--s3); font: 600 15px/1 var(--mono); letter-spacing: .3em; color: var(--fg); }
+.foot-brand .sub { max-width: 46ch; }
+.foot-h { margin: 0 0 var(--s4); font: 600 var(--t-label)/1.4 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--dim); }
+.foot-col ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s3); }
+.foot-col a { font-size: 13.5px; }
 
 /* --- bilah gulir bergaya peta jalur -----------------------------------------------------------
    Rel melintang di bawah banner dengan kereta yang bergerak sepanjangnya seiring gulir. Ia
@@ -705,9 +900,8 @@ html.lenis, html.lenis body { height: auto; }
    Lebar kolom tetap berhenti membantu ketika tidak ada lebar untuk dibagi. */
 @media (max-width: 1000px) {
   table { table-layout: auto; }
-  .figs, .rails { grid-template-columns: minmax(0, 1fr); }
-  .proofs { grid-template-columns: minmax(0, 1fr); }
-  .proofs-art { display: none; }
+  .figs, .rails, .gate-grid, .cur-head, .foot-grid { grid-template-columns: minmax(0, 1fr); }
+  .proofs-art, .hero-side { display: none; }
   dl.meta { grid-template-columns: minmax(0, 1fr); }
   dl.meta dd { border-top: 0; padding-top: 0; }
   /* Di bawah lebar ini, `100vh` berhenti membeli kekosongan dan mulai membeli gulir
@@ -716,5 +910,8 @@ html.lenis, html.lenis body { height: auto; }
   .hero-say { grid-template-columns: minmax(0, 1fr); }
   .hero-top .sub { text-align: left; }
   .hero .cta { justify-content: flex-start; }
-  .proofs .art-note { grid-column: 1; }
+  .gate-grid h2 { max-width: none; }
+  .les { grid-template-columns: 34px minmax(0, 1fr); }
+  .les .t { grid-column: 2; text-align: left; }
+  .topnav-links { margin-left: 0; }
 }

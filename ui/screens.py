@@ -586,9 +586,10 @@ ERROR_CLIENT_NOTE = (
 
 LANDING_CLIENT_NOTE = (
     _CLIENT_NOTE_HEAD + "The client script loads on the landing page too, and then stops: it "
-    "fetches nothing, refreshes nothing, and changes nothing on screen. The board below is "
-    "rendered by the server from the same store the app reads, or it is left out entirely — it "
-    "is never filled with example numbers. Every link works the ordinary way, with a reload."
+    "fetches nothing, refreshes nothing, and changes nothing on screen. The departures board in "
+    "section 03 is rendered by the server from the same store the app reads, or it is left out "
+    "entirely — it is never filled with example numbers, and its section number goes missing "
+    "with it. Every link works the ordinary way, with a reload."
 )
 
 #: Layar → kalimatnya. Kunci di sini HARUS sama dengan `data-screen` yang dipancarkan `_shell`.
@@ -614,8 +615,14 @@ def _shell(
     now: datetime,
     screen: str,
     decision_id: int | None = None,
+    foot_top: str = "",
 ) -> str:
     """Kerangka halaman. Banner, isi, dan tiap `aria-label` ada SEBELUM satu baris JS pun jalan.
+
+    `foot_top` adalah SATU blok yang boleh berdiri di atas kaki tetap — dipakai landing untuk
+    kisi tautan bergaya `kage.html` (ADR-029). Ia MENAMBAH, tidak menggantikan: keempat kalimat
+    di bawahnya (jam JST, "read-only, nol tool RYO, nol LLM", kalimat keyboard, kalimat klien)
+    dirender persis sama di setiap layar, dan tesnya menembak keempatnya di ketiga layar.
 
     `screen` adalah satu-satunya hal yang dibaca klien untuk memutuskan layar mana yang sedang
     terbuka; ia atribut `data-*` pada `<body>`, bukan tebakan atas URL di dalam JS.
@@ -638,7 +645,7 @@ def _shell(
         + ">"
         f'<p class="banner" role="note">{BANNER_ICON}<span>{escape(banner, quote=True)}</span></p>'
         f'<main id="isi">{body}</main>'
-        "<footer><p>All clocks are JST. This page was rendered on the server at "
+        f"<footer>{foot_top}<p>All clocks are JST. This page was rendered on the server at "
         f"{escape(_now_jst(now), quote=True)}, banner and all, before any script ran. Tenko "
         "reads the store READ-ONLY; no RYO tool and no LLM is called to show this screen. "
         'Every route this app serves is listed at <a href="/api/routes">/api/routes</a>.</p>'
@@ -1288,15 +1295,15 @@ def render_error(status_code: int, message: str, banner: str, now: datetime) -> 
     return _shell(f"Tenko — {status_code} (simulated)", banner, body, now, screen="error")
 
 
-# --- landing (ADR-021, ditata ulang ADR-027, hero ditata ulang lagi ADR-028) ---------------
+# --- landing (ADR-021 · ADR-027 · ADR-028 · disusun ulang ADR-029) --------------------------
 #: DUA gambar landing, NAMA dari :data:`IMAGE_NAMES` (daftar tertutup) — bukan string bebas.
 #: Konstanta, bukan literal di tengah markup, supaya tes bisa menuntut keduanya benar-benar
 #: dilayani dan supaya gambar ketiga tidak bisa menyelinap tanpa satu baris di sini.
 #:
-#: Yang HILANG di ADR-028 adalah gambar hero. Hero sekarang adalah RUANG KOSONG dengan satu
-#: sumber cahaya `radial-gradient` — nol `<img>`, jadi klaim "nol kalimat duduk di atas piksel
-#: gambar" menjadi lebih mudah dibuktikan di layar pertama, bukan lebih sulit: tidak ada
-#: gambar di sana untuk didudukinya.
+#: ADR-029 memindahkan keduanya tanpa menambah satu pun: `PROOF_IMAGE` kini berdiri di kepala
+#: bagian 04 dan `BAND_IMAGE` menjadi pita penuh-lebar di kepala bagian 05. Masing-masing tetap
+#: sendirian di dalam kotaknya (`.proofs-art`, `.band-art`), yang membuat klaim "nol kalimat
+#: duduk di atas piksel gambar" tetap fakta tata letak, bukan harapan.
 PROOF_IMAGE = "stone-lantern.webp"
 BAND_IMAGE = "kage-moonwater.webp"
 
@@ -1308,6 +1315,16 @@ ART_NOTE = (
     "departures board, beside the count it was read from."
 )
 
+#: Kalimat yang menyebut halaman `/kage` DAN menyatakan apa yang tidak ada di dalamnya. Ia
+#: pindah ke kaki halaman pada ADR-029 (dulu di badan bagian "why"): halaman pemandangan tidak
+#: boleh berdiri sejajar dengan papan di sepertiga atas, tetapi route yang dilayani dan tidak
+#: pernah disebut adalah route yang hilang.
+SCENERY_NOTE_LEAD = "Scenery, not evidence: an "
+SCENERY_NOTE_TAIL = (
+    " ships with this app. It reads nothing from the store, calls no RYO tool and no LLM, and "
+    "every figure printed on it is design copy — the measured numbers are on the board."
+)
+
 if not {PROOF_IMAGE, BAND_IMAGE} <= set(IMAGE_NAMES):  # pragma: no cover — cacat kode
     raise RuntimeError(
         "gambar landing menunjuk nama di luar IMAGE_NAMES: rute `/ui/img/{name}` melayani "
@@ -1315,7 +1332,6 @@ if not {PROOF_IMAGE, BAND_IMAGE} <= set(IMAGE_NAMES):  # pragma: no cover — ca
         "yang dilihat juri."
     )
 
-# --- landing (ADR-021) --------------------------------------------------------------------
 #: Tiga angka yang boleh berdiri di landing. Masing-masing PUNYA pemeriksanya di repo ini, dan
 #: kalimatnya menyebut perintah yang membuktikannya — bukan klaim pemasaran yang tidak bisa
 #: dijalankan. Kalau salah satu berhenti benar, tesnya merah sebelum landing-nya berbohong.
@@ -1340,6 +1356,166 @@ LANDING_PROOFS = (
     ),
 )
 
+#: Lima langkah ritual, satu baris masing-masing: nomor, judul, istilah Jepangnya, satu kalimat,
+#: dan **modul yang benar-benar menjalankannya**. Kolom terakhir itu yang membedakan daftar ini
+#: dari daftar fitur: tiap baris menunjuk berkas di repo ini yang bisa dibuka juri, dengan cara
+#: yang sama seperti tiap item kartu menunjuk `tool.field`-nya. Nama berkasnya diperiksa tes.
+LANDING_STEPS = (
+    (
+        "01",
+        "Freeze the snapshot",
+        "記録",
+        "The recorder stores tool envelopes as they arrived. Nothing is fetched while a "
+        "decision is being made, so the same call can be made again later.",
+        "core/recorder.py",
+    ),
+    (
+        "02",
+        "Point at the field",
+        "指差",
+        "Every item names the tool.field it read. A number without an address never reaches the "
+        "card — it becomes an unspoken item instead.",
+        "preflight/skill.py",
+    ),
+    (
+        "03",
+        "Say it out loud",
+        "喚呼",
+        "Value, status, and the as_of it was read at are printed in words beside each other, so "
+        "the row reads correctly with the colour switched off.",
+        "preflight/narrate.py",
+    ),
+    (
+        "04",
+        "Hold on anything unsaid",
+        "未呼称",
+        "A null or an unavailable section becomes unspoken, never 0 and never a pass. One "
+        "unspoken item is enough to hold the departure on its own.",
+        "core/skill.py",
+    ),
+    (
+        "05",
+        "Replay the whole call",
+        "再現",
+        "`make replay ID=` recomputes the decision from the stored bundle. Identical is the only "
+        "verdict that counts as verified; a tampered bundle reports MISMATCH.",
+        "agent/replay.py",
+    ),
+)
+
+#: Bagian yang punya `id` dan karena itu boleh ditautkan kepala halaman, DALAM URUTAN DOKUMEN.
+#: `pathways` (papan) sengaja TIDAK ada di sini: ia hanya dirender ketika store terbaca, dan
+#: tautan kepala yang menunjuk bagian yang tidak ada adalah tautan yang berbohong kepada
+#: keyboard. Ia disisipkan :func:`_landing_nav` — pada tempatnya, di antara `gate` dan
+#: `lessons` — HANYA ketika papannya benar-benar ikut. Urutan dokumen dan bukan "yang paling
+#: berguna dulu": kepala halaman yang menyebut bagian dengan urutan berbeda dari halamannya
+#: adalah peta yang harus dipelajari, dan jalan pintas ke papan sudah ada dua kali (tautan
+#: lompat dan tombol `Screen A`).
+LANDING_SECTIONS = (
+    ("gate", "Without it"),
+    ("lessons", "How it works"),
+    ("eternity", "Open the board"),
+)
+
+#: Kaki halaman bergaya kolom (susunan `kage.html`). Tiap tautan menunjuk sesuatu yang route-nya
+#: BENAR-BENAR dilayani aplikasi ini; tesnya menembak semuanya, jadi kolom ini tidak bisa
+#: menumbuhkan tautan hiasan.
+FOOTER_COLUMNS = (
+    (
+        "Screens",
+        (
+            ("/app", "The board (Screen A)"),
+            ("/", "This page"),
+            ("/kage", "Illustrated page"),
+        ),
+    ),
+    (
+        "Read the JSON",
+        (
+            ("/api/routes", "/api/routes"),
+            ("/api/watchlist", "/api/watchlist"),
+            ("/api/health", "/api/health"),
+        ),
+    ),
+)
+
+
+def _sec_head(number: str, title: str, japanese: str) -> str:
+    """Kepala bagian: label bernomor `NN — KATA`, garis, lalu satu istilah Jepang.
+
+    Bentuknya diambil dari `kage.html` (`.sec-head`), idiom penomorannya dari ADR-028. Label
+    tetap `<p class="kicker">` supaya SATU bentuk melayani hero, kepala bagian, dan kepala kolom
+    papan — dan supaya penomorannya bisa dibaca dengan satu regex, bukan tiga.
+    """
+    return (
+        '<div class="sec-head">'
+        f'<p class="kicker">{escape(number, quote=True)} — {escape(title, quote=True)}</p>'
+        '<span class="rule" aria-hidden="true"></span>'
+        f'<span class="jp" lang="ja">{escape(japanese, quote=True)}</span>'
+        "</div>"
+    )
+
+
+def _landing_nav(has_board: bool) -> str:
+    """Kepala halaman: tautan lompat, wordmark, tautan bagian, dan jalan ke Layar A.
+
+    Susunannya `header.nav` milik `kage.html`, dengan tiga hal yang TIDAK ikut, dan ketiganya
+    disengaja: ia tidak `position: fixed` (dilarang di seluruh stylesheet ini — larangan yang
+    sekaligus membeli "nol perangkap fokus"), ia tidak menukar label Inggris dengan label
+    Jepang saat hover (itu akan menjadikan hover satu-satunya jalan ke sebuah kata), dan ia
+    tidak membawa tombol menu yang membuka apa pun (nol keadaan yang harus ditutup).
+    """
+    head, *rest = LANDING_SECTIONS
+    targets = (head, ("pathways", "Departures"), *rest) if has_board else LANDING_SECTIONS
+    links = "".join(
+        f'<li><a href="#{escape(anchor, quote=True)}">{escape(label, quote=True)}</a></li>'
+        for anchor, label in targets
+    )
+    skip = ("pathways", "Skip to the departures board") if has_board else ("hero", "Skip to the page")
+    return (
+        '<nav class="topnav" aria-label="Sections of this page">'
+        f'<a class="skip" href="#{skip[0]}">{skip[1]}</a>'
+        '<a class="brand" href="#hero">'
+        '<b>TENKO<span class="jp" lang="ja">点呼</span></b>'
+        "<i>pre-departure roll call — simulated</i></a>"
+        f'<ul class="topnav-links">{links}</ul>'
+        '<a class="topnav-go" href="/app" aria-label="Open the watchlist board — Screen A">'
+        "Screen A</a>"
+        "</nav>"
+    )
+
+
+def _landing_footer() -> str:
+    """Kisi kaki halaman (`.foot-grid` milik `kage.html`), dipasang di ATAS kaki tetap `_shell`.
+
+    Yang di bawahnya tidak berubah satu kalimat pun: jam JST, "read-only, no RYO tool, no LLM",
+    kalimat keyboard, dan kalimat klien. Kisi ini menambahkan jalan pulang, bukan menggantikan
+    pengakuan.
+    """
+    columns = "".join(
+        f'<div class="foot-col"><h2 class="foot-h">{escape(title, quote=True)}</h2><ul>'
+        + "".join(
+            f'<li><a href="{escape(href, quote=True)}">{escape(label, quote=True)}</a></li>'
+            for href, label in entries
+        )
+        + "</ul></div>"
+        for title, entries in FOOTER_COLUMNS
+    )
+    return (
+        '<div class="foot-grid">'
+        '<div class="foot-brand">'
+        '<p class="brand-mark">TENKO <span lang="ja">点呼</span></p>'
+        '<p class="sub">A pre-departure roll call for a practice trading agent: ten items '
+        "called out one at a time, each pointing at the tool.field it was read from. No funds, "
+        "no wallet, no signing keys, no real execution.</p>"
+        f'<p class="sub">{escape(SCENERY_NOTE_LEAD, quote=True)}'
+        '<a href="/kage">illustrated page</a>'
+        f"{escape(SCENERY_NOTE_TAIL, quote=True)}</p>"
+        "</div>"
+        f"{columns}"
+        "</div>"
+    )
+
 
 def _landing_board(entries: list[dict[str, Any]]) -> str:
     """Papan keberangkatan: baris NYATA dari store, atau string kosong.
@@ -1351,6 +1527,10 @@ def _landing_board(entries: list[dict[str, Any]]) -> str:
     boleh terjadi adalah landing berisi baris contoh: `docs/spec.md` §8 menyebut "data
     fabrikasi/placeholder sebagai nyata" sebagai hal yang tidak dinilai, dan `rules-compliance`
     membacanya lebih keras dari itu.
+
+    ADR-029 mengganti pakaiannya (kepala bagian bernomor, `id="pathways"`, tabel penuh lebar)
+    dan TIDAK mengganti satu pun kolom, hitungan, atau kalimat caption-nya: struktur tabel
+    adalah bagian yang dinilai, bukan bagian yang ditata ulang.
     """
     if not entries:
         return ""
@@ -1376,8 +1556,8 @@ def _landing_board(entries: list[dict[str, Any]]) -> str:
             "</tr>"
         )
     return (
-        '<section class="board" aria-labelledby="board-h">'
-        '<p class="kicker">03 — Departures</p>'
+        '<section class="board sec" id="pathways" aria-labelledby="board-h">'
+        f"{_sec_head('03', 'Departures', '発車標')}"
         '<h2 id="board-h">Departures · simulated</h2>'
         '<table class="lb">'
         '<colgroup><col class="c-when"><col class="c-sym"><col class="c-call"><col></colgroup>'
@@ -1397,6 +1577,17 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
     Halaman ini TIDAK pernah 503: store yang mati menghilangkan PAPANnya, bukan halamannya —
     landing yang gagal akan menjadi kesan pertama yang salah tentang produk yang justru dibangun
     untuk tetap jujur saat sumbernya hilang.
+
+    Susunan bagiannya (ADR-029) diambil dari `kage.html` — karya teman pemilik repo yang dipakai
+    dengan izin (ADR-026) — dan hero-nya tetap formula tangkapan layar awwwards (ADR-028):
+
+    * `nav` — wordmark, tautan bagian, jalan ke Layar A, tautan lompat;
+    * `01 hero` — apa itu Tenko: void, satu cahaya, judul raksasa di sepertiga bawah;
+    * `02 gate` — apa yang salah tanpa panggilan ini;
+    * `03 pathways` — **papan keberangkatan, baris NYATA dari store** (hilang bila store mati);
+    * `04 lessons` — cara kerjanya, lima langkah + tiga angka yang punya pemeriksanya;
+    * `05 eternity` — penutup dan tautan ke `/app`;
+    * kaki — kisi tautan di atas kaki tetap `_shell`.
     """
     proofs = "".join(
         f'<li><p class="fig">{escape(figure, quote=True)}</p>'
@@ -1404,31 +1595,34 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         f'<p class="sub">{escape(body, quote=True)}</p></li>'
         for figure, label, body in LANDING_PROOFS
     )
+    steps = "".join(
+        f'<li class="les"><span class="k">{escape(number, quote=True)}</span>'
+        f"<h3>{escape(title, quote=True)}"
+        f'<em class="jp" lang="ja">{escape(japanese, quote=True)}</em></h3>'
+        f"<p>{escape(sentence, quote=True)}</p>"
+        f'<span class="t">{escape(module, quote=True)}</span></li>'
+        for number, title, japanese, sentence, module in LANDING_STEPS
+    )
     board = _landing_board(entries or [])
-    # Urutan bagian, dan tiap bagian memakai idiom label bernomor `NN — KATA` (ADR-028):
-    # 01 hero (ruang paling mahal, dan yang dibeli dengan ruang itu adalah KEKOSONGAN),
-    # 02 ritual, 03 papan, 04 bukti, 05 kenapa. Nomor 03 boleh hilang bersama papannya ketika
-    # store tak terbaca — celah di penomoran itu DISENGAJA dan lebih jujur daripada menomori
-    # ulang: bagian yang hilang memang hilang, dan halaman tidak berpura-pura utuh.
-    #
-    # Papan tidak lagi berdiri langsung di bawah hero seperti ADR-027, dan itu pilihan yang
-    # dibayar: hero sekarang setinggi satu layar penuh, jadi papan berada di bawah lipatan.
-    # Yang menggantikan kedekatan itu adalah satu tautan `Open the board` di sepertiga bawah
-    # layar pertama — satu klik, bukan satu gulir, ke papan yang SAMA di `/app`.
+    # Penomoran bagian boleh BERLUBANG: nomor 03 hilang bersama papannya ketika store tak
+    # terbaca, dan celah itu lebih jujur daripada menomori ulang — bagian yang hilang memang
+    # hilang, dan halaman tidak berpura-pura utuh.
     body = (
+        f"{_landing_nav(bool(board))}"
         # Rel dirender server pada 0%: halaman tanpa JS tetap punya rel utuh, hanya keretanya
         # yang diam. `aria-hidden` karena posisi gulir sudah dibawa bilah gulir browser — ini
         # kanal kedua, bukan satu-satunya.
         '<div class="railbar" aria-hidden="true"><div class="track">'
         '<span class="train"></span></div>'
-        '<ul class="stops"><li>Departure</li><li>The board</li><li>Proof</li><li>Why</li></ul>'
+        '<ul class="stops"><li>Departure</li><li>Without it</li><li>The board</li>'
+        "<li>How</li><li>Onward</li></ul>"
         "</div>"
-        # HERO (ADR-028). Tiga hal saja di layar pertama, dan yang KETIGA adalah ruang kosong:
-        # label mono di kiri atas, kekosongan yang disengaja di tengah, judul + satu kalimat +
-        # satu tautan di sepertiga bawah. Tidak ada gambar dan tidak ada kolom kedua — hero
-        # dua-kolom teks|gambar yang digantinya terbaca seperti brosur, dan brosur adalah hal
-        # yang paling tidak dipercaya seorang juri di detik pertama.
-        '<section class="hero">'
+        # HERO (ADR-028, TIDAK dibongkar ADR-029). Tiga hal saja di layar pertama, dan yang
+        # KETIGA adalah ruang kosong: label mono di kiri atas, kekosongan yang disengaja di
+        # tengah, judul + satu kalimat + satu tautan di sepertiga bawah. Tidak ada gambar dan
+        # tidak ada kolom kedua — hero dua-kolom teks|gambar terbaca seperti brosur, dan brosur
+        # adalah hal yang paling tidak dipercaya seorang juri di detik pertama.
+        '<section class="hero" id="hero">'
         '<div class="hero-in">'
         # Baris atas: label bernomor di kiri, dan di kanan kalimat yang menyatakan seluruh
         # halaman ini simulasi. Kalimat itu tetap di layar PERTAMA dengan sengaja
@@ -1450,21 +1644,33 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         'serves, as JSON">See every route</a></p>'
         "</div>"
         "</div>"
+        # Tanda tegak di tepi kanan hero — satu-satunya hiasan layar pertama, dan ia
+        # `aria-hidden` karena kata yang sama sudah dibacakan wordmark di kepala halaman.
+        '<p class="hero-side" aria-hidden="true"><span lang="ja">点呼</span></p>'
         "</section>"
-        # 02 — ritualnya. Prosa yang dulu berdesakan di hero pindah ke sini, di mana ia punya
-        # lebar baca dan tidak menghabiskan layar pertama.
-        '<section class="ritual" aria-labelledby="ritual-h">'
-        '<p class="kicker">02 — <span lang="ja">指差喚呼</span> Shisa kanko</p>'
-        '<h2 id="ritual-h">Point at it, and say it out loud</h2>'
-        '<p class="lede">Japanese train crews do not trust a signal they have only looked at. '
-        "They point at it and say it aloud — shisa kanko — and the error rate collapses. Tenko "
-        "runs that ritual over market evidence: every item names the tool.field it came from, "
-        "the value it read, and the as_of it was read at.</p>"
+        # 02 — apa yang salah tanpanya. Susunan `gate` milik `kage.html`: judul pendek di kiri,
+        # prosa di kanan, lalu satu baris fakta struktural di bawah garis.
+        '<section class="sec" id="gate" aria-labelledby="gate-h">'
+        f"{_sec_head('02', 'Without the roll call', '見落とし')}"
+        '<div class="gate-grid">'
+        '<h2 id="gate-h">One verdict, and no idea what it never checked.</h2>'
+        '<div class="gate-copy">'
+        '<p class="lead">Almost every signal agent acts on a single verdict without checking '
+        "the evidence that is available — and, worse, without knowing which evidence is "
+        "<em>not</em> available: stale data, an <code>unavailable</code> section, a plan that "
+        "does not exist. The common guardrail treats missing data as a pass, or as a zero.</p>"
+        '<p class="body">Tenko never does. A null is not a zero, and it is not silence either: '
+        "it is an <strong>unspoken</strong> item, printed on the card, and it is enough to hold "
+        "the departure on its own.</p>"
         '<ul class="pills">'
         '<li class="on">Simulated · no funds</li>'
         "<li>5 RYO tools · 10 items</li>"
         "<li>Replay byte-identical</li>"
         "</ul>"
+        '<a class="arrowlink" href="#lessons"><span>See how a call is made</span>'
+        '<span class="ar" aria-hidden="true">→</span></a>'
+        "</div>"
+        "</div>"
         '<div class="rails">'
         '<p><span class="rail-label">All clocks</span><span>JST — as the board reads them</span></p>'
         '<p><span class="rail-label">Decision path</span><span>Deterministic · no LLM</span></p>'
@@ -1472,51 +1678,52 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         "</div>"
         "</section>"
         f"{board}"
-        '<section class="proofs" aria-labelledby="proofs-h">'
-        '<div class="proofs-in">'
-        '<p class="kicker">04 — Proof</p>'
-        '<h2 id="proofs-h">Three numbers you can check yourself</h2>'
-        f'<ol class="figs">{proofs}</ol>'
+        # 04 — cara kerjanya. Kepala dua kolom (`cur-head`), tiga angka yang punya pemeriksanya,
+        # lalu lima baris langkah (`cur`/`les`) yang masing-masing menunjuk modul pelaksananya.
+        '<section class="sec lessons" id="lessons" aria-labelledby="lessons-h">'
+        f"{_sec_head('04', 'How a call is made', '指差喚呼')}"
+        '<div class="cur-head">'
+        '<div class="cur-say">'
+        '<h2 id="lessons-h">Point at it, and say it out loud</h2>'
+        '<p class="lede">Japanese train crews do not trust a signal they have only looked at. '
+        "They point at it and say it aloud — shisa kanko — and the error rate collapses. Tenko "
+        "runs that ritual over market evidence: every item names the tool.field it came from, "
+        "the value it read, and the as_of it was read at.</p>"
         "</div>"
         # Gambar: `<img>` sungguhan dari daftar TERTUTUP `IMAGE_NAMES`, dilayani origin ini
-        # sendiri (`img-src \'self\'`), dengan ukuran intrinsiknya supaya tidak ada geseran tata
+        # sendiri (`img-src 'self'`), dengan ukuran intrinsiknya supaya tidak ada geseran tata
         # letak saat ia tiba. `alt=""` disengaja dan BENAR: ia pemandangan, bukan bukti — dan
-        # `<div class="proofs-art">` sengaja TIDAK memuat teks apa pun, sehingga klaim "nol
-        # kalimat duduk di atas piksel gambar" adalah fakta tata letak, bukan harapan.
+        # kotaknya sengaja TIDAK memuat teks apa pun, sehingga klaim "nol kalimat duduk di atas
+        # piksel gambar" adalah fakta tata letak, bukan harapan.
         '<div class="proofs-art">'
         f'<img src="/ui/img/{PROOF_IMAGE}" alt="" width="1024" height="1499">'
         "</div>"
+        "</div>"
         f'<p class="art-note">{escape(ART_NOTE, quote=True)}</p>'
+        f'<ol class="figs">{proofs}</ol>'
+        f'<ol class="cur">{steps}</ol>'
         "</section>"
-        # Pita penuh-lebar: satu-satunya tempat halaman ini memutus kolom baca. Teksnya duduk
-        # di atas warna dasar yang PADAT (scrim `.band-art::after`), bukan langsung di atas
-        # piksel gambar — tidak ada satu pun kalimat yang kontrasnya bergantung pada gambar.
-        '<section class="band why" aria-labelledby="why-h">'
+        # 05 — penutup. Pita gambar penuh-lebar, lalu teksnya DI BAWAHNYA (bukan di atasnya),
+        # dan satu tautan ke papan yang sama seperti di hero: seorang juri yang menggulir sampai
+        # dasar tidak boleh harus menggulir balik untuk menemukan produknya.
+        '<section class="band fin" id="eternity" aria-labelledby="fin-h">'
         '<div class="band-art">'
         f'<img src="/ui/img/{BAND_IMAGE}" alt="" width="1536" height="1024">'
         "</div>"
         '<div class="band-in">'
-        '<p class="kicker">05 — Why</p>'
-        '<h2 id="why-h">What goes wrong without it</h2>'
-        '<p class="answer">Almost every signal agent acts on a single verdict without checking '
-        "the evidence that is available — and, worse, without knowing which evidence is "
-        "<em>not</em> available: stale data, an <code>unavailable</code> section, a plan that "
-        "does not exist. The common guardrail treats missing data as a pass, or as a zero.</p>"
-        '<p class="sub">Tenko never does. A null is not a zero, and it is not silence either: it '
-        "is an <strong>unspoken</strong> item, printed on the card, and it is enough to hold the "
-        "departure on its own.</p>"
-        # Satu tautan, di DASAR halaman, dan dengan labelnya sendiri. Halaman `/kage` tidak
-        # membaca store dan tidak menjawab pertanyaan juri mana pun, jadi ia tidak boleh berdiri
-        # di sebelah "Open the board" di hero: tautan yang tampak setara akan membelah 30 detik
-        # pertama seorang juri antara papan dan pemandangan. Ia juga tidak boleh disembunyikan —
-        # halaman yang dilayani tetapi tidak pernah disebut adalah route yang hilang.
-        '<p class="sub">Scenery, not evidence: an <a href="/kage">illustrated page</a> ships '
-        "with this app. It reads nothing from the store, calls no RYO tool, and every figure "
-        "printed on it is design copy — the measured numbers are on the board.</p>"
+        '<p class="kicker">05 — Departure</p>'
+        '<h2 id="fin-h">Open the board</h2>'
+        '<p class="lede">Every symbol the store holds a current decision for, with the item '
+        "that holds it and the count of items that were never spoken at all. Ten rows behind "
+        "each call, each one pointing at where it was read and when.</p>"
+        '<p class="cta"><a class="go" href="/app" aria-label="Open the watchlist board — '
+        'Screen A, every symbol with a current decision">Open the board</a>'
+        '<a class="alt" href="/api/watchlist" aria-label="Read the same board as JSON">'
+        "Read it as JSON</a></p>"
         "</div>"
         "</section>"
     )
-    return _shell("Tenko (点呼) — simulated", banner, body, now, screen="landing")
+    return _shell("Tenko (点呼) — simulated", banner, body, now, screen="landing", foot_top=_landing_footer())
 
 
 # --- halaman `/kage` ----------------------------------------------------------------------

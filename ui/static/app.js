@@ -7706,7 +7706,7 @@
   function motion() {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const targets = document.querySelectorAll(
-      ".hero .kicker, .hero h1, .hero .stand, .hero .cta, .ritual .kicker, .ritual h2, .lede, .rails, .board, .proofs-in, .band-in, .figs li"
+      ".hero .kicker, .hero h1, .hero .stand, .hero .cta, .sec-head, .gate-grid h2, .gate-copy, .rails, .board .lb, .cur-say, .figs li, .les, .band-in"
     );
     if (!targets.length) return;
     document.documentElement.classList.add("js-motion");

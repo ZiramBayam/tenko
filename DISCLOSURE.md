@@ -14,11 +14,20 @@ as it is. An asset that is merely planned is not written up as though it had alr
   `LOG.md`.
 
 ## Pre-existing materials
-- **`ui/static/img/` (14 `.webp`), `ui/static/kage.css`, `ui/static/vendor/kage-scene.js`, and the seven `.woff2`
-  faces Onest 300/400/500/700, NotoJP 400 and Wordmark 500/600 in `ui/static/fonts/`** — artwork and the "Kage"
-  landing page by a friend of the repo owner, **used with permission** (ADR-026, 7 Sep 2026). Brought in from the
-  owner's copy of that project. Not written for this hackathon; everything else here was.
+- **`ui/static/kage.html`, `ui/static/kage.css`, `ui/static/img/` (14 `.webp`), `ui/static/vendor/kage-scene.js`,
+  and the seven `.woff2` faces Onest 300/400/500/700, NotoJP 400 and Wordmark 500/600 in `ui/static/fonts/`** —
+  artwork and the "Kage" landing page by a friend of the repo owner, **used with permission** (ADR-026, 7 Sep 2026).
+  Brought in from the owner's copy of that project. Not written for this hackathon; everything else here was.
   The licences of the three type families are **not yet verified** — see the **Fonts** section.
+  **Added 7 Sep 2026 (ADR-029), and it is an addition to what is disclosed rather than a change of fact:**
+  `ui/static/kage.html` itself was never named in this bullet, only the CSS and the assets around it — it is named
+  now. And its influence is no longer confined to `/kage`: the **section arrangement** of the judged landing page
+  `/` (`nav` → `hero` → `gate` → `pathways` → `lessons` → `eternity` → columned footer) and its section-head idiom
+  are derived from that file. What is *not* derived from it: zero lines of `kage.html`/`kage.css` are imported,
+  served or copied into `/` (the page loads `/ui/tenko.css` only, and a test forbids `@import` outright), zero of
+  its colours travel with the arrangement, and its WebGL scene, fixed-position layers and foreground image layers
+  are deliberately left behind — reasons in ADR-029 items 2 and 3. The hero formula on that same page comes from a
+  different source, disclosed under **Reference material**.
 - All other code was written for this hackathon.
 
 ## How to verify the list below

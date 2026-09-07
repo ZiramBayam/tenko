@@ -146,6 +146,49 @@ Yang **tidak** berubah, dan dijaga tes:
 
 ---
 
+## Susunan `/` (ADR-029, 7 Sep 2026) — dipinjam dari `kage.html`, dan apa yang tidak ikut
+
+ADR-028 membuat layar PERTAMA `/` menjadi apa yang dimaksud pemilik repo; yang ada di bawahnya
+tidak ikut. Halaman yang susunannya memang bekerja sudah ada di repo ini sejak ADR-026:
+`ui/static/kage.html`, karya teman pemilik repo yang dipakai dengan izin. ADR-029 menyusun ulang
+`/` mengikuti susunan itu — dan HANYA `/`.
+
+Urutan bagiannya sekarang, dan pertanyaan yang dijawab masing-masing:
+
+| Bagian | `id` | Pertanyaan yang dijawab | Sumber datanya |
+|---|---|---|---|
+| kepala halaman | — | "ke mana saya bisa pergi dari sini?" | tautan statis; papan hanya disebut kalau papannya ada |
+| `01` hero | `hero` | "ini apa?" | teks |
+| `02` gate | `gate` | "apa yang salah tanpanya?" | teks |
+| `03` pathways | `pathways` | "simbol mana yang paling dekat GO?" | **`/api/watchlist`, baris NYATA dari store** |
+| `04` lessons | `lessons` | "bagaimana satu panggilan dibuat?" | teks + lima nama berkas yang ada di repo ini |
+| `05` eternity | `eternity` | "sekarang ke mana?" | tautan `/app` |
+| kaki | — | "apa lagi yang dilayani aplikasi ini?" | tautan; keempat kalimat pengakuan `_shell` |
+
+Empat hal dari halaman itu sengaja **tidak** ikut, dan tiap alasannya keras:
+
+- **`position: fixed`** (nav, kanvas, grain, rail, kursor) — dilarang di seluruh
+  `frontend/styles/app.css`, dan larangan itu yang membeli "nol overlay, nol perangkap fokus".
+  Kepala halaman `/` karena itu MENGALIR, dan tingginya (50px) dihitung ke dalam `--chrome`
+  supaya hero tetap persis satu layar.
+- **Lapisan `.fg`** (gambar latar depan di tiap bagian) — itu teks di atas piksel gambar, yaitu
+  satu-satunya cara membatalkan seluruh pengukuran kontras halaman ini. Kedua gambar landing
+  tetap sendirian di dalam kotaknya.
+- **Tukar-label EN→JP saat hover** — hover tidak boleh menjadi satu-satunya jalan ke sebuah kata.
+- **Scene WebGL-nya.** Ia boleh secara CSP (`script-src 'self'`, dan berkasnya memang dilayani),
+  tetapi ia menuntut tiga lapisan `position: fixed`, dan `makeGrain()` melukis dari
+  `canvas.toDataURL()` — yang menuntut `img-src data:` pada layar yang merender nilai asal-RYO/DB.
+  Pelonggaran itu ada untuk `/kage` saja justru karena halaman itu tidak membaca store (ADR-026
+  butir 11), dan ia tidak akan dibuka untuk `/`. Cahaya hero tetap `radial-gradient` CSS murni.
+
+Yang ikut hanya susunan dan bentuk tipografinya: nol `@import`, nol warna, nol aset baru.
+Layar A dan B ikut **warnanya**, bukan strukturnya — `test_the_visual_language_never_grows_new_
+structure_on_screen_a_and_b` melarang `topnav`/`sec-head`/`railbar`/`band-art`/`foot-grid`/`<img>`
+muncul di sana, karena "merapikan Layar A seperti landing" adalah cara paling mudah mendorong
+tabel yang dinilai ke bawah lipatan 1280×720.
+
+---
+
 ## `/kage` — halaman gambar, dan kenapa ia bukan `/`
 
 Pemilik repo membawa masuk sebuah halaman bergambar dari proyek temannya (ADR-026). Ia dilayani
@@ -277,11 +320,19 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
       `rgba()` yang menerangi, nol hex baru), baris kisi kosong yang melar di tengah, dan
       tautan `/app` tetap di dalam layar pertama itu.
       → `test_the_first_screen_is_a_void_with_one_light_and_a_two_line_title`
-- [x] **Landing (`/`) diuji dengan tuntutan yang sama seperti Layar A/B**: satu `h1` lalu `h2`
-      saja tanpa lompatan tingkat, tiap tautan bernama, aksara Jepang ber-`lang="ja"`, rel gulir
-      `aria-hidden` karena ia kanal kedua (posisi gulir sudah dibawa bilah gulir browser), dan
-      banner SIMULATED dirender server.
+- [x] **Landing (`/`) diuji dengan tuntutan yang sama seperti Layar A/B**: satu `h1` di depan
+      dan tiap tingkat berikutnya paling banyak satu langkah lebih dalam (ADR-029 melonggarkan
+      ini dari "h2 saja": lima langkah bagian `04` ADALAH anak dari `h2`-nya, dan merendahkannya
+      menjadi paragraf akan menghapus struktur yang benar dari pembaca layar demi memuaskan
+      sebuah tes), tiap tautan bernama, aksara Jepang ber-`lang="ja"`, rel gulir `aria-hidden`
+      karena ia kanal kedua (posisi gulir sudah dibawa bilah gulir browser), dan banner
+      SIMULATED dirender server.
       → `test_the_landing_is_reachable_and_readable_the_way_screen_a_and_b_are`
+- [x] **Susunan `/` dipaku sebagai URUTAN** (ADR-029), bukan sebagai daftar bagian yang
+      kebetulan ada: papan berdiri di TENGAH (bukan di dasar halaman), tiap tautan kepala/kaki
+      menunjuk `id` yang ada di halaman itu atau route yang dijawab 200, dan lima langkah
+      bagian `04` menunjuk berkas yang benar-benar ada di repo ini.
+      → `test_the_landing_is_laid_out_in_the_order_kage_lays_its_page_out`
 
 - [x] **Nilai yang tidak ada adalah KATA, bukan tanda hubung.** Sel kosong dulu berisi em-dash
       abu-abu (`<span class="dim">—</span>`), yang di layar terbaca seperti sebuah nilai.
@@ -294,14 +345,22 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
       `<th scope="col">` dan `<th scope="row">`, banner ber-`role="note"`.
 - [x] **Tautan lompat tanpa JS.** `/ui` → "lompat ke tabel watchlist" (`#watchlist`);
       `/ui/decision/{id}` → "lompat ke sepuluh baris tunjuk→sebut" (`#panggilan`). Keduanya
-      SELALU terlihat — tidak ada tautan yang hanya muncul saat fokus, karena layar ini tidak
-      menyembunyikan apa pun dari siapa pun.
-      → `test_every_skip_link_points_at_an_id_that_exists_on_the_page`
+      SELALU terlihat — tidak ada tautan yang hanya muncul saat fokus, karena kedua layar itu
+      tidak menyembunyikan apa pun dari siapa pun. `/` menambah yang KETIGA sejak ADR-029, dan
+      ia satu-satunya yang terpotong sampai difokus (`.skip`): ia berdiri di depan kepala
+      halaman, jadi menampilkannya terus-menerus berarti menaruh sebuah tombol di atas
+      wordmark — sementara menyembunyikannya dari MATA tidak menyembunyikannya dari Tab, dan
+      Tab pertama itulah gunanya. Ia menunjuk `#pathways` ketika papannya ada dan `#hero`
+      ketika tidak; tautan yang menunjuk bagian yang tidak dirender adalah tombol yang
+      berbohong kepada keyboard.
+      → `test_every_skip_link_points_at_an_id_that_exists_on_the_page`,
+      `test_the_landing_board_shows_real_rows_or_no_board_at_all`
 - [x] **Terbaca 1280×720.** `<meta name="viewport" content="width=1280">`, badan halaman
       dibatasi 1240px, **sembilan** kolom kartu dan sembilan kolom watchlist berlebar tetap
       supaya kolom `reason` (Layar B) dan kolom "apa yang menahan" (Layar A) tidak terhimpit,
       teks minimum 12,5px. Hero ADR-028 setinggi persis satu layar (`100vh - var(--chrome)`,
-      dengan `--chrome` = banner melekat 52px + railbar 39px), jadi judul di sepertiga bawah
+      dengan `--chrome` = banner melekat 52px + kepala halaman 50px + railbar 39px = 141px),
+      jadi judul di sepertiga bawah
       berada DI ATAS lipatan pada 720px — bukan di bawahnya. Di bawah 1000px lebar tetap itu
       dilepas kembali (`table-layout: auto`), kolom bukti/rails menumpuk jadi satu, hero
       kembali setinggi isinya (`min-height: 0`), dan gambar hiasan `.proofs-art` menghilang

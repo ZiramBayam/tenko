@@ -365,8 +365,8 @@ function motion(): void {
   // ber-`opacity: 0` hanya karena ia kebetulan cocok dengan pemilih yang terlalu lebar.
   const targets = document.querySelectorAll<HTMLElement>(
     ".hero .kicker, .hero h1, .hero .stand, .hero .cta, " +
-      ".ritual .kicker, .ritual h2, .lede, .rails, " +
-      ".board, .proofs-in, .band-in, .figs li"
+      ".sec-head, .gate-grid h2, .gate-copy, .rails, " +
+      ".board .lb, .cur-say, .figs li, .les, .band-in"
   );
   if (!targets.length) return;
 

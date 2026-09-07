@@ -823,3 +823,88 @@ sebagai penghapusan, supaya kolom gambar hero tidak bisa kembali membawa pasanga
 Konsekuensi: `frontend/styles/app.css` (hero ditulis ulang, dua token baru) · `frontend/src/main.ts` (target reveal,
 `lerp`, parallax) · `ui/screens.py` (markup landing, `HERO_IMAGE` dihapus, `ART_NOTE` diperbaiki) ·
 `tests/test_ui.py` (satu tes baru, satu tes diperketat, hash bundel diperbarui) · `ui/README.md` · `DISCLOSURE.md`.
+
+## ADR-029 (DITERIMA 7 Sep 2026) Susunan `/` diambil dari `kage.html`; hero awwwards tetap; Layar A/B ikut warnanya, bukan strukturnya
+
+Konteks: sesudah ADR-028 hero landing sudah menjadi apa yang dimaksud pemilik repo, tetapi apa yang ada DI BAWAHNYA
+tidak ikut — empat bagian yang bentuknya diputuskan satu per satu, tanpa satu ritme yang menyatukannya. Halaman yang
+susunannya memang bekerja sudah ada di repo ini sejak ADR-026: `ui/static/kage.html`, karya teman pemilik repo yang
+dipakai dengan izin, dilayani apa adanya di `/kage`. Pemilik repo memutuskan `/` disusun ulang mengikuti susunan itu,
+digabung dengan formula hero ADR-028, dan sudah menimbang risikonya terhadap deadline 8 Sep 23:59 JST.
+
+Keputusan: `/` ditulis ulang dengan susunan `kage.html` — dan HANYA `/`.
+
+1. **Yang diambil adalah SUSUNAN dan bentuk tipografi, bukan berkasnya.** Urutan bagiannya sekarang
+   `header.nav` → `hero` → `gate` → `pathways` → `lessons` → `eternity` → kaki berkolom, dan tiap bagian memakai
+   idiom `sec-head` halaman itu (label bernomor · garis rambut · satu istilah Jepang). `ui/static/kage.css` **tidak**
+   di-`@import` (tesnya melarang, dan CSP `style-src 'self'` melayani satu berkas gaya per halaman); nol warnanya
+   ikut — setiap warna di bawah adalah token ADR-027 yang sudah diukur. Isi tiap bagian: `hero` = apa itu Tenko,
+   `gate` = apa yang salah tanpanya, `pathways` = **papan keberangkatan dengan baris NYATA dari store**,
+   `lessons` = cara kerjanya (lima langkah + tiga angka yang punya pemeriksanya), `eternity` = penutup + tautan
+   `/app`, kaki = tautan, `/kage`, dan keempat kalimat pengakuan `_shell` yang tidak berubah satu kata pun.
+2. **Empat hal dari `kage.html` sengaja TIDAK ikut**, dan tiap alasannya keras, bukan selera:
+   `position: fixed` (nav, kanvas, grain, rail, kursor) dilarang di seluruh `frontend/styles/app.css` dan larangan
+   itu yang membeli "nol overlay, nol perangkap fokus"; lapisan `.fg` (gambar latar depan di tiap bagian) adalah teks
+   di atas piksel gambar, satu-satunya cara membatalkan seluruh pengukuran kontras halaman ini; tukar-label EN→JP
+   saat hover menjadikan hover satu-satunya jalan ke sebuah kata; dan menu burger menambahkan keadaan yang harus
+   ditutup di halaman yang mengklaim "Esc tidak punya apa pun untuk ditutup".
+3. **Scene WebGL TIDAK dipakai di `/`, dan itu keputusan yang dibuat sadar.** `three.min.js` + `kage-scene.js` sudah
+   dilayani dan CSP `script-src 'self'` mengizinkannya, jadi yang menghalangi bukan CSP melainkan tiga hal lain:
+   (a) scene-nya menuntut `#gl`/`#grain`/`#vignette` `position: fixed` — butir 2 di atas; (b) `makeGrain()` melukis
+   dari `canvas.toDataURL()`, yang menuntut `img-src data:` pada layar yang merender nilai asal-RYO/DB, dan itu
+   TIDAK akan dibuka (ADR-026 butir 11 membatasinya pada `/kage` justru karena halaman itu tidak membaca store);
+   (c) `test_the_kage_page_never_hijacks_the_screen_that_is_judged` menuntut nol `/ui/vendor/` di `/`, dan 608 KB
+   three.js di halaman pertama yang dibuka juri dibayar dengan waktu render, bukan dengan nilai. Cahaya hero tetap
+   `radial-gradient` CSS murni — dan itu memang formula rujukannya, bukan penggantinya.
+4. **Hero ADR-028 TIDAK dibongkar.** Void rata, satu sumber cahaya berfalloff lebar, label mono bernomor, judul
+   raksasa dua baris di sepertiga bawah, tengah yang kosong, tautan `/app` di dalam layar pertama — keenamnya tetap
+   dan tetap dipaku `test_the_first_screen_is_a_void_with_one_light_and_a_two_line_title`. Yang ditambahkan hanya
+   dua hiasan yang tidak memakan ruang tegak: titik merah `::before` pada label, dan tanda tegak `点呼` di tepi
+   kanan (`aria-hidden`, kata yang sama sudah dibacakan wordmark).
+5. **Layar A dan B ikut BAHASA VISUALNYA, bukan strukturnya.** Nol perubahan pada `<table id='watchlist'>`,
+   `<table class='card'>`, urutan kolom, `scope`, `aria-label`, dan markup yang identik antara `ui/screens.py` dan
+   `frontend/src/render.ts`. `test_the_visual_language_never_grows_new_structure_on_screen_a_and_b` melarang
+   `topnav`/`sec-head`/`railbar`/`band-art`/`foot-grid`/`<img>` muncul di sana — bukan karena kelas itu jahat,
+   melainkan karena "merapikan Layar A seperti landing" adalah cara paling mudah mendorong tabel yang dinilai ke
+   bawah lipatan 1280×720.
+6. **Yang DIBUANG dari ADR-027/028:** bagian `02 — ritual` dan `04 — Proof` berhenti berdiri sendiri (prosanya
+   pindah ke `gate` dan `lessons`); `.ritual`, `.proofs`, `.proofs-in`, `.board{padding}` dan `.why` hilang dari
+   stylesheet; `.cta` tidak lagi berjarak ke bawah; penomoran bagian yang dulu hanya dipaku dua yang pertama kini
+   dipaku UTUH (`["01","02","03","04","05"]`). Kalimat "Scenery, not evidence" pindah dari badan halaman ke kaki.
+   Tidak ada isi yang hilang: setiap kalimat ADR-027/028 masih tercetak, di bagian yang lain.
+7. **Tiga hal baru yang bukan pinjaman, dan yang menjawab pertanyaan juri:** kepala halaman membawa tautan lompat
+   ke papan (`Skip to the departures board`) sebagai elemen fokusable PERTAMA — tujuh tautan kepala sebelum isi
+   adalah tujuh Tab yang harus ditekan seorang juri; lima langkah `04` masing-masing menunjuk **berkas yang ada di
+   repo ini** (`core/recorder.py` … `agent/replay.py`), dijaga tes yang benar-benar men-`stat` berkasnya, sehingga
+   daftar itu menunjuk seperti kartu menunjuk `tool.field`; dan `#tenko-view` landing kini mengulang kisi `main`
+   (dipagari `body[data-screen="landing"]`), karena `start()` memindahkan seluruh isi `<main>` ke dalamnya —
+   `main > .hero` berhenti cocok begitu satu baris JS jalan, jadi hero penuh-lebar tanpa JS adalah hero selebar
+   kolom baca DENGAN JS. Layar A/B sengaja tidak ikut: berpindah dari aliran blok ke kisi menghentikan margin
+   bersebelahan menyatu, dan jarak antar-blok di layar yang dinilai tidak boleh berubah tanpa keputusan desain.
+8. **Pagar ADR-027/028 tidak bergerak satu pun.** Palet identik (nol hex baru, nol `rgba()` baru), angka kontras
+   identik dan DIUKUR ULANG dari `ui/static/app.css` yang dilayani: teks terketat `--nogo`/`--card` = 5.88:1, garis
+   `--line`/`--card` = 3.06:1, cincin fokus `--warn`/`--ink` = 10.47:1, teks di atas gambar berscrim = 5.64:1
+   (dan `--dim` — warna teks paling redup — 6.72:1 di atas permukaan paling terang). CSP `HTML_HEADERS` tidak
+   berubah satu token pun, nol `<style>`/`style=`/`<script>` sebaris, gerak mati total di `prefers-reduced-motion`,
+   tiap `:hover` punya `:focus`, nol `position: fixed`, gambar hanya dari `/ui/img/` daftar TERTUTUP, dan tiap
+   `<img>` tetap sendirian di dalam kotaknya.
+9. **Provenans, untuk `DISCLOSURE.md`:** susunan halaman ini diturunkan dari `ui/static/kage.html` — karya teman
+   pemilik repo, dipakai dengan izin (ADR-026) — sedangkan formula hero-nya tetap dari dua tangkapan layar
+   `references/awwwards-3d` (ADR-028). Nol baris CSS/JS dari `kage.html`/`kage.css` ikut ke `/`, dan nol baris kode
+   dari skill awwwards ikut ke mana pun. `DISCLOSURE.md` diperbarui pada commit yang sama: bulir **Pre-existing
+   materials** kini menyebut `ui/static/kage.html` sendiri (ia tidak pernah tersebut sebagai berkas) dan menyatakan
+   bahwa yang dipinjam ke layar yang DINILAI adalah susunannya.
+
+Tesnya: `test_the_landing_is_laid_out_in_the_order_kage_lays_its_page_out` (urutan bagian sebagai urutan, tautan
+lompat pertama & menunjuk id yang ada, tiap tautan kepala/kaki dijawab 200 atau menunjuk `id` yang ada, lima langkah
+menunjuk berkas yang benar-benar ada) dan `test_the_visual_language_never_grows_new_structure_on_screen_a_and_b`.
+`test_the_landing_is_reachable_and_readable_the_way_screen_a_and_b_are` diperlonggar dari "h2 saja" menjadi "tidak
+melompat" — larangan lama lebih luas daripada maksudnya dan akan menghapus sub-daftar yang benar demi memuaskan
+sebuah tes. `test_every_skip_link_points_at_an_id_that_exists_on_the_page` kini ikut menembak `/`, dan
+`test_the_landing_board_shows_real_rows_or_no_board_at_all` menuntut `#pathways` HILANG dari kepala halaman ketika
+papannya hilang.
+
+Konsekuensi: `ui/screens.py` (markup landing ditulis ulang, `_shell` menerima `foot_top`, kalimat klien landing
+diperbaiki) · `frontend/styles/app.css` (blok LANDING ditulis ulang, `--nav-h` baru, `--chrome` 91px → 141px) ·
+`frontend/src/main.ts` (target reveal mengikuti nama bagian yang baru) · `ui/static/app.{css,js}` (build) ·
+`tests/test_ui.py` (dua tes baru, empat tes diperbarui, dua hash bundel) · `ui/README.md` · `DISCLOSURE.md`.

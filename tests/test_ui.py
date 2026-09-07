@@ -834,7 +834,7 @@ def test_the_landing_board_shows_real_rows_or_no_board_at_all(
 
     page = client.get("/")
     assert page.status_code == 200
-    assert '<section class="board"' in page.text, (
+    assert '<section class="board sec" id="pathways"' in page.text, (
         "papan hilang padahal store berisi — inilah bentuk bug `entries`/`symbols`"
     )
     for symbol in symbols[:5]:
@@ -852,7 +852,10 @@ def test_the_landing_board_shows_real_rows_or_no_board_at_all(
     broken = client.get("/")
     assert broken.status_code == 200, "landing tidak boleh 503 — itu kesan pertama yang salah"
     assert BANNER in broken.text
-    assert '<section class="board"' not in broken.text
+    assert 'id="pathways"' not in broken.text
+    # ...dan bersama papannya pergi juga SETIAP tautan yang menunjuk ke sana: tautan lompat
+    # yang menunjuk id yang tidak ada adalah tombol yang berbohong kepada keyboard (ADR-029).
+    assert "#pathways" not in broken.text, "kepala halaman masih menautkan papan yang tidak ada"
     # Halaman itu sendiri utuh: yang hilang HANYA papannya.
     assert "<h1>" in broken.text and 'href="/app"' in broken.text
 
@@ -2002,11 +2005,18 @@ def test_the_landing_is_reachable_and_readable_the_way_screen_a_and_b_are(
     """
     html = client.get("/").text
 
-    # 1. Urutan heading tidak melompat: satu h1, lalu h2 saja.
+    # 1. Urutan heading tidak MELOMPAT: satu h1 di depan, lalu tiap tingkat berikutnya paling
+    #    banyak satu langkah lebih dalam daripada yang sebelumnya. Bentuk lama tes ini
+    #    (`set(levels) <= {1, 2}`) melarang h3 sama sekali — larangan yang lebih luas daripada
+    #    maksudnya, dan yang menjadi salah begitu satu bagian punya sub-daftar sungguhan:
+    #    lima langkah `04 — How a call is made` (ADR-029) ADALAH anak dari h2-nya, dan
+    #    merendahkannya menjadi paragraf akan menghapus struktur yang benar dari pembaca layar
+    #    demi memuaskan sebuah tes.
     levels = [int(m) for m in re.findall(r"<h([1-6])[ >]", html)]
     assert levels, "landing tanpa heading"
     assert levels[0] == 1 and levels.count(1) == 1, f"h1 bukan satu-satunya/pertama: {levels}"
-    assert set(levels) <= {1, 2}, f"tingkat heading melompat: {levels}"
+    for before, after in zip(levels, levels[1:], strict=False):
+        assert after <= before + 1, f"tingkat heading melompat: {levels}"
 
     # 2. Tiap tautan punya nama aksesibel — teks sendiri atau `aria-label`.
     links = re.findall(r"<a\b([^>]*)>(.*?)</a>", html, re.S)
@@ -2673,8 +2683,15 @@ def test_escape_has_nothing_to_close_because_no_screen_traps_focus(client: TestC
 
 
 def test_every_skip_link_points_at_an_id_that_exists_on_the_page(client: TestClient) -> None:
-    """Tautan lompat yang menunjuk id yang tidak ada = tombol yang berbohong kepada keyboard."""
-    for path in ("/ui", "/ui/decision/1"):
+    """Tautan lompat yang menunjuk id yang tidak ada = tombol yang berbohong kepada keyboard.
+
+    `/` ikut sejak ADR-029: kepala halamannya menautkan bagian, dan salah satu bagian itu
+    (`pathways`, papan) HANYA dirender ketika store terbaca — jadi halaman ini punya kelas
+    kesalahan yang tidak dimiliki Layar A/B, yaitu tautan yang benar hari ini dan menggantung
+    besok pagi. Cabang store-mati dijaga di
+    `test_the_landing_board_shows_real_rows_or_no_board_at_all`.
+    """
+    for path in ("/", "/ui", "/ui/decision/1"):
         text = client.get(path).text
         targets = re.findall(r'href="#([\w-]+)"', text)
         assert targets, f"{path} tidak menawarkan satu pun tautan lompat"
@@ -2998,9 +3015,12 @@ def test_the_first_screen_is_a_void_with_one_light_and_a_two_line_title(client: 
     css = client.get("/ui/tenko.css").text
     squashed = css.replace(" ", "").replace("\n", "")
 
-    # 1. Label mono bernomor `NN — KATA` di kiri atas, dan bagian berikutnya ikut bernomor.
-    numbers = re.findall(r'<p class="kicker">(\d\d) — ', html)
-    assert numbers[:2] == ["01", "02"], f"label bernomor hilang dari landing: {numbers}"
+    # 1. Label mono bernomor `NN — KATA` di kiri atas, dan tiap bagian berikutnya ikut bernomor
+    #    BERURUTAN. ADR-029 menyusun ulang bagiannya mengikuti `kage.html`; penomorannya adalah
+    #    satu-satunya hal yang membuat lima bagian terbaca sebagai satu urutan, jadi ia dipaku
+    #    utuh — bukan hanya dua yang pertama.
+    numbers = re.findall(r'class="kicker">(\d\d) — ', html)
+    assert numbers == ["01", "02", "03", "04", "05"], f"penomoran bagian rusak: {numbers}"
 
     # 2. Judul RAKSASA, maksimal DUA baris, dan barisnya diputus markup — bukan lebar kolom,
     #    yang berubah diam-diam bersama tiap perubahan tata letak.
@@ -3034,9 +3054,100 @@ def test_the_first_screen_is_a_void_with_one_light_and_a_two_line_title(client: 
     assert "min-height:calc(100vh-var(--chrome))" in squashed, "hero tidak lagi setinggi layar"
 
     # 6. ...dan tautan ke papan tetap berada DI DALAM layar pertama itu, bukan di bawahnya.
-    hero_html = slice_of(html, '<section class="hero">', "</section>")
+    hero_html = slice_of(html, '<section class="hero" id="hero">', "</section>")
     assert '<a class="go" href="/app"' in hero_html, "tautan ke Layar A jatuh keluar dari hero"
     assert "<img" not in hero_html, "gambar kembali ke hero — lihat tes gambar di atas"
+
+
+def test_the_landing_is_laid_out_in_the_order_kage_lays_its_page_out(client: TestClient) -> None:
+    """ADR-029: susunan `/` diambil dari `ui/static/kage.html`, dan diambil sebagai SUSUNAN.
+
+    Yang dipinjam adalah urutan bagian (`nav` → `hero` → `gate` → `pathways` → `lessons` →
+    `eternity` → kaki berkolom) dan bentuk tipografinya, bukan berkasnya: nol `@import`, nol
+    aset dari halaman itu, nol `position: fixed`, dan nol lapisan gambar di belakang teks.
+
+    Tes ini memaku empat hal yang paling mudah hilang saat halaman ini ditata ulang lagi:
+
+    1. **urutannya**, sebagai urutan — bukan sebagai daftar bagian yang kebetulan semuanya ada.
+       Papan (`pathways`) berdiri di TENGAH, bukan di ujung: satu-satunya bagian yang membawa
+       baris nyata tidak boleh jatuh ke dasar halaman;
+    2. **tautan lompatnya ADA dan menunjuk sesuatu yang ada**, dan ia elemen fokusable PERTAMA —
+       sebuah kepala halaman dengan tujuh tautan di depan isi adalah tujuh Tab yang harus
+       ditekan seorang juri sebelum ia sampai di papan;
+    3. **tiap tautan kepala/kaki menunjuk sesuatu yang benar-benar dilayani.** Tautan bagian
+       menunjuk `id` yang ada di halaman ini; tautan path dijawab 200 oleh aplikasi ini sendiri;
+    4. **lima langkah `04` menunjuk berkas yang ADA di repo ini.** Kolom terakhirnya adalah
+       janji "tunjuk & sebut" yang sama seperti di kartu: sebuah nama modul yang tidak ada akan
+       menjadikan seluruh daftar itu daftar fitur, bukan penunjuk.
+    """
+    html = client.get("/").text
+
+    # 1. Urutan bagian, dibaca dari `id` yang benar-benar dirender.
+    order = re.findall(r'<(?:section|nav|div) class="[^"]*"(?: id="([\w-]+)")?', html)
+    ids = [name for name in order if name]
+    assert ids == ["hero", "gate", "pathways", "lessons", "eternity"], ids
+    assert (
+        html.index('<nav class="topnav"')
+        < html.index('<div class="railbar"')
+        < html.index('<section class="hero" id="hero">')
+    ), "kepala halaman/rel tidak lagi berdiri di atas layar pertama"
+    assert html.index('id="pathways"') < html.index('id="eternity"'), (
+        "papan jatuh ke dasar halaman — bagian yang membawa baris nyata harus di tengah"
+    )
+    # Kaki berkolom ada, DI DALAM kaki yang sama seperti layar lain (bukan kaki kedua).
+    assert html.count("<footer>") == 1 and '<div class="foot-grid">' in html
+    footer = html.split("<footer>")[1]
+    assert footer.index('class="foot-grid"') < footer.index("All clocks are JST")
+    # ...dan keempat kalimat pengakuan `_shell` tidak berpindah, tidak hilang, tidak berubah.
+    for sentence in (ui_screens.KEYBOARD_NOTE, ui_screens.client_note("landing")):
+        assert sentence in unescape(footer), sentence
+
+    # 2. Tautan lompat: pertama di dokumen, dan menunjuk id yang ada.
+    links = re.findall(r'<a [^>]*href="([^"]+)"', html)
+    assert links[0].startswith("#"), f"tautan pertama halaman bukan tautan lompat: {links[0]}"
+    assert f'id="{links[0][1:]}"' in html, links[0]
+    assert 'class="skip"' in html and "Skip to the departures board" in html
+
+    # 3. Tiap tautan menunjuk sesuatu yang ada — `id` di halaman ini, atau route yang 200.
+    for href in sorted(set(links)):
+        if href.startswith("#"):
+            assert f'id="{href[1:]}"' in html, f"tautan bagian menunjuk id yang tidak ada: {href}"
+        else:
+            assert client.get(href).status_code == 200, href
+
+    # 4. Lima langkah menunjuk berkas yang ADA.
+    modules = re.findall(r'<span class="t">([\w/.]+)</span>', html)
+    assert len(modules) == len(ui_screens.LANDING_STEPS) == 5, modules
+    for module in modules:
+        assert (ROOT / module).is_file(), f"langkah menunjuk berkas yang tidak ada: {module}"
+
+    # Dan halaman ini tetap tidak memuat satu pun aset halaman `/kage`: susunan yang dipinjam,
+    # bukan berkasnya (`/ui/vendor/` dijaga tes lain; di sini yang dijaga adalah gayanya).
+    assert "/ui/kage.css" not in html and "kage.html" not in html
+
+
+def test_the_visual_language_never_grows_new_structure_on_screen_a_and_b(client: TestClient) -> None:
+    """ADR-029 mengganti BAHASA VISUAL landing; Layar A & B ikut warnanya, bukan susunannya.
+
+    Yang dilarang di sini bukan sebuah kelas CSS melainkan sebuah kebiasaan: setiap kali landing
+    ditata ulang, hal termudah berikutnya adalah "merapikan" Layar A dengan kepala bagian
+    bernomor, kepala halaman, dan pita gambar yang sama. Itu akan menggeser tabel yang dinilai
+    ke bawah lipatan 1280x720 demi kerapian — dan tabel itulah produknya.
+    """
+    for path in ("/app", "/app/decision/1"):
+        html = client.get(path).text
+        for landing_only in (
+            'class="topnav"',
+            'class="sec-head"',
+            'class="railbar"',
+            'class="band-art"',
+            'class="foot-grid"',
+            "<img",
+        ):
+            assert landing_only not in html, f"{path} menumbuhkan struktur milik landing: {landing_only}"
+    # Tabel Layar A dan kartu Layar B tetap SATU tabel masing-masing, dengan kolom yang sama.
+    assert client.get("/app").text.count("<table id='watchlist'>") == 1
+    assert client.get("/app/decision/1").text.count("<table class='card'>") == 1
 
 
 def test_the_card_table_has_one_header_for_every_column_it_renders(client: TestClient) -> None:
@@ -3952,8 +4063,8 @@ def test_one_css_naming_rule_serves_both_renderers() -> None:
 #:
 #: Cara memperbaruinya: `make frontend` mencetak hash barunya. Menggantinya adalah perbuatan
 #: yang TERLIHAT di diff — dan itulah seluruh gunanya.
-BUNDLE_SHA256 = "cd95b3a47a7ed73ec719170eb1f188aa23acc1200e85606f1607b8695fd38343"
-STYLESHEET_SHA256 = "dc0a69838e248143f8a7774d53da93a8e253b899dd84b8e13bd833a218fa4aae"
+BUNDLE_SHA256 = "0a89c3a02c76fc89907e2261e02e52df7cc4d214b294c62a1d161ee43c53f9f5"
+STYLESHEET_SHA256 = "f35c2f2a1411a8a77085cb274054f1d7cab44b61509b5a1724d0b2bc5732053e"
 
 
 def test_the_shipped_bundle_is_pinned_byte_for_byte() -> None:
