@@ -14,7 +14,12 @@ as it is. An asset that is merely planned is not written up as though it had alr
   `LOG.md`.
 
 ## Pre-existing materials
-- None. All code was written for this hackathon.
+- **`ui/static/img/` (14 `.webp`), `ui/static/kage.css`, `ui/static/vendor/kage-scene.js`, and the seven `.woff2`
+  faces Onest 300/400/500/700, NotoJP 400 and Wordmark 500/600 in `ui/static/fonts/`** — artwork and the "Kage"
+  landing page by a friend of the repo owner, **used with permission** (ADR-026, 7 Sep 2026). Brought in from the
+  owner's copy of that project. Not written for this hackathon; everything else here was.
+  The licences of the three type families are **not yet verified** — see the **Fonts** section.
+- All other code was written for this hackathon.
 
 ## How to verify the list below
 The source of truth is `uv.lock`. The two Python tables below sit between the markers
@@ -140,15 +145,16 @@ itself, against `node_modules` on disk, and against the npm registry — `docs/v
 
 This file is corrected in the same commit if any of that changes.
 
-## Frontend JS assets — SHIPPED (ADR-025); three.js still not vendored
+## Frontend JS assets — SHIPPED (ADR-025); three.js NOW VENDORED (ADR-026)
 
 **Honest status as of 6 Sep 2026: `ui/static/` now EXISTS and holds exactly two files** — `app.css` and `app.js`,
 both esbuild output from `frontend/`, both tracked (`git ls-files ui/static`). An earlier version of this paragraph
-said the directory did not exist; that is corrected here. What has **not** changed is the point this section is
-about: **not one three/GSAP/Lenis file has ever been copied into this repo**, and the shipped bundle uses none of
-them. That is now a measurement, not a plan — a search for `three`, `gsap`, `lenis` and `ScrollTrigger` across
-`core preflight grading agent ui frontend` returns **zero** hits (case-insensitive). The only icon on either screen
-is still an SVG embedded in the HTML.
+said the directory did not exist; that is corrected here. **Both of those statements are now out of date, and this paragraph is the correction (7 Sep 2026,
+ADR-026).** `ui/static/` holds far more than two files: `three.min.js` and `kage-scene.js` under `vendor/`,
+`kage.css`, 14 `.webp` under `img/`, and eleven font faces. The sentence that used to stand here — "not one
+three/GSAP/Lenis file has ever been copied into this repo" — is **false as of ADR-026**: three.js r149 is
+vendored as a file. GSAP and Lenis remain bundled rather than vendored (next sections). Screens A and B are
+untouched and still use none of it; the Kage landing page is a separate route.
 
 The plan (ADR-014): when the screens were built, the three libraries would be **vendored locally** into
 `ui/static/vendor/<package>/`, with no build step, no npm, no CDN at runtime (ADR-001; `make demo` must run offline
@@ -163,7 +169,7 @@ in which vendoring actually happens (including a per-package copy of LICENSE and
 
 | Package (planned) | Version | License | Role | Status in repo |
 |---|---|---|---|---|
-| three | 0.170.0 | MIT | WebGL 3D | NOT vendored |
+| three | **r149 (0.149.x)** | MIT | WebGL 3D — the Kage landing scene | **VENDORED** as `ui/static/vendor/three.min.js` (ADR-026). The upstream MIT banner (`Copyright 2010-2023 Three.js Authors`, `SPDX-License-Identifier: MIT`) is kept intact at the head of the file, and the full upstream `LICENSE` ships beside it as `ui/static/vendor/LICENSE.three.txt` (1,081 bytes, sha256 `852e0e8699169bf9f6fdc6bda3e682d078dcbc738b5d33e74df594721bff271d`). The shipped `three.min.js` was verified **byte-for-byte identical** to `package/build/three.min.js` from the official tarball `registry.npmjs.org/three/-/three-0.149.0.tgz` (`cmp` → 0 bytes differ); sha256 `8a5f7249903b54d30f79f708699d2fed2d6a1d0741a4cd41377d1f01bb5a2271`, 608,081 bytes. Released 2023-01-26. Zero published advisories for 0.149.0. Note this is **not** the 0.170.0 that ADR-014 pinned: the vendored file is the build that is known to work with this scene. The pin + evidence live in `docs/versions.md` |
 | lenis | 1.1.0 | MIT | smooth scroll | NOT vendored |
 
 GSAP is deliberately **not** in this table — see the next section.
@@ -184,8 +190,9 @@ bundle is committed (ADR-020 § 2). `package.json` → `"dependencies": {}` rema
 | **@darkroom.engineering/tempus** | **0.0.46** | **MIT** (`package.json` → `"license"`; no LICENSE file in the package) | The only transitive dependency of lenis. Bundled with it. |
 
 Why these two and not a framework: they buy smooth scroll and scroll-triggered reveals, which is what the owner
-asked for, without adding a runtime framework. **three.js is still NOT vendored** — ADR-025 chose Lenis + GSAP over
-the 3D path with one day to the deadline.
+asked for, without adding a runtime framework. **Correction (7 Sep 2026): three.js IS now vendored** (ADR-026), reversing
+ADR-025 point 8. ADR-025 chose Lenis + GSAP over the 3D path because writing that path would cost the remaining
+time; ADR-026 vendors a scene that was already written.
 
 | Package (planned) | Version | License | Role | Status in repo |
 |---|---|---|---|---|
@@ -209,8 +216,9 @@ the 3D path with one day to the deadline.
 
 Four IBM Plex faces are committed to `ui/static/fonts/` and served from this app's own origin at
 `/ui/fonts/{name}`. **Zero CDN, zero network request at render**, so `make demo` still runs with
-no network (spec §7) and `font-src 'self'` is enough. These are the **only** binary assets in the
-repo besides the esbuild output.
+no network (spec §7) and `font-src 'self'` is enough. **Corrected 7 Sep 2026 (ADR-026):** this used to end "These are
+the only binary assets in the repo besides the esbuild output". They are no longer — 14 `.webp`
+images now live in `ui/static/img/`, and seven more font faces sit beside these four (below).
 
 | Asset | Version | License | Verified how |
 |---|---|---|---|
@@ -237,7 +245,41 @@ disappears. The files are distributed **unmodified** and **not sold**, and the R
 names (`"IBM Plex Sans Vendored"`) are local `@font-face` aliases pointing at the unmodified
 files, not renamed fonts.
 
-**Not vendored, and why it matters:** no asset in this repo comes from a third-party
+### Seven more faces, from JAWAA — SHIPPED, licences NOT YET VERIFIED (ADR-026)
+
+These arrived embedded as `data:font/woff2;base64` inside the friend's `fonts.css`. Tenko's CSP
+(`font-src 'self'`, never `data:` — ADR-022) would block that form, so they were decoded into real
+files under `ui/static/fonts/` and are served from the same closed list at `/ui/fonts/{name}`. All
+are **subsets** (1.6–15 KB), not complete families.
+
+| Asset | Faces | Licence | Status |
+|---|---|---|---|
+| Onest | 300, 400, 500, 700 | **almost certainly SIL OFL 1.1** — not yet verified against upstream | **OPEN** |
+| NotoJP (Noto Sans JP, subset) | 400 | **almost certainly SIL OFL 1.1** — not yet verified against upstream | **OPEN** |
+| Wordmark | 500, 600 | **unknown** — a 1.6 KB custom subset; upstream family not identified | **OPEN** |
+
+```
+256fa8037be67fd4a857a660c328a09e4696a0fb5de166f1357534a81f738556  Onest-300.woff2
+cbc780c47e7975372debee1cad74f54bc38a3d366840a74b0af33bdd9ce5e8cf  Onest-400.woff2
+21150b504f3aa78ba6dd04a6d11dd938fdc7c354f7e93ee2312fa18046d3aabd  Onest-500.woff2
+98e3406af6c57c1b730a1f043cf087689fb16d2dc0bc37feb7d5f1860f55d01e  Onest-700.woff2
+919f3ce938b0deabdf894554f466747c789806daddc1e3ab2a01d4cff4464382  NotoJP-400.woff2
+6a93626eb17466bfd9239cec66b2c371bb20381999776a5d16e2c22a92f00349  Wordmark-500.woff2
+87832ba80d7ac0927a4c4c32588e0f92d368eca9ae70a99e720769ed7153bc3d  Wordmark-600.woff2
+```
+
+**This is an open obligation, written as open rather than as done.** OFL 1.1 requires the licence
+text to travel with the fonts; `ui/static/fonts/LICENSE.txt` currently covers **IBM Plex only**. Two
+things must happen before submission: confirm each family's licence from its upstream source, and
+ship that text. Until then these faces are disclosed as unverified rather than described as cleared.
+Because the repo owner obtained them from a friend's project rather than from upstream, the
+provenance chain runs through a person, not a URL — which is exactly the case the warning below is about.
+
+**Corrected 7 Sep 2026 (ADR-026).** This paragraph used to open "no asset in this repo comes from a
+third-party template or portfolio repository". That is no longer true: the Kage assets listed under
+**Pre-existing materials** came from another person's project, used with permission. The warning below is
+therefore live rather than hypothetical, and it is exactly why the three new type families are flagged as
+unverified. What still holds is the narrower claim — no asset here comes from a third-party
 "awwwards-style" template or portfolio repository. Such repositories are typically MIT **for
 their code only**, while their fonts, video and textures remain licensed to the original client —
 and a hackathon submission is publication. Every asset here has a licence that names assets

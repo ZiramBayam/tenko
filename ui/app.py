@@ -115,12 +115,16 @@ from preflight.skill import (
 from ui.screens import (
     CLIENT_SCRIPT,
     FONTS,
+    IMAGES,
+    KAGE_STYLESHEET,
     REASON_CEILINGS,
     STYLESHEET,
     VALUE_LIMIT,
+    VENDOR,
     cut_note,
     render_card,
     render_error,
+    render_kage,
     render_landing,
     render_watchlist,
 )
@@ -830,6 +834,11 @@ def _html(body: str, status_code: int = 200, headers: dict[str, str] | None = No
 #: sebagai halaman ber-banner + CSP, bukan JSON telanjang (security review 3.2, TINGGI-2).
 HTML_PREFIX = "/ui"
 
+#: Halaman gambar (`render_kage`). Ia berdiri di luar `/ui` karena ia bukan layar juri — tetapi
+#: ia tetap LAYAR: `POST /kage` dan salah ketik di sekitarnya wajib menjawab halaman ber-banner
+#: + CSP, bukan JSON telanjang, dengan alasan yang sama persis seperti `/`.
+KAGE_PATH = "/kage"
+
 
 def _is_screen(request: Request) -> bool:
     """Apakah permintaan ini menuju layar HTML?
@@ -841,7 +850,7 @@ def _is_screen(request: Request) -> bool:
     kehilangan banner di route yang paling mungkin dibuka orang.
     """
     path = request.url.path
-    return path == "/" or path == HTML_PREFIX or path.startswith(HTML_PREFIX + "/")
+    return path == "/" or path == KAGE_PATH or path == HTML_PREFIX or path.startswith(HTML_PREFIX + "/")
 
 
 def _fail(
@@ -906,6 +915,42 @@ def font(name: str) -> Response:
     return Response(content=blob, media_type=media, headers=HTML_HEADERS)
 
 
+@app.api_route("/ui/img/{name}", methods=["GET", "HEAD"])
+def image(name: str) -> Response:
+    """Satu gambar halaman `/kage`, dari daftar TERTUTUP :data:`ui.screens.IMAGES`.
+
+    Aturannya sama dengan `/ui/fonts/{name}` dan bukan kebetulan: `name` datang dari request,
+    jadi ia dicocokkan ke dict yang dibaca sekali saat impor dan TIDAK PERNAH dipakai untuk
+    membangun path filesystem. Nama di luar daftar adalah 404, bukan pembacaan disk.
+    """
+    blob = IMAGES.get(name)
+    if blob is None:
+        raise HTTPException(status_code=404, detail=f"no image is served as {name!r}")
+    return Response(content=blob, media_type="image/webp", headers=HTML_HEADERS)
+
+
+@app.api_route("/ui/vendor/{name}", methods=["GET", "HEAD"])
+def vendor_script(name: str) -> Response:
+    """three.js r149 (MIT) atau `kage-scene.js` — daftar TERTUTUP, dari origin ini sendiri.
+
+    Keduanya dilayani di sini justru supaya `script-src 'self'` tidak perlu dilonggarkan: CDN
+    mana pun akan ditolak browser, dan janji "nol permintaan jaringan saat render" (ADR-014
+    butir 4) tetap berdiri. `kage-scene.js` membangkitkan seluruh teksturnya sendiri dan tidak
+    memuat satu berkas pun saat berjalan.
+    """
+    blob = VENDOR.get(name)
+    if blob is None:
+        raise HTTPException(status_code=404, detail=f"no script is served as {name!r}")
+    media = "text/plain" if name.endswith(".txt") else "text/javascript"
+    return Response(content=blob, media_type=f"{media}; charset=utf-8", headers=HTML_HEADERS)
+
+
+@app.api_route("/ui/kage.css", methods=["GET", "HEAD"])
+def kage_stylesheet() -> Response:
+    """Gaya halaman `/kage` — berkas tulisan tangan yang dilacak git, bukan artefak esbuild."""
+    return Response(content=KAGE_STYLESHEET, media_type="text/css; charset=utf-8", headers=HTML_HEADERS)
+
+
 @app.api_route("/ui/app.js", methods=["GET", "HEAD"])
 def client_script() -> Response:
     """Klien TypeScript yang sudah dibundel (`frontend/src/` → esbuild → `ui/static/app.js`).
@@ -965,9 +1010,13 @@ ROUTE_INDEX = (
     "/app/decision/{id}",
     "/ui",
     "/ui/decision/{id}",
+    "/kage",
     "/ui/tenko.css",
+    "/ui/kage.css",
     "/ui/app.js",
     "/ui/fonts/{name}",
+    "/ui/img/{image}",
+    "/ui/vendor/{script}",
     "/api/routes",
     "/api/health",
     "/api/watchlist",
@@ -1004,6 +1053,23 @@ def index() -> Response:
     return _html(render_landing(BANNER, _now_jst(), rows))
 
 
+@app.api_route("/kage", methods=["GET", "HEAD"])
+def screen_kage() -> Response:
+    """Halaman gambar `/kage` — aset yang dibawa masuk pemilik repo, disambungkan apa adanya.
+
+    **`/` tidak dibajak.** Layar A tetap `/app`, landing yang dinilai tetap `/` (ADR-021), dan
+    halaman ini berdiri di route sendiri: ia tidak membaca store, tidak memutuskan apa pun, dan
+    angka-angka di dalamnya adalah teks desain (:data:`ui.screens.KAGE_NOTE` mengatakannya di
+    layar). Menaruhnya di `/` akan menempatkan prosa hiasan di depan satu-satunya layar yang
+    menjawab pertanyaan juri — dan menempatkan angka yang bukan pengukuran di tempat yang paling
+    mungkin dibaca sebagai pengukuran.
+
+    Ia tidak bisa gagal karena sebab data: satu-satunya masukannya adalah aset statis yang sudah
+    ada di memori sejak impor, dan banner SIMULATED-nya dirender server seperti di layar lain.
+    """
+    return _html(render_kage(BANNER, _now_jst()))
+
+
 @app.get("/api/routes")
 def routes() -> dict[str, Any]:
     """Indeks route untuk konsumen API — rumah baru daftar yang dulu ada di `/`."""
@@ -1012,6 +1078,13 @@ def routes() -> dict[str, Any]:
             "product": "Tenko (点呼)",
             "routes": list(ROUTE_INDEX),
             "screens": {"A_watchlist": "/app", "B_call_card": "/app/decision/{id}"},
+            # `/kage` sengaja BUKAN salah satu "screens": ia tidak menjawab pertanyaan juri mana
+            # pun dan tidak membaca store sama sekali. Ia disebut supaya daftar ini tetap jujur.
+            "scenery": {
+                "path": "/kage",
+                "reads_store": False,
+                "note": ("an illustrated page; every figure on it is design copy, not a measurement"),
+            },
             "calls_ryo_tools": False,
             "calls_llm": False,
         }

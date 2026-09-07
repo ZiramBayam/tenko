@@ -899,9 +899,14 @@ def test_index_serves_the_landing_and_the_app_is_one_click_away(client: TestClie
         probe = (
             route.replace("{id}", "1")
             .replace("{symbol}", "SOL")
-            # `{name}` hanya punya arti dari daftar TERTUTUP `FONT_NAMES`; menebak nama
-            # di sini akan menguji 404-nya, bukan route-nya.
+            # `{name}`/`{image}`/`{script}` hanya punya arti dari daftar TERTUTUP di
+            # `ui/screens.py`; menebak nama di sini akan menguji 404-nya, bukan route-nya.
+            # Tiga placeholder berbeda untuk tiga daftar berbeda, dengan sengaja: satu nama
+            # `{name}` untuk ketiganya membuat probe `/ui/img/<nama font>` — 404 yang lolos
+            # sebagai kegagalan route, padahal routenya hidup.
             .replace("{name}", ui_screens.FONT_NAMES[0])
+            .replace("{image}", ui_screens.IMAGE_NAMES[0])
+            .replace("{script}", ui_screens.VENDOR_NAMES[0])
         )
         assert client.get(probe).status_code == 200, route
 
@@ -2975,6 +2980,16 @@ def test_every_vendored_font_is_served_and_carries_its_licence(client: TestClien
         "IBMPlexMono-SemiBold.woff2",
         "IBMPlexSans-Regular.woff2",
         "IBMPlexSans-SemiBold.woff2",
+        # Tujuh face halaman `/kage` (ADR-026). Mereka ada DI SINI, bukan di daftar terpisah,
+        # supaya daftar ini tetap "apa yang benar-benar dilayani" — dan supaya face kedelapan
+        # tidak bisa masuk tanpa satu baris pun di `DISCLOSURE.md`.
+        "NotoJP-400.woff2",
+        "Onest-300.woff2",
+        "Onest-400.woff2",
+        "Onest-500.woff2",
+        "Onest-700.woff2",
+        "Wordmark-500.woff2",
+        "Wordmark-600.woff2",
     ], "daftar face berubah — perbarui DISCLOSURE.md pada commit yang sama"
 
     # Nama yang tidak terdaftar tidak pernah menyentuh disk: 404, termasuk yang mencoba keluar.
@@ -2985,6 +3000,14 @@ def test_every_vendored_font_is_served_and_carries_its_licence(client: TestClien
     disclosure = (ROOT / "DISCLOSURE.md").read_text(encoding="utf-8")
     assert "IBM Plex" in disclosure and "OFL" in disclosure
     assert "v6.4.2" in disclosure, "versi font yang di-vendor tidak tercatat"
+    # `ui/static/fonts/LICENSE.txt` menutupi IBM Plex SAJA. Ketujuh face lainnya datang lewat
+    # proyek teman pemilik repo, dan lisensinya BELUM diverifikasi terhadap sumber hulu — jadi
+    # yang dipatok di sini adalah bahwa kewajiban itu tertulis TERBUKA, bukan terlanjur ditulis
+    # selesai. Tes ini akan menjadi merah kalau seseorang menghapus pengakuannya tanpa
+    # menyelesaikan kewajibannya.
+    for face_family in ("Onest", "NotoJP", "Wordmark"):
+        assert face_family in disclosure, f"{face_family} dilayani tetapi tidak disebut"
+    assert "not yet verified" in disclosure or "NOT YET VERIFIED" in disclosure
 
 
 # --- laporan juri fase 5: kolom "daya veto" & angka `make grade` ---------------------------
@@ -3895,3 +3918,107 @@ def test_a_card_page_without_a_decision_id_makes_the_client_ask_for_nothing(
     bundle = (STATIC / "app.js").read_text(encoding="utf-8")
     assert declared["NO_CARD_ID"] in bundle, "`make frontend` belum dijalankan?"
     assert 'data-decision-id="1"' in client.get("/ui/decision/1").text
+
+
+# --- halaman `/kage` (aset yang dibawa masuk pemilik repo) ---------------------------------
+def test_the_kage_page_is_a_screen_that_still_says_simulated(client: TestClient) -> None:
+    """`/kage` boleh menjadi papan gambar; ia TIDAK boleh menjadi halaman tanpa banner.
+
+    Kewajibannya sama dengan layar lain (docs/rules-compliance.md): kalimat SIMULATED dirender
+    server, sebelum satu baris JS pun jalan, dan header CSP-nya tidak dilonggarkan seujung
+    direktif pun untuk membuat halaman ini bergerak. Ditambah satu kewajiban yang khusus milik
+    halaman ini: ia harus MENGATAKAN bahwa angka-angka di dalamnya bukan pengukuran, karena
+    "1611" dan "92 minutes" di sebelah produk yang menjual bukti akan terbaca sebagai temuan.
+    """
+    response = client.get("/kage")
+    assert response.status_code == 200
+    assert BANNER in response.text
+    assert ui_screens.KAGE_NOTE in response.text
+    assert '<meta name="tenko-simulated" content="true">' in response.text
+    # Jalan pulang ke layar yang DINILAI ada di halaman itu sendiri, bukan hanya di riwayat
+    # browser: halaman hiasan tanpa pintu keluar adalah cara termahal kehilangan 30 detik juri.
+    assert '<a href="/app">' in response.text and '<a href="/">' in response.text
+    for name, value in HTML_HEADERS.items():
+        assert response.headers[name] == value, name
+    assert client.head("/kage").status_code == 200
+
+
+def test_the_kage_page_carries_no_inline_script_no_inline_style_and_no_foreign_host(
+    client: TestClient,
+) -> None:
+    """CSP halaman ini tidak dilonggarkan, jadi markupnya harus HIDUP di bawah CSP yang ada.
+
+    `style-src 'self'` menolak atribut `style=` sama seperti ia menolak `<style>`; `script-src
+    'self'` menolak skrip sebaris. Markup yang dibawa masuk memuat tiga atribut `style=` (tiga
+    cahaya kartu) — nilainya pindah ke kelas di `ui/static/kage.css`, dan tes ini menjaga
+    keduanya tidak kembali. Nol host asing: tiap byte halaman ini berasal dari origin sendiri,
+    jadi `make demo` tanpa jaringan tetap menampilkan halaman yang sama (spec §7).
+    """
+    text = client.get("/kage").text
+    lower = text.lower()
+    scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", text, re.S)
+    assert len(scripts) == 2, f"{len(scripts)} tag script"
+    assert scripts == ["", ""], "ada skrip SEBARIS, yang CSP-nya sendiri melarang"
+    assert '<script src="/ui/vendor/three.min.js" defer></script>' in text
+    assert '<script src="/ui/vendor/kage-scene.js" defer></script>' in text
+    assert '<link rel="stylesheet" href="/ui/kage.css">' in text
+    assert "<style" not in lower and " style=" not in lower
+    assert not re.search(r"\son[a-z]+\s*=", lower), "penangan kejadian sebaris"
+    assert "javascript:" not in lower
+    assert "http://" not in lower and "https://" not in lower, "aset dari host asing"
+
+
+def test_every_kage_asset_route_serves_a_closed_list_and_builds_no_path_from_the_request(
+    client: TestClient,
+) -> None:
+    """Gambar, skrip vendor, dan gaya `/kage`: daftar TERTUTUP, seperti `/ui/fonts/{name}`.
+
+    Yang diuji bukan hanya "nama yang benar menjawab 200" melainkan "nama yang salah tidak
+    pernah menyentuh disk": `..%2f`, path absolut, dan nama font yang diminta sebagai gambar
+    semuanya 404 — dan 404 di bawah `/ui` tetap halaman ber-banner, bukan JSON telanjang.
+    """
+    for name in ui_screens.IMAGE_NAMES:
+        got = client.get(f"/ui/img/{name}")
+        assert got.status_code == 200, name
+        assert got.headers["content-type"] == "image/webp", name
+        assert got.content == ui_screens.IMAGES[name]
+    for name in ui_screens.VENDOR_NAMES:
+        got = client.get(f"/ui/vendor/{name}")
+        assert got.status_code == 200, name
+        expected = "text/plain" if name.endswith(".txt") else "text/javascript"
+        assert got.headers["content-type"].startswith(expected), name
+    # MIT menuntut notisnya ikut TERDISTRIBUSI bersama kodenya (ADR-026 butir 8), jadi lisensi
+    # three.js dilayani — bukan hanya dilacak git — dan banner aslinya tetap utuh di kepala
+    # berkasnya. Keduanya diperiksa di sini karena keduanya mudah hilang saat aset dirapikan.
+    licence = client.get("/ui/vendor/LICENSE.three.txt")
+    assert "The MIT License" in licence.text and "three.js authors" in licence.text
+    assert "SPDX-License-Identifier: MIT" in client.get("/ui/vendor/three.min.js").text[:400]
+    css = client.get("/ui/kage.css")
+    assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
+
+    # Setiap `url(...)` yang disebut berkas gaya itu benar-benar dilayani: gaya yang menyebut
+    # aset mati adalah 404 yang hanya terlihat di konsol browser, bukan di tes.
+    for url in sorted(set(re.findall(r"url\('([^']+)'\)", css.text))):
+        assert client.get(url).status_code == 200, url
+    # Begitu juga setiap `<img src>` di badan halaman.
+    for src in sorted(set(re.findall(r'<img src="([^"]+)"', client.get("/kage").text))):
+        assert client.get(src).status_code == 200, src
+
+    for bad in ("/ui/img/nope.webp", f"/ui/img/{ui_screens.FONT_NAMES[0]}", "/ui/vendor/app.js"):
+        refused = client.get(bad)
+        assert refused.status_code == 404, bad
+        assert BANNER in refused.text, bad  # 404 di bawah /ui tetap LAYAR
+
+
+def test_the_kage_page_never_hijacks_the_screen_that_is_judged(client: TestClient) -> None:
+    """`/` tetap landing ADR-021 dan `/app` tetap Layar A; `/kage` berdiri sendiri.
+
+    Ini bukan selera tata letak: halaman `/kage` tidak membaca store sama sekali, jadi menaruhnya
+    di `/` akan menempatkan prosa hiasan — dan angka yang bukan pengukuran — di depan
+    satu-satunya layar yang menjawab pertanyaan juri.
+    """
+    assert "KAGE" not in client.get("/app").text
+    assert "/ui/vendor/" not in client.get("/").text
+    assert client.get("/app").status_code == 200
+    scenery = client.get("/api/routes").json()["scenery"]
+    assert scenery["path"] == "/kage" and scenery["reads_store"] is False

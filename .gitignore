@@ -19,3 +19,8 @@ docs/samples/*.raw.json
 # build esbuild yang WAJIB dilacak git dan ikut terkirim, supaya clone tanpa Node sama sekali
 # tetap bisa `make ui` / `make test` / `make demo` (ADR-020 butir 2). Kalau suatu hari ada yang
 # menambahkan pola yang menangkapnya, `tests/test_ui.py` menjadi merah — dengan sengaja.
+
+# Sumber mentah dari proyek teman pemilik repo (React+Vite, 7,9 MB, termasuk sampah __MACOSX).
+# Yang DIPAKAI sudah disalin & diekstrak ke `ui/static/` dan DILACAK di sana (ADR-026); folder
+# mentahnya sendiri tidak ikut terkirim. `__MACOSX/._*` juga bukan UTF-8 dan membuat ruff gagal.
+JAWAA/

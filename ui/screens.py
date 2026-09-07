@@ -314,6 +314,16 @@ FONT_NAMES = (
     "IBMPlexSans-Regular.woff2",
     "IBMPlexSans-SemiBold.woff2",
     "LICENSE.txt",
+    # Tujuh face halaman `/kage` (ADR-022 memperluas daftarnya, bukan aturannya): sudah di-subset
+    # dan dilacak git seperti empat di atasnya. Nama file = nama yang dilayani; tidak ada
+    # `iterdir()`, jadi berkas yang tersasar ke folder ini tetap TIDAK terlayani.
+    "Onest-300.woff2",
+    "Onest-400.woff2",
+    "Onest-500.woff2",
+    "Onest-700.woff2",
+    "NotoJP-400.woff2",
+    "Wordmark-500.woff2",
+    "Wordmark-600.woff2",
 )
 
 
@@ -336,6 +346,69 @@ STYLESHEET = _read_build("app.css")
 #: perilaku di atas HTML yang sudah lengkap: banner, tabel, dan tiap `aria-label` sudah dirender
 #: server sebelum satu baris JS pun jalan (ADR-020 butir 6).
 CLIENT_SCRIPT = _read_build("app.js")
+
+
+# --- aset halaman `/kage` -----------------------------------------------------------------
+#: Halaman `/kage` (papan gambar yang dibawa masuk pemilik repo) dilayani dari aset yang
+#: DILACAK git dan dibaca SEKALI saat impor, dari daftar TERTUTUP yang ditulis di sini. Pola
+#: yang sama dengan `FONTS`, dan alasannya sama: `name` datang dari request, jadi ia dicocokkan
+#: ke sebuah dict — tidak ada path filesystem yang pernah dibangun dari masukan, sehingga tidak
+#: ada `..`, path absolut, atau symlink yang bisa dibujuk.
+IMAGE_NAMES = (
+    # sepuluh lapisan latar depan (dirender `<img>` di `ui/static/kage.html`)
+    "basalt-stones.webp",
+    "garden-bush.webp",
+    "hill.webp",
+    "maple-leaves.webp",
+    "pine-tree.webp",
+    "sakura-branch.webp",
+    "shrine-ruins.webp",
+    "stone-lantern.webp",
+    "tall-grass.webp",
+    "temple-wall.webp",
+    # empat yang hanya disebut CSS (`background-image` di `ui/static/kage.css`)
+    "kage-approach.webp",
+    "kage-lantern-court.webp",
+    "kage-moonwater.webp",
+    "kage-sanmon-preview.webp",
+)
+
+#: Dua skrip yang dilayani `/ui/vendor/{name}`: three.js r149 (MIT) dan scene prosedural
+#: `kage-scene.js`. Keduanya dari origin ini sendiri karena `script-src 'self'` tidak
+#: mengizinkan satu pun CDN, dan tidak satu pun dari keduanya mengunduh apa pun saat runtime.
+#: `LICENSE.three.txt` ikut di daftar ini dengan alasan yang sama seperti `LICENSE.txt` ada di
+#: `FONT_NAMES`: MIT menuntut notisnya ikut TERDISTRIBUSI bersama kodenya, dan lisensi yang hanya
+#: ada di git tetapi tidak pernah dilayani adalah lisensi yang tidak ikut ke pemakainya.
+VENDOR_NAMES = ("three.min.js", "kage-scene.js", "LICENSE.three.txt")
+
+
+def _read_static(*parts: str) -> bytes:
+    """Isi satu aset statis yang DILACAK git. Hilangnya aset = kegagalan KERAS saat impor."""
+    path = STATIC_DIR.joinpath(*parts)
+    try:
+        return path.read_bytes()
+    except OSError as exc:  # pragma: no cover — hanya bila aset terlacak dihapus
+        rel = "/".join(("ui", "static", *parts))
+        raise RuntimeError(
+            f"{rel} tidak terbaca. Aset ini DILACAK git dan ikut terkirim; kembalikan dengan "
+            f"`git checkout -- {rel}`."
+        ) from exc
+
+
+IMAGES = {name: _read_static("img", name) for name in IMAGE_NAMES}
+VENDOR = {name: _read_static("vendor", name).decode("utf-8") for name in VENDOR_NAMES}
+
+#: Gaya halaman `/kage`. Ia BUKAN artefak esbuild (tidak lewat `frontend/`): berkas tulisan
+#: tangan yang dilacak git, dan satu-satunya berkas gaya halaman itu.
+KAGE_STYLESHEET = _read_static("kage.css").decode("utf-8")
+
+#: Badan halaman `/kage` — markup statis TANPA satu pun `<style>`/`<script>` sebaris maupun
+#: atribut `style=` (CSP `default-src 'none'; script-src 'self'; style-src 'self'` menolak
+#: ketiganya, dan tidak dilonggarkan untuk halaman ini). Ia disimpan sebagai berkas, bukan
+#: sebagai literal Python, supaya markupnya bisa dibaca sebagai HTML — nol nilai asal-DB dan
+#: asal-RYO masuk ke sini, jadi tidak ada yang perlu di-escape: satu-satunya teks dinamis di
+#: halaman itu (banner dan jam render) dirakit :func:`render_kage`, yang meng-escape keduanya.
+KAGE_BODY = _read_static("kage.html").decode("utf-8")
 
 
 # --- escaping & pembungkusan --------------------------------------------------------------
@@ -1355,6 +1428,70 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         '<p class="sub">Tenko never does. A null is not a zero, and it is not silence either: it '
         "is an <strong>unspoken</strong> item, printed on the card, and it is enough to hold the "
         "departure on its own.</p>"
+        # Satu tautan, di DASAR halaman, dan dengan labelnya sendiri. Halaman `/kage` tidak
+        # membaca store dan tidak menjawab pertanyaan juri mana pun, jadi ia tidak boleh berdiri
+        # di sebelah "Open the board" di hero: tautan yang tampak setara akan membelah 30 detik
+        # pertama seorang juri antara papan dan pemandangan. Ia juga tidak boleh disembunyikan —
+        # halaman yang dilayani tetapi tidak pernah disebut adalah route yang hilang.
+        '<p class="sub">Scenery, not evidence: an <a href="/kage">illustrated page</a> ships '
+        "with this app. It reads nothing from the store, calls no RYO tool, and every figure "
+        "printed on it is design copy — the measured numbers are on the board.</p>"
         "</section>"
     )
     return _shell("Tenko (点呼) — simulated", banner, body, now, screen="landing")
+
+
+# --- halaman `/kage` ----------------------------------------------------------------------
+#: Kalimat yang menyatakan apa halaman ini DAN apa yang bukan. Ia dicetak di layar, bukan hanya
+#: di README: halaman ini tidak membaca store, tidak memanggil tool RYO, dan tidak memutuskan
+#: apa pun — semua angka di dalamnya adalah teks desain, dan satu-satunya angka yang dinilai ada
+#: di Layar A (`/app`). Menyembunyikan itu akan membuat "1611" dan "92 minutes" di halaman ini
+#: terbaca sebagai temuan (spec §8: data hiasan yang tampak nyata tidak dinilai).
+KAGE_NOTE = (
+    "This page is scenery, not evidence: it reads nothing from the store, calls no RYO tool and "
+    "no LLM, and every figure printed on it is design copy — not a measurement. The numbers that "
+    "are measured live on the board at /app, each next to its own n."
+)
+
+
+def render_kage(banner: str, now: datetime) -> str:
+    """Halaman `/kage` — papan gambar bergerak, dengan banner SIMULATED dan jalan pulang.
+
+    Dirender di server seperti layar lain, dari markup statis (:data:`KAGE_BODY`) yang tidak
+    membawa satu pun nilai asal-DB — jadi tidak ada yang bisa disuntikkan lewat halaman ini.
+    Bedanya dengan :func:`_shell`: halaman ini memuat `/ui/kage.css` (bukan `/ui/tenko.css`) dan
+    tidak memuat `/ui/app.js` sama sekali, karena klien Layar A/B tidak punya pekerjaan di sini —
+    yang jalan hanya three.js dan scene-nya, keduanya `defer` dan keduanya dari origin sendiri.
+
+    Banner dan tautan pulang dirender DUA KALI dalam satu bentuk: satu strip tetap (`position:
+    fixed`) yang tidak ikut tergulir, sehingga kalimat SIMULATED terlihat di setiap posisi
+    gulir halaman sepanjang ini — bukan hanya di atas lipatan.
+    """
+    strip = (
+        '<p class="tenko-banner" role="note">'
+        f"<b>SIMULATED</b><span>{escape(banner, quote=True)}</span>"
+        '<a href="/app">Open the board (Screen A)</a>'
+        '<a href="/">Tenko landing</a>'
+        "</p>"
+    )
+    footer = (
+        '<p class="tenko-foot">'
+        f"{escape(KAGE_NOTE, quote=True)} All clocks are JST; this page was rendered on the "
+        f"server at {escape(_now_jst(now), quote=True)}, banner and all, before any script ran."
+        "</p>"
+    )
+    return (
+        "<!doctype html>\n"
+        '<html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        '<meta name="tenko-simulated" content="true">'
+        "<title>Kage — Tenko (点呼), simulated</title>"
+        '<link rel="stylesheet" href="/ui/kage.css">'
+        '<script src="/ui/vendor/three.min.js" defer></script>'
+        '<script src="/ui/vendor/kage-scene.js" defer></script>'
+        '</head><body data-screen="kage" data-layout-hero="b" data-layout-story="b" '
+        'data-layout-gallery="b" data-layout-curriculum="b" data-layout-closing="b" '
+        'data-layout-footer="b">'
+        f"{strip}{KAGE_BODY}{footer}"
+        "</body></html>"
+    )

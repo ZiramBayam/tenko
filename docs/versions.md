@@ -253,9 +253,18 @@ verifikasi API tidak menyimpulkan aman/tidak aman; keputusannya milik pemilik re
 ## Aset frontend JS (di-vendor lokal, TANPA CDN, TANPA npm) — diverifikasi verifikasi API 1 Sep 2026
 **STATUS 6 Sep 2026: judul "TANPA npm" sudah usang untuk npm** — ADR-020 mengizinkan npm sebagai alat BUILD
 (lihat bagian "Frontend build" di atas). Yang TETAP berlaku dari bagian ini: **nol CDN saat runtime** dan **nol framework runtime**.
-three/gsap/lenis di bawah **tidak pernah ber-ADR dan tidak dipakai** (ADR-020 §3: "TypeScript + DOM apa adanya", nol dependency
-runtime npm) — fakta versi/lisensi/hash di bawah dipertahankan sebagai arsip verifikasi, bukan rencana.
-**DIPERIKSA ULANG 6 Sep 2026 setelah penulisan ulang frontend (`ed77a8c`) mendarat — "tidak dipakai" masih BENAR, nol:**
+**STATUS 7 Sep 2026 — kalimat "three/gsap/lenis tidak pernah ber-ADR dan tidak dipakai" di bawah sudah USANG, dua kali.**
+(1) **gsap 3.12.5 + lenis 1.1.0 SEKARANG DIPAKAI** dan **dibundel esbuild** (bukan di-vendor sebagai berkas terpisah)
+sejak **ADR-025** (DITERIMA 7 Sep 2026). Bukti 7 Sep 2026: `package.json` → `devDependencies` = `{esbuild 0.28.2,
+gsap 3.12.5, lenis 1.1.0, typescript 7.0.2}`, `dependencies` tetap **tidak ada/kosong**; `package-lock.json` memuat
+`gsap` 3.12.5 (lisensi = string "Standard 'no charge' license: https://gsap.com/standard-license…"), `lenis` 1.1.0 (MIT)
+dan transitifnya `@darkroom.engineering/tempus` 0.0.46 (MIT), ketiganya `"dev": true`; `grep -c GSAP ui/static/app.js` → 13
+(header lisensi ikut terkirim, sesuai ADR-025 butir 6). **Pin GSAP yang berlaku = 3.12.5, BUKAN 3.15.0** di tabel di bawah
+— ADR-025 butir 5 memilih versi teruji; baris 3.15.0 di tabel tetap ditulis sebagai arsip ADR-014.
+(2) **three.js**: lihat subbagian **"three.js r149"** di bawah — berkas r149 sudah ada di `ui/static/vendor/` (belum
+dilacak git, belum dirujuk kode) dan **ADR-025 butir 8 masih menyatakan "three.js TIDAK diambil"**.
+Yang TETAP berlaku dari bagian ini: **nol CDN saat runtime** dan **nol framework runtime**.
+**Pemeriksaan 6 Sep 2026 di bawah BENAR UNTUK TANGGALNYA, tetapi sudah dilewati kejadian — jangan dikutip sebagai keadaan hari ini:**
 `grep -rniE "three|gsap|lenis|scrolltrigger|importmap|jsdelivr|unpkg|esm\.sh|cdn\." core preflight grading agent ui frontend`
 (atas `*.py *.ts *.js *.css *.html`) → **nol baris**; `ls ui/static/` → hanya `app.js` + `app.css`, **tidak ada `ui/static/vendor/`**;
 `package.json` → `"dependencies": {}` dan `devDependencies` hanya `esbuild`+`typescript`; nol entri three/gsap/lenis di
@@ -270,9 +279,85 @@ memakai library baru tetap butuh ADR + manusia (konvensi repo: "Tanpa library di
 
 | Paket | Pin | Terbaru stabil (1 Sep 2026) | Lisensi | Bukti |
 |---|---|---|---|---|
-| three | **0.170.0** (rilis 31 Okt 2024) | 0.185.1 (1 Jul 2026) | MIT | https://registry.npmjs.org/three (`dist-tags.latest`=0.185.1; `versions["0.170.0"].license`="MIT", tidak deprecated) + LICENSE r170 |
-| gsap (core + ScrollTrigger) | **3.15.0** (rilis 13 Apr 2026) | 3.15.0 | **BUKAN MIT** — GSAP Standard "No Charge" License (Webflow), efektif 30 Apr 2025 | https://registry.npmjs.org/gsap (`license` = "Standard 'no charge' license: https://gsap.com/standard-license.") + https://gsap.com/community/standard-license/ |
+| three (arsip ADR-014; **BUKAN yang ada di disk** — yang di-vendor adalah **r149/0.149.0**, lihat subbagian di bawah) | **0.170.0** (rilis 31 Okt 2024) | 0.185.1 (rilis 2026-07-01T14:04:30Z, MIT — dikonfirmasi ulang 7 Sep 2026) | MIT | https://registry.npmjs.org/three (`dist-tags.latest`=0.185.1; `versions["0.170.0"].license`="MIT", tidak deprecated) + LICENSE r170 |
+| gsap (core + ScrollTrigger) — **arsip ADR-014; pin yang BERLAKU = 3.12.5 per ADR-025** | **3.15.0** (rilis 13 Apr 2026) | 3.15.0 | **BUKAN MIT** — GSAP Standard "No Charge" License (Webflow), efektif 30 Apr 2025 | https://registry.npmjs.org/gsap (`license` = "Standard 'no charge' license: https://gsap.com/standard-license.") + https://gsap.com/community/standard-license/ |
 | lenis | **1.1.0** (rilis 30 Mei 2024) | 1.3.26 (5 Agu 2026) | MIT | https://registry.npmjs.org/lenis (`versions["1.1.0"].license`="MIT") + https://raw.githubusercontent.com/darkroomengineering/lenis/v1.1.0/LICENSE |
+
+### three.js **r149 = npm `three@0.149.0`** — RUNTIME BROWSER, DI-VENDOR — diverifikasi verifikasi API 7 Sep 2026
+**Jenis pin ini BERBEDA dari baris Node/npm di bagian "Frontend build".** Node/npm adalah **ALAT BUILD SAJA** (ADR-020):
+tidak satu byte pun dari `node_modules/` dikirim ke browser selain hasil bundel kode kita. `three.min.js` di sini adalah
+kebalikannya — **byte pihak ketiga yang benar-benar dikirim ke browser**, disalin apa adanya ke `ui/static/vendor/three.min.js`
+dan disajikan dari **origin sendiri** (`script-src 'self'`, nol CDN saat runtime). Ia **tidak** masuk `package.json`/
+`package-lock.json`, **tidak** di-`import` oleh esbuild, dan **tidak** menambah dependency runtime npm; ia dimuat
+sebagai berkas terpisah lewat `<script src>` (build UMD → global `THREE`).
+
+| Hal | Nilai | Bukti (URL/perintah, 7 Sep 2026) |
+|---|---|---|
+| Versi | **r149** = npm **`0.149.0`** (satu-satunya rilis 0.149.x; **tidak ada** 0.149.1) | `curl -sS https://registry.npmjs.org/three` → `versions["0.149.0"]` ada, `deprecated` tidak ada; `versions["0.149.1"]` TIDAK ADA |
+| Tanggal rilis | **26 Januari 2023** — npm `time["0.149.0"]` = `2023-01-26T14:39:44.030Z`; tag GitHub `r149` published `2023-01-26T14:35:43Z` (commit tag `5181989615b970c3c0717a76f03a56814245ab71`) | `https://registry.npmjs.org/three` (`time`); `curl -sS https://api.github.com/repos/mrdoob/three.js/releases/tags/r149`; `curl -sS https://api.github.com/repos/mrdoob/three.js/git/ref/tags/r149` |
+| Lisensi | **MIT** | `versions["0.149.0"].license` = `"MIT"`; `https://api.github.com/repos/mrdoob/three.js` → `license.spdx_id` = `MIT`; berkas `package/LICENSE` di tarball = *"The MIT License / Copyright © 2010-2023 three.js authors"* + teks MIT standar, **1081 byte**, sha256 `852e0e8699169bf9f6fdc6bda3e682d078dcbc738b5d33e74df594721bff271d` (b64 `hS4OhpkWm/n2/ca9o+aC0HjcvHOLXTPnTfWUchv/Jx0=`) |
+| Tarball resmi | `https://registry.npmjs.org/three/-/three-0.149.0.tgz` (8.758.612 byte) | integrity registry `sha512-tohpUxPDht0qExRLDTM8sjRLc5d9STURNrdnK3w9A+V4pxaTBfKWWT/IqtiLfg23Vfc3Z+ImNfvRw1/0CtxrkQ==` = sha512 **hasil hitung sendiri** atas berkas yang diunduh; `dist.shasum` `a9cf78b1…b2927` juga cocok |
+| Berkas yang di-vendor | `build/three.min.js` → `ui/static/vendor/three.min.js`, **608.081 byte** | `sha256` = **`8a5f7249903b54d30f79f708699d2fed2d6a1d0741a4cd41377d1f01bb5a2271`** (b64 `il9ySZA7VNMPefcIaZ0v7S1qHQdBpM1BN30fAbtaInE=`) |
+
+**Perbandingan byte terhadap registry: COCOK PERSIS, tidak ada perbedaan satu byte pun.**
+Perintah (7 Sep 2026): `curl -sS -o three-0.149.0.tgz https://registry.npmjs.org/three/-/three-0.149.0.tgz` →
+`tar xzf three-0.149.0.tgz package/build/three.min.js` →
+`cmp package/build/three.min.js ui/static/vendor/three.min.js` → **keluar 0 (identik)**.
+Ketiganya bersha256 sama: berkas sumber di disk (`JAWAA/JAWAA/public/landing-pages/secret-pathways-assets/three.min.js`),
+salinan di `ui/static/vendor/three.min.js`, dan `package/build/three.min.js` dari tarball npm — semuanya
+`8a5f7249…bb5a2271`. Jadi berkas yang akan di-commit **terbukti** adalah `build/three.min.js` milik `three@0.149.0` upstream,
+bukan salinan yang dimodifikasi.
+
+Fakta bentuk berkas (dibaca dari berkas, bukan ingatan):
+- **UMD**, bukan ESM: `…define.amd?define(["exports"],e):e((t=globalThis…).THREE={})` → cukup `<script src>` biasa,
+  memberi global `THREE`. **Tidak perlu import map** (berbeda dari r170 di bawah, yang sudah tidak punya build UMD).
+- **Self-contained**: nol `from './…'` di dalam berkas → satu berkas cukup. `REVISION` di dalamnya = `"149"`
+  (`const e="149"`), cocok dengan pin.
+- Isi `build/` pada 0.149.0 hanya: `three.cjs`, `three.js`, `three.min.js`, `three.module.js` — **tidak ada**
+  `three.module.min.js` (baru muncul di rilis berikutnya).
+- Banner `@license` ada **satu**, di 5 baris pertama: `Copyright 2010-2023 Three.js Authors` +
+  `SPDX-License-Identifier: MIT`. **WAJIB tidak dihapus.**
+- **Kewajiban MIT belum lengkap oleh banner saja menurut konvensi repo ini** (lihat r170 di bawah): salin juga
+  `package/LICENSE` upstream ke `ui/static/vendor/three/LICENSE` (atau `three-LICENSE.txt` di samping berkasnya),
+  1081 byte, sha256 `852e0e86…bff271d`. Per 7 Sep 2026 berkas lisensi itu **BELUM ADA** di `ui/static/vendor/`.
+
+**Advisory / CVE untuk r149 — nol yang kena.** `curl -sS "https://api.github.com/advisories?ecosystem=npm&affects=three&per_page=100"`
+(7 Sep 2026) mengembalikan **tepat dua** advisory untuk paket `three`, keduanya di bawah r149:
+GHSA-7vvq-7r29-5vg3 / **CVE-2022-0177** (high, XSS, rentan `< 0.137.0`, ditambal 0.137.0) dan
+GHSA-fq6p-x6j3-cmmq / **CVE-2020-28496** (high, DoS ReDoS, rentan `< 0.125.0`, ditambal 0.125.0).
+Kueri kedua ke basis lain: `curl -sS -X POST -d '{"package":{"name":"three","ecosystem":"npm"},"version":"0.149.0"}' https://api.osv.dev/v1/query`
+→ **`vulns` kosong (0 hit)**. Kesimpulan yang boleh ditulis: **tidak ada advisory publik yang diketahui mengenai 0.149.0**
+per 7 Sep 2026. Yang TIDAK boleh disimpulkan: bahwa r149 "aman" — 54 rilis sudah terbit sesudahnya dan perbaikan bug
+non-advisory (termasuk bug parsing loader) tidak muncul di basis data advisory mana pun.
+
+**Jarak ke versi terbaru: jauh — 3,4 tahun dan 54 rilis.** `dist-tags.latest` = **0.185.1**, rilis
+**2026-07-01T14:04:30.373Z**, juga MIT. Antara 0.149.0 (26 Jan 2023) dan hari ini ada **54 rilis**
+(`three-registry.json` → `time`). Risiko yang relevan untuk keputusan tetap/naik:
+(a) **keamanan**: nol advisory di kedua sisi → bukan alasan untuk naik;
+(b) **ongkos naik**: 0.185.x **tidak lagi punya build UMD** dan `three.module.js`-nya mengimpor `./three.core.js`
+(dicatat di bagian r170 di bawah) → naik berarti pindah ke `<script type="module">` + import map + vendor DUA berkas,
+bukan tukar satu berkas;
+(c) **ongkos tetap**: r149 adalah kombinasi yang dipakai skill rujukan (`three 0.170.0` di ADR-014 vs r149 di
+`references/awwwards-3d` — **beda**, periksa sebelum menyalin kode contoh) dan API three berubah cukup banyak
+sesudah r152 (`useLegacyLights`, penghapusan `outputEncoding`/`sRGBEncoding`) sehingga contoh terbaru dari internet
+**tidak** langsung jalan di r149.
+
+**BLOKIR SEBELUM DIPAKAI — dua hal yang bukan urusan berkas ini tapi wajib beres lebih dulu.**
+1. **ADR-025 butir 8 menyatakan dengan huruf tegas: "three.js TIDAK diambil."** Memuat `three.min.js` di layar mana pun
+   **bertentangan langsung** dengan ADR yang masih berlaku → butuh **ADR baru** yang mencabut/mempersempit butir 8.
+   Verifikasi API tidak menyetujui itu; keputusannya milik pemilik repo.
+2. **ADR-020 butir 3 ("Dependency runtime npm: **nol**") perlu dibaca ulang, bukan diabaikan.** Secara harfiah pin ini
+   masih memenuhinya (three tidak ada di `package.json`), tetapi klaim di bagian "Frontend build" di atas — *"tidak ada
+   satu pun byte npm yang dikirim ke browser selain hasil bundel kode kita sendiri"* — menjadi **TIDAK BENAR** begitu
+   `<script src="/static/vendor/three.min.js">` mendarat, karena berkas itu **terbukti byte-identik dengan artefak npm**.
+   ADR baru wajib menuliskan kalimat pengganti yang jujur.
+3. **`DISCLOSURE.md` butuh baris pada commit yang sama**: `three.js r149 (npm three@0.149.0) — MIT — vendored,
+   ui/static/vendor/three.min.js, sha256 8a5f7249…bb5a2271`. Heading "NOT vendored" untuk three (bila masih ada)
+   menjadi salah dan harus dikoreksi. Penulisan `DISCLOSURE.md` bukan milik berkas ini.
+4. **Status git per 7 Sep 2026**: `ui/static/vendor/three.min.js` **sudah ada di working tree** tetapi **belum dilacak**
+   (`git ls-files ui/static` → hanya `app.css`, `app.js`, `fonts/*`); `git check-ignore` → tidak diabaikan. Nol rujukan
+   ke berkas itu dari kode (`grep -rn "vendor/" ui frontend` → nol baris `<script>`), jadi hari ini **nol byte three
+   benar-benar terkirim** dan butir 1–3 belum aktif.
 
 ### three 0.170.0 — MIT, aman di-vendor
 - LICENSE verbatim (https://raw.githubusercontent.com/mrdoob/three.js/r170/LICENSE, 1081 byte, diambil 1 Sep 2026):

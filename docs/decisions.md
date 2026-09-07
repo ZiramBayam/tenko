@@ -605,3 +605,63 @@ Konsekuensi: `Makefile` (legal-comments, banner) · `package.json`/`package-lock
 `frontend/src/main.ts` (`motion()`) · `frontend/styles/app.css` · `tests/test_ui.py` (satu tes diganti, dua
 ditulis ulang jadi allowlist) · `DISCLOSURE.md` (dua heading "NOT vendored" dikoreksi + tabel lisensi baru).
 Bundel tumbuh 37 KB → 341 KB; itu ongkos yang diterima untuk aset lokal tanpa CDN.
+
+## ADR-026 (DITERIMA 7 Sep 2026) three.js DIAMBIL setelah semua: landing "Kage" dari JAWAA di-vendor apa adanya
+Konteks: pemilik repo membawa folder `JAWAA/` — proyek React+Vite milik temannya — dan meminta asetnya
+dipakai ("boleh kok karena itu buatan temenku"). Setelah ongkos dipaparkan (tiga penghalang: React tidak ada di
+Tenko, CSP menolak inline `<style>`/`<script>` dan `data:` font, three.js = library runtime baru), pemilik memilih
+opsi "tambah three.js juga".
+
+**Ini MEMBALIK ADR-025 butir 8** ("three.js TIDAK diambil"), yang ditulis sehari sebelumnya dengan alasan ongkos
+vendoring memakan hampir seluruh sisa waktu. Alasan pembalikan berbeda dari yang diasumsikan ADR-025: di sana
+ongkosnya adalah *menulis* jalur 3D dari template; di sini scene-nya SUDAH JADI dan hanya perlu disambungkan.
+
+Keputusan:
+1. **three.js r149 di-VENDOR sebagai berkas**, bukan dibundel npm — `ui/static/vendor/three.min.js`, disajikan dari
+   origin sendiri. `dependencies` npm tetap `{}`; Node tetap alat BUILD saja (ADR-020 tidak disentuh). Banner MIT
+   asli di kepala berkas dipertahankan utuh, sesuai semangat ADR-025 butir 6.
+2. **CSP TIDAK dilonggarkan sepotong pun.** Ini diperiksa, bukan diasumsikan: `grep` atas `three.min.js` dan atas
+   scene 3.612 baris itu menemukan **nol** `eval` dan **nol** `new Function` — three.js mengompilasi GLSL lewat API
+   WebGL, bukan lewat `eval`. `script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'` bertahan apa
+   adanya (ADR-022).
+3. **Tiga blok inline dikeluarkan jadi berkas**, karena CSP tidak mengizinkan `unsafe-inline`: `<style>` (873 baris)
+   → `ui/static/kage.css`; `<script>` (3.612 baris) → `ui/static/vendor/kage-scene.js`; markup badan (319 baris)
+   → dirender server seperti layar lain.
+4. **Tujuh muka huruf diekstrak dari `data:font/woff2;base64` menjadi berkas `.woff2` nyata** di `ui/static/fonts/`
+   (Onest 300/400/500/700, NotoJP 400, Wordmark 500/600; semua sudah di-subset, 1,6–15 KB). Bentuk `data:` aslinya
+   akan diblokir `font-src 'self'` — ADR-022 sengaja tidak mengizinkan `data:`.
+5. **Path aset ditulis ulang** dari `secret-pathways-assets/…` ke `/ui/img/…`; 14 `.webp` masuk `ui/static/img/`.
+   Scene-nya sendiri membangkitkan SELURUH teksturnya secara prosedural dan tidak memuat berkas apa pun.
+6. **Landing Kage TIDAK membajak `/`.** ADR-021 menaruh Layar A di `/` dan itu yang dinilai juri; Layar A & B tidak
+   disentuh, termasuk seluruh jaminan a11y-nya (ADR-025 butir 9 tetap berlaku).
+
+Utang yang diakui terbuka, bukan disembunyikan:
+- **Dua bahasa visual hidup berdampingan.** ADR-023/024 menetapkan landing palet TERANG warna jalur kereta; Kage
+  bertema gelap (`--ink:#05070a`). Keduanya belum didamaikan.
+- **Lisensi tiga keluarga huruf belum diverifikasi.** Onest dan NotoJP hampir pasti OFL — yang MENUNTUT teks lisensi
+  ikut terdistribusi — dan "Wordmark" tidak diketahui asalnya. `ui/static/fonts/LICENSE.txt` sekarang hanya memuat
+  IBM Plex (ADR-022). Ini harus ditutup sebelum submission.
+- **three.js r149 terbit 2023**, jauh di belakang rilis terbaru; dipilih karena itulah berkas yang sudah teruji
+  bekerja dengan scene ini, bukan karena kebaruannya.
+
+7. **Identitas berkas three.js dibuktikan, bukan dipercaya.** `api-verifier` mengunduh tarball resmi
+   `registry.npmjs.org/three/-/three-0.149.0.tgz`, mencocokkan sha512-nya dengan `dist.integrity` registry, lalu
+   `cmp` byte-per-byte `package/build/three.min.js` terhadap berkas kita: **nol byte berbeda**. sha256 berkas yang
+   kita commit = `8a5f7249903b54d30f79f708699d2fed2d6a1d0741a4cd41377d1f01bb5a2271` (608.081 byte). Rilis
+   26 Jan 2023; MIT terkonfirmasi dari registry, GitHub license API, dan berkas `LICENSE` di dalam tarball.
+8. **Salinan `LICENSE` upstream ikut dikirim**, bukan hanya banner di kepala berkas — `ui/static/vendor/
+   LICENSE.three.txt`, 1.081 byte, sha256 `852e0e8699169bf9f6fdc6bda3e682d078dcbc738b5d33e74df594721bff271d`,
+   diambil dari tarball yang sama. Ini konvensi yang sudah dipakai untuk IBM Plex (ADR-022).
+9. **Satu kalimat ADR-020 jadi tidak benar dan diganti di sini, bukan diam-diam.** ADR-020 berbunyi tidak ada satu
+   pun byte npm yang dikirim ke browser selain hasil bundel kode kita sendiri. Sejak ADR ini itu **salah**:
+   `three.min.js` terbukti byte-identik dengan artefak npm. Yang MASIH benar dan lebih sempit: `dependencies` npm
+   tetap `{}`, three.js tidak dipasang lewat npm, dan Node tetap tidak pernah dibutuhkan untuk MENJALANKAN Tenko.
+10. **r149 dipilih sadar, bukan karena lalai.** Ia 3,4 tahun dan 54 rilis di belakang `0.185.1` (1 Jul 2026). Nol
+   advisory terpublikasi untuk 0.149.0 — dua advisory `three` yang ada (CVE-2022-0177 `<0.137.0`, CVE-2020-28496
+   `<0.125.0`) keduanya di bawahnya. Alasan teknis untuk tidak naik: r149 masih punya build **UMD** (`<script src>`
+   biasa, global `THREE`), sedangkan 0.185.x sudah membuangnya — naik berarti pindah ke ESM + import map + vendor
+   dua berkas, bukan tukar satu berkas. Sehari sebelum deadline, itu bukan pertukaran yang masuk akal.
+
+Konsekuensi: `ui/app.py` (route aset baru) · `ui/screens.py` (`FONT_NAMES`, halaman baru) · `ui/static/` (14 webp,
+2 vendor JS + LICENSE.three.txt, kage.css, 7 woff2) · `ui/README.md` · `DISCLOSURE.md` · `docs/versions.md`
+(pin three.js — ditulis `api-verifier`).

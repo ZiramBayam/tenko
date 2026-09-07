@@ -38,7 +38,9 @@ Nol framework, nol CDN, nol dependency runtime npm. Dua aset, keduanya dari orig
 Satu `Content-Security-Policy` menutup sisanya; **nilainya tidak dikutip di sini** — ia hidup di
 satu tempat, `ui/app.py:HTML_HEADERS`, karena tiga berkas yang harus diperbarui serempak adalah
 tiga berkas yang akan menyimpang. Sifatnya: semua yang tidak disebut ditolak (`default-src
-'none'`), skrip/gaya/`fetch` hanya dari origin ini sendiri, gambar nol, tanpa `unsafe-inline`,
+'none'`), skrip/gaya/`fetch` hanya dari origin ini sendiri, dan — sejak ADR-022 — gambar,
+font serta media juga HANYA dari origin ini sendiri (`'self'`, tidak pernah `*` dan tidak
+pernah `data:`), tanpa `unsafe-inline`,
 tanpa `unsafe-eval`, tanpa satu pun host pihak ketiga. Direktif `fetch` disebut EKSPLISIT: ia
 fallback ke `default-src`, jadi tanpanya setiap `fetch()` klien ditolak browser — termasuk ke
 origin sendiri, yang membuat seluruh ADR-020 tidak jalan.
@@ -117,6 +119,60 @@ Yang **tidak** berubah, dan dijaga tes:
   `<script src="/ui/app.js" defer>`, tanpa satu aksara pun isi sebaris; yang dijaga tes sekarang
   adalah jumlahnya = 1, bukan 0 — lihat baris CSP di atas.)
 - Warna tetap tidak pernah sendirian; `unspoken` tetap terbaca "tidak disebut", bukan 0.
+
+---
+
+## `/kage` — halaman gambar, dan kenapa ia bukan `/`
+
+Pemilik repo membawa masuk sebuah halaman bergambar dari proyek temannya (ADR-026). Ia dilayani
+di **`/kage`**, dan hanya di sana.
+
+**`/` tidak dibajak.** `/` tetap landing ADR-021 dan `/app` tetap Layar A, karena `/kage` tidak
+membaca store satu baris pun: setiap angka di halaman itu — "1611", "92 minutes", "05 chapters" —
+adalah teks desain, bukan pengukuran. Menaruhnya di depan papan akan menempatkan angka yang bukan
+pengukuran persis di tempat yang paling mungkin dibaca sebagai pengukuran, di produk yang menjual
+lawannya. Halaman itu **mengatakan** hal itu sendiri di kakinya (`ui.screens.KAGE_NOTE`), dan
+`/api/routes` menyebutnya di kunci `scenery` (`reads_store: false`) — bukan di antara `screens`.
+
+Tautannya ada **satu**, di dasar landing, berlabel "Scenery, not evidence". Bukan di hero: tautan
+yang tampak setara dengan "Open the board" akan membelah 30 detik pertama seorang juri.
+
+Apa yang dilayani, semuanya dari daftar TERTUTUP yang dibaca sekali saat impor (pola yang sama
+dengan `/ui/fonts/{name}`: `name` dari request dicocokkan ke sebuah dict, dan **tidak pernah**
+dipakai membangun path filesystem — nama di luar daftar adalah 404, bukan pembacaan disk):
+
+| Route | Isi | Daftar tertutup |
+|---|---|---|
+| `/kage` | halaman itu sendiri (markup statis `ui/static/kage.html` + banner & jam dari server) | — |
+| `/ui/kage.css` | `ui/static/kage.css` — berkas gaya tulisan tangan, **bukan** artefak esbuild | — |
+| `/ui/img/{image}` | 14 `.webp` (`image/webp`) | `ui.screens.IMAGE_NAMES` |
+| `/ui/vendor/{script}` | `three.min.js` (r149, MIT) & `kage-scene.js` (`text/javascript`), plus
+`LICENSE.three.txt` — MIT menuntut notisnya ikut terdistribusi, jadi ia dilayani, bukan hanya dilacak git | `ui.screens.VENDOR_NAMES` |
+| `/ui/fonts/{name}` | 4 face IBM Plex + **7 face baru** (Onest 300/400/500/700, NotoJP 400, Wordmark 500/600) | `ui.screens.FONT_NAMES` |
+
+**CSP tidak dilonggarkan seujung direktif pun untuk halaman ini**, dan itulah satu-satunya
+syarat yang membentuk markupnya: nol `<style>`, nol `<script>` sebaris, dan nol atribut `style=`
+(`style-src 'self'` menolak atribut sama seperti ia menolak tag). Markup yang dibawa masuk
+memuat tiga atribut `style=` untuk tiga cahaya kartu; nilainya pindah utuh ke kelas
+`.glow--approach/--lanterns/--moonwater` di `ui/static/kage.css`. Kedua `<script>`-nya `defer`
+dan `src`-nya origin sendiri; `kage-scene.js` membangkitkan seluruh teksturnya sendiri dan tidak
+mengunduh satu berkas pun saat berjalan, jadi janji "nol permintaan jaringan ke host asing" tetap
+berdiri (dipatok tes: nol `http://`/`https://` di halaman itu).
+→ `test_the_kage_page_is_a_screen_that_still_says_simulated`,
+`test_the_kage_page_carries_no_inline_script_no_inline_style_and_no_foreign_host`,
+`test_every_kage_asset_route_serves_a_closed_list_and_builds_no_path_from_the_request`,
+`test_the_kage_page_never_hijacks_the_screen_that_is_judged`
+
+**Banner SIMULATED**: strip tetap (`position: fixed`) di kaki jendela, dirender server sebelum
+satu baris JS pun jalan, dengan kalimat yang sama persis dengan layar lain — dan ia membawa jalan
+pulang ke `/app` dan `/`, supaya halaman hiasan tidak pernah menjadi jalan buntu.
+
+**Yang BELUM tertutup di halaman ini** (jangan dibaca sebagai selesai):
+lisensi tujuh face baru **belum diverifikasi** terhadap sumber hulu, dan `ui/static/fonts/LICENSE.txt`
+menutupi IBM Plex saja — `DISCLOSURE.md` §Fonts menulisnya sebagai kewajiban **OPEN**, dan tes
+font di atas gagal bila pengakuan itu dihapus tanpa kewajibannya diselesaikan. Halaman ini juga
+belum melewati checklist aksesibilitas di bawah: checklist itu berlaku untuk Layar A & B, yang
+tidak berubah satu perilaku pun oleh ADR-026.
 
 ---
 
