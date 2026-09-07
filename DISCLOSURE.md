@@ -292,9 +292,20 @@ explicitly, verified from the upstream file above rather than from a summary.
 
 ## Reference material (not shipped, not executed)
 - `references/awwwards-3d/` — a 3D scroll-driven design guidance skill, **MIT** (Copyright (c) 2026 awwwards-3d skill
-  authors). Used as a visual style reference (ADR-014). None of its code enters the product; the libraries it refers
-  to (three.js, GSAP, Lenis) will only be used if explicitly vendored — vendoring status is in the two sections
-  above.
+  authors). Used as a visual style reference (ADR-014, and again ADR-028). **Correction, 7 Sep 2026:** the old wording
+  here said the libraries it refers to "will only be used if explicitly vendored". That was a promise, and it has
+  since been kept, so it is now a fact and is written as one — GSAP 3.12.5 and Lenis 1.1.0 are bundled at build time
+  and three.js r149 is vendored for `/kage`; all three are listed in the sections above with their licences. None of
+  those three arrived *through* this skill.
+
+  What ADR-028 took from it is **two PNG screenshots read by a human being**
+  (`docs/screenshots/minimal-hero.png`, `coin-hero.png`) and the layout formula they show: near-black void, one
+  wide radial light, numbered mono label, giant two-line title in the lower third, empty middle. That formula was
+  re-implemented from scratch as ~40 lines of CSS in `frontend/styles/app.css`. **Zero lines of its code, zero of
+  its assets, and zero of its dependency choices ship**, and this is not a matter of taste: its deliverable is an
+  ESM importmap served from unpkg/esm.sh (our CSP is `script-src 'self'` and `make demo` must run offline), it pins
+  three.js 0.170.0 against our vendored r149, and its assets are GLB/HDRI models. Nothing in
+  `references/` is executed, imported, or served by this app.
 
 ## Datasets
 - No third-party dataset at runtime. Citation references (not components): RED-PUMP-2026-v1 (CC BY 4.0) — only if

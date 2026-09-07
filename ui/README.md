@@ -118,8 +118,10 @@ Yang berubah:
 - **Skala tipografi.** Muka huruf aplikasi menjadi Onest (di-vendor, ADR-026); IBM Plex Mono
   tetap memegang angka, hash, id, dan tiap nilai asal-RYO supaya kolomnya sejajar dan aksara
   mirip tidak tertukar. Simbol Layar A naik menjadi 19px mono: ia judul barisnya.
-- **Gambar masuk ke layar juri** — tiga di landing, satu sebagai latar `html` di semua layar,
-  semuanya dari daftar TERTUTUP `ui.screens.IMAGE_NAMES` dan dilayani origin sendiri.
+- **Gambar masuk ke layar juri** — dua di landing, satu sebagai latar `html` di semua layar,
+  semuanya dari daftar TERTUTUP `ui.screens.IMAGE_NAMES` dan dilayani origin sendiri. Hero
+  TIDAK punya gambar sejak ADR-028: layar pertama adalah void dengan satu `radial-gradient`,
+  dan tiap perhentian warnanya adalah permukaan palet yang sudah diukur.
 - **Gerak yang sudah dibayar ADR-025 dibelanjakan**: reveal berurutan pada blok landing dan
   parallax ber-`scrub` pada dua gambar. Keduanya di dalam `motion()`, yang berhenti sebelum
   baris pertamanya bila `prefers-reduced-motion` menyala.
@@ -131,7 +133,8 @@ Yang **tidak** berubah, dan dijaga tes:
   → `test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`,
   `test_the_palette_is_measured_from_the_stylesheet_that_ships`
 - **Nol teks di atas piksel gambar.** Tiap gambar landing duduk di kotaknya sendiri yang berisi
-  hanya satu `<img>`. → `test_no_sentence_on_a_judged_screen_sits_on_top_of_an_image`
+  hanya satu `<img>`, dan hero tidak punya gambar sama sekali.
+  → `test_no_sentence_on_a_judged_screen_sits_on_top_of_an_image`
 - **Nol `position: fixed`.** Gambar latar dipasang sebagai latar `html`, bukan elemen melayang,
   jadi tidak ada permukaan baru yang bisa menjebak fokus.
   → `test_escape_has_nothing_to_close_because_no_screen_traps_focus`
@@ -268,6 +271,12 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
       halaman **hilang sama sekali**. Cacat itu lahir 7 Sep bersama efeknya dan hanya terlihat
       karena checklist ini diaudit ulang atas UI yang sekarang.
       → `test_the_landing_is_reachable_and_readable_the_way_screen_a_and_b_are`
+- [x] **Bentuk layar pertama dipatok, bukan dititipkan ke selera** (ADR-028): label mono
+      bernomor `01 —`, judul dua baris berukuran `clamp(56px, 7vw, 104px)`, satu sumber cahaya
+      `radial-gradient` yang SELURUH perhentian warnanya adalah permukaan palet terukur (nol
+      `rgba()` yang menerangi, nol hex baru), baris kisi kosong yang melar di tengah, dan
+      tautan `/app` tetap di dalam layar pertama itu.
+      → `test_the_first_screen_is_a_void_with_one_light_and_a_two_line_title`
 - [x] **Landing (`/`) diuji dengan tuntutan yang sama seperti Layar A/B**: satu `h1` lalu `h2`
       saja tanpa lompatan tingkat, tiap tautan bernama, aksara Jepang ber-`lang="ja"`, rel gulir
       `aria-hidden` karena ia kanal kedua (posisi gulir sudah dibawa bilah gulir browser), dan
@@ -291,8 +300,12 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
 - [x] **Terbaca 1280×720.** `<meta name="viewport" content="width=1280">`, badan halaman
       dibatasi 1240px, **sembilan** kolom kartu dan sembilan kolom watchlist berlebar tetap
       supaya kolom `reason` (Layar B) dan kolom "apa yang menahan" (Layar A) tidak terhimpit,
-      teks minimum 12,5px. Di bawah 1000px lebar tetap itu dilepas kembali (`table-layout: auto`), kolom
-      hero/bukti/rails menumpuk jadi satu, dan gambar hiasan `.proofs-art` menghilang sama sekali.
+      teks minimum 12,5px. Hero ADR-028 setinggi persis satu layar (`100vh - var(--chrome)`,
+      dengan `--chrome` = banner melekat 52px + railbar 39px), jadi judul di sepertiga bawah
+      berada DI ATAS lipatan pada 720px — bukan di bawahnya. Di bawah 1000px lebar tetap itu
+      dilepas kembali (`table-layout: auto`), kolom bukti/rails menumpuk jadi satu, hero
+      kembali setinggi isinya (`min-height: 0`), dan gambar hiasan `.proofs-art` menghilang
+      sama sekali.
 - [ ] **Rekaman 30 detik** — lihat "Batas yang belum tertutup" di bawah.
 
 ### Angka kontras (WCAG 2.1, sRGB relative luminance)
@@ -352,9 +365,9 @@ di sebuah gambar adalah putih, dan putih di bawah scrim setebal itu menjadi **#2
 | `--warn` #e0b552 | scrim gambar #232527 | **7.98:1** | PASS |
 | `--link` #6fd2e8 | scrim gambar #232527 | **8.83:1** | PASS |
 
-Tiga gambar landing (`kage-approach`, `stone-lantern`, `kage-moonwater`) TIDAK masuk hitungan
+Dua gambar landing (`stone-lantern`, `kage-moonwater`) TIDAK masuk hitungan
 ini karena tidak ada satu kalimat pun di atasnya: masing-masing duduk di kotaknya sendiri
-(`.hero-art`, `.proofs-art`, `.band-art`) yang berisi **hanya** satu `<img>` — dipatok
+(`.proofs-art`, `.band-art`) yang berisi **hanya** satu `<img>` — dipatok
 `test_no_sentence_on_a_judged_screen_sits_on_top_of_an_image`. Semuanya `alt=""` (pemandangan,
 bukan bukti) dan satu baris `ART_NOTE` mengatakannya untuk mata.
 

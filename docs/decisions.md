@@ -753,3 +753,73 @@ dari ambangnya (4.55:1 dan 3.06:1) — tema gelap lulus lebih lega, dan itu bagi
 Konsekuensi: `frontend/styles/app.css` (ditulis ulang) · `frontend/src/main.ts` (gerak) · `ui/screens.py` (markup
 landing + tiga konstanta gambar) · `tests/test_ui.py` (dua tes diganti, satu ditambah, hash bundel diperbarui) ·
 `ui/README.md` · `Makefile` + `package.json` (resep build identik).
+
+## ADR-028 (DITERIMA 7 Sep 2026) Hero landing: void, satu cahaya, judul raksasa — formula dari tangkapan layar `references/awwwards-3d`, nol kodenya
+
+Konteks: sesudah ADR-027 pemilik repo masih menilai landing "jelek", dan pertanyaannya tepat sasaran — kenapa
+`references/awwwards-3d` tidak pernah dipakai padahal ia ada di repo sejak ADR-014. Jawaban jujurnya ada dua bagian,
+dan bagian pertama adalah alasan skill itu memang tidak bisa dipakai apa adanya (ini FINAL, jangan dibuka lagi):
+`SKILL.md`-nya sendiri mengecualikan "dashboards, admin UIs"; deliverable-nya importmap ESM dari unpkg/esm.sh
+sementara CSP kami `script-src 'self'` dan `make demo` wajib jalan offline; ia memaku three 0.170.0 sementara kami
+mem-vendor r149 (API r152+ berbeda); dan asetnya GLB/HDRI, bukan desain UI.
+
+Bagian kedua: yang BISA dipakai darinya bukan kodenya melainkan **dua tangkapan layarnya**
+(`docs/screenshots/minimal-hero.png`, `coin-hero.png`), dan formula yang terlihat di sana seluruhnya CSS.
+
+Keputusan: hero landing ditulis ulang mengikuti formula itu — dan HANYA `/`. Layar A (`/app`) dan Layar B
+(`/app/decision/{id}`) tidak disentuh satu baris pun, karena skill itu sendiri mengecualikan dashboard dan karena
+yang dibutuhkan juri di sana adalah keterbacaan tabel, bukan void hitam.
+
+1. **Void rata, bukan foto yang diredupkan.** `.hero` punya `background-color: var(--ink)` PADAT yang menutupi
+   gambar latar `html` sepenuhnya. Hero dua-kolom teks|gambar ADR-027 dibongkar; `HERO_IMAGE` dihapus dan landing
+   sekarang punya DUA gambar, bukan tiga.
+2. **Satu sumber cahaya, dan terangnya punya langit-langit yang bisa dibuktikan.** Cahayanya satu
+   `radial-gradient(52% 72% at 50% 46%, …)`. Bloom "yang benar" memakai putih beralpha — dan `rgba()` yang
+   MENERANGI dilarang di stylesheet ini (ADR-027 butir 4) justru karena ia bisa menaikkan latar di bawah teks tanpa
+   satu hex baru pun muncul untuk diukur. Larangan itu TIDAK dilonggarkan. Perhentian warnanya karena itu adalah
+   empat permukaan yang sudah dipasangkan dengan keenam warna teks: `--card` → `--row` → `--panel` → `--ink`.
+   Puncak cahaya = `--card`, permukaan paling terang yang sudah diukur (terketat `--nogo` di atasnya = 5.88:1).
+   Konsekuensi yang diterima sadar: bloom-nya lebih redup daripada rujukannya, dan yang menggantikannya adalah
+   falloff yang lebar — itu memang yang memberi kesan sinematik, bukan puncak yang tinggi.
+   Geometrinya dihitung, bukan dicoba-coba: pada 1280×720 tepi atas hero berjarak 0,64 dari pusat pada sumbu tegak
+   (praktis `--ink`), sehingga railbar berlatar ink padat di atasnya tidak meninggalkan jahitan mendatar; tepi
+   kiri/kanan berjarak 0,96 — void penuh.
+3. **Judul raksasa, dua baris, di sepertiga bawah.** `--t-hero` naik dari `clamp(32px, 4.4vw, 56px)` menjadi
+   `clamp(56px, 7vw, 104px)`, `line-height` 0.95, rata kiri, dan barisnya diputus `<br>` di markup — bukan oleh
+   lebar kolom, yang bergeser diam-diam bersama tiap perubahan tata letak. Judulnya sendiri dipendekkan dari tiga
+   baris menjadi dua.
+4. **Kekosongan adalah STRUKTUR, bukan sisa.** `.hero-in` adalah kisi `auto 1fr`: baris label menempel ke atas,
+   `.hero-say` menempel ke DASAR baris yang melar. Hero setinggi `calc(100vh - var(--chrome))` dengan `--chrome`
+   = 91px (banner melekat 52 + railbar 39, terukur), jadi layar pertama pas satu layar pada 720px dan judulnya di
+   atas lipatan. Judul membentang dua kolom; kalimat dan tautan berbagi baris di bawahnya, rata dasar — menumpuk
+   ketiganya memakan ~64px lagi dari ruang kosong yang justru menjadi inti tata letak ini.
+5. **Label mono bernomor** `01 — …` sampai `05 — …` di tiap bagian. Nomor 03 (papan) boleh HILANG bersama papannya
+   ketika store tak terbaca; celah penomorannya disengaja dan lebih jujur daripada menomori ulang.
+6. **Yang WAJIB tetap ada, dan tetap ada.** Papan keberangkatan dengan baris NYATA dari store (pindah ke bawah
+   lipatan, dijaga `test_the_landing_board_shows_real_rows_or_no_board_at_all`), banner SIMULATED, tautan satu klik
+   ke `/app` DI DALAM layar pertama, tautan `/kage` di dasar halaman, kaki halaman, dan kalimat "practice trade"
+   yang tetap di layar pertama — di tepi atas, supaya ia tidak membayar dengan ruang kosong.
+7. **Pagar ADR-027 tidak bergerak satu pun.** Palet identik (nol hex baru, nol `rgba()` baru), angka kontras
+   identik (`--nogo`/`--card` 5.88:1 · `--line`/`--card` 3.06:1 · `--warn`/`--ink` 10.47:1 · teks di atas gambar
+   berscrim 5.64:1), CSP tidak berubah, gerak mati total di `prefers-reduced-motion`, tiap `:hover` punya `:focus`,
+   nol `position: fixed`, gambar hanya dari `/ui/img/` daftar TERTUTUP.
+8. **Gerak dibelanjakan, dengan prinsip yang dipinjam dan kode yang tidak.** Lenis berpindah dari `duration: 1.1`
+   ke `lerp: 0.08` (rentang 0,06–0,1 pada prinsip "lerp everything" di SKILL.md itu — prinsipnya dipinjam,
+   kodenya tidak), dan judul hero mendapat tween sendiri: ia satu-satunya elemen yang sudah terlihat pada frame
+   pertama, jadi ia MENDARAT, bukan muncul saat digulir. Parallax `scrub` berpindah dari `.hero-art img` (sudah
+   tidak ada) ke `.proofs-art img` + `.band-art img`; ia tetap hanya menyentuh elemen dekoratif.
+9. **Yang DIAMBIL dari skill itu, tepatnya, untuk `DISCLOSURE.md`:** dua berkas PNG yang DIBACA MANUSIA, dan
+   formula tata letak yang terlihat di dalamnya. Nol baris kode, nol aset, nol pilihan dependensi. `DISCLOSURE.md`
+   §"Reference material (not shipped, not executed)" diperbarui pada commit yang sama, sekaligus MENGOREKSI
+   kalimat lamanya yang berbunyi tiga pustaka itu "will only be used if explicitly vendored" — janji itu sudah
+   ditepati (GSAP + Lenis terbundel, three r149 di-vendor), jadi ia sekarang fakta dan ditulis sebagai fakta.
+
+Tesnya: `test_the_first_screen_is_a_void_with_one_light_and_a_two_line_title` memaku keenam hal yang paling mudah
+kembali diam-diam (label bernomor, judul dua baris ≥56px, SATU gradient yang perhentiannya hanya permukaan
+terukur, baris kisi yang melar, tinggi satu layar, dan tautan `/app` di dalam hero).
+`test_no_sentence_on_a_judged_screen_sits_on_top_of_an_image` menuntut `hero-art` TIDAK ADA — penghapusan dijaga
+sebagai penghapusan, supaya kolom gambar hero tidak bisa kembali membawa pasangan warna yang tak pernah diukur.
+
+Konsekuensi: `frontend/styles/app.css` (hero ditulis ulang, dua token baru) · `frontend/src/main.ts` (target reveal,
+`lerp`, parallax) · `ui/screens.py` (markup landing, `HERO_IMAGE` dihapus, `ART_NOTE` diperbaiki) ·
+`tests/test_ui.py` (satu tes baru, satu tes diperketat, hash bundel diperbarui) · `ui/README.md` · `DISCLOSURE.md`.

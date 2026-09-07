@@ -7706,12 +7706,12 @@
   function motion() {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const targets = document.querySelectorAll(
-      ".hero .kicker, .hero h1, .hero .lede, .hero .cta, .hero .rails, .board, .proofs-in, .band-in, .figs li"
+      ".hero .kicker, .hero h1, .hero .stand, .hero .cta, .ritual .kicker, .ritual h2, .lede, .rails, .board, .proofs-in, .band-in, .figs li"
     );
     if (!targets.length) return;
     document.documentElement.classList.add("js-motion");
     for (const node of targets) node.classList.add("reveal");
-    const lenis = new Lenis({ duration: 1.1, smoothWheel: true });
+    const lenis = new Lenis({ lerp: 0.08, smoothWheel: true });
     lenis.on("scroll", ScrollTrigger2.update);
     gsapWithCSS.ticker.add((time) => lenis.raf(time * 1e3));
     gsapWithCSS.ticker.lagSmoothing(0);
@@ -7728,7 +7728,11 @@
         scrollTrigger: { trigger: node, start: "top 90%", once: true }
       });
     });
-    for (const art of document.querySelectorAll(".hero-art img, .band-art img")) {
+    const headline = document.querySelector(".hero h1");
+    if (headline) {
+      gsapWithCSS.to(headline, { opacity: 1, y: 0, duration: 1.2, delay: 0.1, ease: "power3.out" });
+    }
+    for (const art of document.querySelectorAll(".proofs-art img, .band-art img")) {
       gsapWithCSS.to(art, {
         yPercent: 12,
         ease: "none",

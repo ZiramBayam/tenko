@@ -89,13 +89,14 @@
   --r2: 12px;
   --pad: clamp(20px, 4vw, 56px);
   --wide: 1240px;
-  --t-hero: clamp(32px, 4.4vw, 56px);
+  --t-hero: clamp(56px, 7vw, 104px);
   --t-fig: clamp(34px, 4vw, 56px);
   --t-h1: clamp(28px, 3.4vw, 44px);
   --t-h2: clamp(20px, 2.2vw, 30px);
   --t-lede: clamp(16px, 1.35vw, 20px);
   --t-label: 11px;
   --stick: 52px;
+  --chrome: 91px;
   --sans:
     "Onest Vendored",
     "IBM Plex Sans Vendored",
@@ -624,73 +625,87 @@ footer p {
   font-weight: 600;
 }
 .hero {
-  padding: var(--s8) var(--pad) var(--s7);
+  position: relative;
+  display: grid;
+  min-height: calc(100vh - var(--chrome));
+  padding: var(--s5) var(--pad) var(--s7);
+  background-color: var(--ink);
+  background-image:
+    radial-gradient(
+      52% 72% at 50% 46%,
+      var(--card) 0%,
+      var(--row) 18%,
+      var(--panel) 42%,
+      var(--ink) 74%);
 }
 .hero-in {
+  width: 100%;
   max-width: var(--wide);
   margin-inline: auto;
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+  grid-template-rows: auto 1fr;
   gap: var(--s6);
-  align-items: center;
 }
-.hero-body {
-  min-width: 0;
+.hero-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s4) var(--s6);
+  align-items: baseline;
+  justify-content: space-between;
 }
-.hero-art {
-  min-width: 0;
-  position: relative;
-}
-.hero-art img {
-  width: 100%;
-  height: auto;
-  display: block;
-  border: 1px solid var(--hair);
-  border-radius: var(--r2);
-  box-shadow: 0 60px 120px -60px rgba(0, 0, 0, .95);
-}
-.hero-art::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: var(--r2);
-  pointer-events: none;
-  background-image:
-    radial-gradient(
-      120% 92% at 50% 40%,
-      rgba(5, 7, 10, 0) 42%,
-      rgba(5, 7, 10, .72) 100%);
+.hero-top .sub {
+  margin: 0;
+  max-width: 62ch;
+  text-align: right;
 }
 .hero .kicker {
-  margin-bottom: var(--s5);
+  letter-spacing: .28em;
+}
+.hero-say {
+  align-self: end;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s5) var(--s6);
+  align-items: end;
 }
 .hero h1 {
-  margin: 0 0 var(--s5);
-  max-width: 20ch;
-  font: 700 var(--t-hero)/1.06 var(--sans);
-  letter-spacing: -.035em;
-}
-.hero .art-note {
-  grid-column: 2;
-  margin: var(--s3) 0 0;
-}
-.hero .rails {
   grid-column: 1 / -1;
+  margin: 0;
+  font: 700 var(--t-hero)/.95 var(--sans);
+  letter-spacing: -.04em;
+}
+.stand {
+  margin: 0;
+  max-width: 48ch;
+  font-size: var(--t-lede);
+  line-height: 1.5;
+  color: var(--fg);
+  font-weight: 300;
+}
+.hero .cta {
+  margin: 0;
+  justify-content: flex-end;
 }
 @supports ((background-clip: text) or (-webkit-background-clip: text)) {
   .hero h1 {
     background-image:
       radial-gradient(
         circle,
-        var(--warn) 36%,
-        transparent 38%),
+        var(--warn) 26%,
+        transparent 28%),
       linear-gradient(var(--fg), var(--fg));
-    background-size: 12px 12px, 100% 100%;
+    background-size: 10px 10px, 100% 100%;
     background-position: 2px 2px, 0 0;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
+}
+.ritual {
+  padding: var(--s7) 0 var(--s6);
+}
+.kicker + h2 {
+  margin-top: var(--s3);
 }
 .lede {
   margin: 0 0 var(--s5);
@@ -784,7 +799,7 @@ footer p {
   padding: var(--s7) 0 var(--s6);
 }
 .board > h2 {
-  margin-top: 0;
+  margin-top: var(--s3);
 }
 .lb {
   margin: var(--s4) 0 0;
@@ -846,7 +861,7 @@ footer p {
   min-width: 0;
 }
 .proofs-in > h2 {
-  margin-top: 0;
+  margin-top: var(--s3);
 }
 .proofs-art {
   min-width: 0;
@@ -856,6 +871,10 @@ footer p {
   height: auto;
   display: block;
   opacity: .85;
+}
+.proofs .art-note {
+  grid-column: 2;
+  margin: var(--s3) 0 0;
 }
 .figs {
   display: grid;
@@ -929,7 +948,7 @@ footer p {
   margin-inline: auto;
 }
 .band h2 {
-  margin-top: 0;
+  margin-top: var(--s3);
 }
 .why .answer {
   max-width: 78ch;
@@ -1022,7 +1041,6 @@ html.lenis body {
     background-image: none;
     color: CanvasText;
   }
-  .hero-art,
   .band-art {
     display: none;
   }
@@ -1052,13 +1070,19 @@ html.lenis body {
     padding-top: 0;
   }
   .hero {
+    min-height: 0;
     padding-top: var(--s7);
   }
-  .hero-in {
+  .hero-say {
     grid-template-columns: minmax(0, 1fr);
-    gap: var(--s6);
   }
-  .hero .art-note {
+  .hero-top .sub {
+    text-align: left;
+  }
+  .hero .cta {
+    justify-content: flex-start;
+  }
+  .proofs .art-note {
     grid-column: 1;
   }
 }

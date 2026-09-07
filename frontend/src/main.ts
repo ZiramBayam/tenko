@@ -364,7 +364,8 @@ function motion(): void {
   // halaman ritme baca. Daftarnya eksplisit supaya tidak ada elemen yang tanpa sengaja
   // ber-`opacity: 0` hanya karena ia kebetulan cocok dengan pemilih yang terlalu lebar.
   const targets = document.querySelectorAll<HTMLElement>(
-    ".hero .kicker, .hero h1, .hero .lede, .hero .cta, .hero .rails, " +
+    ".hero .kicker, .hero h1, .hero .stand, .hero .cta, " +
+      ".ritual .kicker, .ritual h2, .lede, .rails, " +
       ".board, .proofs-in, .band-in, .figs li"
   );
   if (!targets.length) return;
@@ -372,7 +373,11 @@ function motion(): void {
   document.documentElement.classList.add("js-motion");
   for (const node of targets) node.classList.add("reveal");
 
-  const lenis = new Lenis({ duration: 1.1, smoothWheel: true });
+  // `lerp`, bukan `duration`: gulirnya mengejar posisi target dengan pecahan tetap tiap frame
+  // (interpolasi linear), jadi gerak berhenti mulus dari kecepatan berapa pun dan tidak punya
+  // panjang tetap yang terasa seperti animasi. 0.08 ada di tengah rentang yang enak (0.06-0.1);
+  // di bawahnya halaman terasa berat, di atasnya efeknya hilang.
+  const lenis = new Lenis({ lerp: 0.08, smoothWheel: true });
   lenis.on("scroll", ScrollTrigger.update);
   gsap.ticker.add((time: number) => lenis.raf(time * 1000));
   gsap.ticker.lagSmoothing(0);
@@ -391,10 +396,19 @@ function motion(): void {
     });
   });
 
+  // Judul hero mendapat tween SENDIRI, dan ia menimpa reveal umum di atas untuk elemen yang
+  // sama (GSAP menjalankan tween terakhir yang menyentuh properti itu). Alasannya: ia satu-
+  // satunya elemen yang sudah terlihat pada frame pertama, jadi ia tidak "muncul saat digulir"
+  // melainkan MENDARAT — lebih lambat, dari lebih jauh, sekali saja.
+  const headline = document.querySelector<HTMLElement>(".hero h1");
+  if (headline) {
+    gsap.to(headline, { opacity: 1, y: 0, duration: 1.2, delay: 0.1, ease: "power3.out" });
+  }
+
   // Parallax: gambar bergerak lebih lambat daripada halaman. `scrub` mengikatnya ke posisi
   // gulir (bukan ke waktu), jadi ia tidak pernah bergerak sendiri saat halaman diam, dan ia
   // hanya menyentuh `y` sebuah elemen DEKORATIF — tidak ada teks yang ikut bergeser.
-  for (const art of document.querySelectorAll<HTMLElement>(".hero-art img, .band-art img")) {
+  for (const art of document.querySelectorAll<HTMLElement>(".proofs-art img, .band-art img")) {
     gsap.to(art, {
       yPercent: 12,
       ease: "none",

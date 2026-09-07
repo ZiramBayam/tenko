@@ -115,7 +115,9 @@
   --r1: 6px; --r2: 12px;
   --pad: clamp(20px, 4vw, 56px);
   --wide: 1240px;
-  --t-hero: clamp(32px, 4.4vw, 56px);
+  /* Judul hero ADR-028: RAKSASA dan maksimal dua baris. 7vw pada 1280 = 89,6px, dan
+     `<br>` di markup yang memutus barisnya — bukan lebar kolom, yang bisa berubah. */
+  --t-hero: clamp(56px, 7vw, 104px);
   --t-fig: clamp(34px, 4vw, 56px);
   --t-h1: clamp(28px, 3.4vw, 44px);
   --t-h2: clamp(20px, 2.2vw, 30px);
@@ -124,6 +126,11 @@
   /* Tinggi banner yang melekat: dipakai `top:` semua yang ikut melekat di bawahnya, supaya
      kepala tabel tidak pernah mendarat DI BALIK banner. */
   --stick: 52px;
+  /* Tinggi TERPAKAI di atas hero: banner melekat (52px) + railbar (39px, terukur dari
+     padding + track + baris nama perhentian). Hero mengurangkannya dari 100vh supaya
+     layar pertama pas satu layar pada 1280x720 — tanpa ini, judul di sepertiga bawah
+     jatuh di bawah lipatan dan seluruh idenya hilang. */
+  --chrome: 91px;
 
   --sans: "Onest Vendored", "IBM Plex Sans Vendored", system-ui, -apple-system, "Segoe UI",
     Roboto, "Noto Sans", "DejaVu Sans", Arial,
@@ -424,37 +431,77 @@ footer p { max-width: 108ch; }
 /* ============================================================================================
    LANDING
    ============================================================================================ */
-.hero { padding: var(--s8) var(--pad) var(--s7); }
-/* Dua kolom, dan gambar duduk di KOLOMNYA SENDIRI. Menaruh gambar di BELAKANG seluruh hero
-   terlihat bagus dan tidak bisa dibuktikan — kontras tiap kalimat lalu bergantung pada piksel
-   di belakangnya. Dengan gambar di kolom terpisah, klaimnya menjadi fakta tata letak: TIDAK
-   ADA satu pun teks di halaman ini yang duduk di atas gambar, jadi tiap pasangan warna yang
-   diukur adalah pasangan yang benar-benar terjadi. */
+/* --- 01 · hero: satu ruang kosong, satu cahaya ------------------------------------------------
+   Formulanya diambil dari DUA TANGKAPAN LAYAR di `references/awwwards-3d/docs/screenshots/`
+   sebagai rujukan VISUAL (ADR-028) — void nyaris hitam yang RATA, SATU sumber cahaya dengan
+   falloff radial sangat lebar, label mono bernomor di kiri atas, judul raksasa rata kiri di
+   sepertiga bawah, dan bagian tengah yang sengaja KOSONG. Nol baris kode dan nol aset dari
+   skill itu ikut: ia mengirim three.js lewat importmap CDN dan CSP kami `script-src 'self'`.
+
+   CAHAYANYA DIBUAT DARI PERMUKAAN YANG SUDAH DIUKUR, dan itu bukan detail teknis. Bloom yang
+   "benar" memakai putih beralpha; `rgba()` yang MENERANGI dilarang di berkas ini (butir 4
+   `test_the_palette_is_measured_from_the_stylesheet_that_ships`) justru karena ia bisa
+   menaikkan latar di bawah teks tanpa satu hex baru pun muncul untuk diukur. Puncak cahaya di
+   sini karena itu `--card`: permukaan PALING TERANG yang sudah dipasangkan dengan keenam warna
+   teks (terketat `--nogo` = 5.88:1), lalu turun lewat `--row` dan `--panel` ke `--ink`.
+   Terangnya punya langit-langit yang bisa dibuktikan — dan yang memberi kesan sinematik adalah
+   falloff-nya yang lebar, bukan puncaknya yang tinggi.
+
+   Latar PADAT disebut lebih dulu supaya ia menutupi gambar latar `html` sepenuhnya: layar
+   pertama adalah void rata, bukan foto yang diredupkan.
+
+   GEOMETRINYA dihitung, bukan dicoba-coba. Pusatnya 46% dan jari-jarinya 52%x72% dipilih agar
+   cahaya sudah habis menjadi `--ink` di KEEMPAT tepi hero pada 1280x720: tepi atas berjarak
+   0,64 dari pusat pada sumbu tegak, yaitu di antara perhentian `--panel` (42%) dan `--ink`
+   (74%) — praktis ink. Itu penting karena railbar di atasnya berlatar `--ink` PADAT, dan
+   cahaya yang belum habis di tepi atas akan terlihat sebagai jahitan mendatar tepat di bawah
+   banner. Tepi kiri/kanan berjarak 0,96 dari pusat: void penuh, seperti rujukannya. */
+.hero {
+  position: relative;
+  display: grid;
+  min-height: calc(100vh - var(--chrome));
+  padding: var(--s5) var(--pad) var(--s7);
+  background-color: var(--ink);
+  background-image:
+    radial-gradient(52% 72% at 50% 46%,
+      var(--card) 0%, var(--row) 18%, var(--panel) 42%, var(--ink) 74%);
+}
 .hero-in {
-  max-width: var(--wide); margin-inline: auto;
-  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
-  gap: var(--s6); align-items: center;
+  width: 100%; max-width: var(--wide); margin-inline: auto;
+  display: grid; grid-template-rows: auto 1fr; gap: var(--s6);
 }
-.hero-body { min-width: 0; }
-.hero-art { min-width: 0; position: relative; }
-.hero-art img {
-  width: 100%; height: auto; display: block;
-  border: 1px solid var(--hair); border-radius: var(--r2);
-  box-shadow: 0 60px 120px -60px rgba(0, 0, 0, .95);
+/* Baris pertama menempel ke TEPI ATAS dan tidak pernah tumbuh: label di kiri, kalimat
+   "practice trade" di kanan. Keduanya kecil dengan sengaja — yang mahal di layar ini adalah
+   ruang tengahnya. */
+.hero-top {
+  display: flex; flex-wrap: wrap; gap: var(--s4) var(--s6);
+  align-items: baseline; justify-content: space-between;
 }
-/* Vignette di TEPI gambar supaya ia menyatu dengan halaman, bukan ditempel di atasnya. Ia
-   berada di atas gambar dan di bawah nol teks: `.hero-art` hanya berisi satu `<img>`. */
-.hero-art::after {
-  content: ""; position: absolute; inset: 0; border-radius: var(--r2); pointer-events: none;
-  background-image: radial-gradient(120% 92% at 50% 40%, rgba(5, 7, 10, 0) 42%, rgba(5, 7, 10, .72) 100%);
+.hero-top .sub { margin: 0; max-width: 62ch; text-align: right; }
+.hero .kicker { letter-spacing: .28em; }
+/* Baris kedua adalah KEKOSONGAN, dan isinya menempel ke dasarnya. Itu satu-satunya alasan
+   `1fr` ada di sini: ruang yang tidak dipakai adalah bagian dari desainnya, bukan sisa.
+
+   Judul membentang dua kolom; kalimatnya dan tautannya berbagi baris di bawahnya, rata dasar.
+   Menumpuk ketiganya secara tegak memakan ~64px lagi dari ruang kosong itu, dan ruang kosong
+   itulah satu-satunya hal yang dibeli tata letak ini. */
+.hero-say {
+  align-self: end;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s5) var(--s6);
+  align-items: end;
 }
-.hero .kicker { margin-bottom: var(--s5); }
 .hero h1 {
-  margin: 0 0 var(--s5); max-width: 20ch;
-  font: 700 var(--t-hero)/1.06 var(--sans); letter-spacing: -.035em;
+  grid-column: 1 / -1; margin: 0;
+  font: 700 var(--t-hero)/.95 var(--sans); letter-spacing: -.04em;
 }
-.hero .art-note { grid-column: 2; margin: var(--s3) 0 0; }
-.hero .rails { grid-column: 1 / -1; }
+/* Satu kalimat, dan hanya satu, di bawah judul: ia yang menjawab "produk ini apa" tanpa
+   gulir. Tangkapan layar rujukan tidak punya kalimat ini; kami punya karena halaman ini
+   dinilai, bukan dipajang. */
+.stand {
+  margin: 0; max-width: 48ch;
+  font-size: var(--t-lede); line-height: 1.5; color: var(--fg); font-weight: 300;
+}
+.hero .cta { margin: 0; justify-content: flex-end; }
 /* --- judul dot-matrix ------------------------------------------------------------------------
    Huruf diisi kisi titik, seperti papan LED peron. CSS murni: `radial-gradient` sebagai pola,
    `background-clip: text` sebagai masker — nol gambar, nol berkas, nol permintaan jaringan.
@@ -462,21 +509,31 @@ footer p { max-width: 108ch; }
    DUA lapis, dan urutannya yang menjaga aksesibilitas: titik emas DI ATAS huruf padat `--fg`.
    Titik saja akan menurunkan kontras efektif huruf (mata melihat rata-rata titik dan celahnya);
    dengan lapis padat di bawahnya, lantai kontrasnya tetap `--fg` di atas `--ink` = 15.99:1.
+   Kisinya dirapatkan ke 10px pada ADR-028 karena hurufnya kini dua kali lebih besar: pada
+   104px, kisi 12px membuat titik terbaca sebagai lubang, bukan sebagai tekstur.
 
    `@supports` bukan hiasan: tanpa dukungan `background-clip: text`, `color: transparent` akan
    membuat JUDUL HALAMAN HILANG sama sekali. Warna padat adalah keadaan dasar. */
 @supports ((background-clip: text) or (-webkit-background-clip: text)) {
   .hero h1 {
     background-image:
-      radial-gradient(circle, var(--warn) 36%, transparent 38%),
+      radial-gradient(circle, var(--warn) 26%, transparent 28%),
       linear-gradient(var(--fg), var(--fg));
-    background-size: 12px 12px, 100% 100%;
+    background-size: 10px 10px, 100% 100%;
     background-position: 2px 2px, 0 0;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
 }
+
+/* --- 02 · ritual ------------------------------------------------------------------------------
+   Prosa yang dulu berdesakan di dalam hero. Di sini ia punya lebar baca penuh dan tidak
+   membayar dengan ruang layar pertama. */
+.ritual { padding: var(--s7) 0 var(--s6); }
+/* Jarak label bernomor → judul, satu angka untuk keempat bagian. `h2` bawaan memakai
+   `margin-top: var(--s6)`, yang di bawah sebuah label terbaca sebagai dua blok terpisah. */
+.kicker + h2 { margin-top: var(--s3); }
 .lede {
   margin: 0 0 var(--s5); max-width: 54ch;
   font-size: var(--t-lede); line-height: 1.6; color: var(--fg); font-weight: 300;
@@ -517,7 +574,7 @@ footer p { max-width: 108ch; }
    tetap — As of · Symbol · Call · Held by — karena itu urutan yang tidak perlu dipelajari
    ulang oleh orang yang baru pertama melihatnya. */
 .board { padding: var(--s7) 0 var(--s6); }
-.board > h2 { margin-top: 0; }
+.board > h2 { margin-top: var(--s3); }
 .lb { margin: var(--s4) 0 0; font-size: 14px; }
 .lb caption { margin: 0 0 var(--s4); }
 .lb col.c-when { width: 24%; }
@@ -545,11 +602,12 @@ footer p { max-width: 108ch; }
   display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: var(--s6); align-items: end;
 }
 .proofs-in { min-width: 0; }
-.proofs-in > h2 { margin-top: 0; }
+.proofs-in > h2 { margin-top: var(--s3); }
 /* Lentera batu: potongan latar-tembus, DEKORASI, dan ia hilang begitu lebarnya habis — tidak
    ada satu pun informasi yang tinggal di dalamnya. */
 .proofs-art { min-width: 0; }
 .proofs-art img { width: 100%; height: auto; display: block; opacity: .85; }
+.proofs .art-note { grid-column: 2; margin: var(--s3) 0 0; }
 .figs {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4);
   margin: var(--s5) 0 0; padding: 0; list-style: none;
@@ -581,7 +639,7 @@ footer p { max-width: 108ch; }
   background-image: linear-gradient(180deg, rgba(5, 7, 10, .55) 0%, rgba(5, 7, 10, .1) 42%, var(--ink) 100%);
 }
 .band-in { position: relative; max-width: var(--wide); margin-inline: auto; }
-.band h2 { margin-top: 0; }
+.band h2 { margin-top: var(--s3); }
 .why .answer { max-width: 78ch; }
 
 /* --- bilah gulir bergaya peta jalur -----------------------------------------------------------
@@ -639,7 +697,7 @@ html.lenis, html.lenis body { height: auto; }
    `CanvasText` adalah warna sistem, bukan hex, jadi ia tidak masuk himpunan yang diukur. */
 @media (forced-colors: active) {
   .hero h1 { background-image: none; color: CanvasText; }
-  .hero-art, .band-art { display: none; }
+  .band-art { display: none; }
   html { background-image: none; }
 }
 
@@ -652,7 +710,11 @@ html.lenis, html.lenis body { height: auto; }
   .proofs-art { display: none; }
   dl.meta { grid-template-columns: minmax(0, 1fr); }
   dl.meta dd { border-top: 0; padding-top: 0; }
-  .hero { padding-top: var(--s7); }
-  .hero-in { grid-template-columns: minmax(0, 1fr); gap: var(--s6); }
-  .hero .art-note { grid-column: 1; }
+  /* Di bawah lebar ini, `100vh` berhenti membeli kekosongan dan mulai membeli gulir
+     kosong: hero kembali setinggi isinya. */
+  .hero { min-height: 0; padding-top: var(--s7); }
+  .hero-say { grid-template-columns: minmax(0, 1fr); }
+  .hero-top .sub { text-align: left; }
+  .hero .cta { justify-content: flex-start; }
+  .proofs .art-note { grid-column: 1; }
 }

@@ -1288,20 +1288,27 @@ def render_error(status_code: int, message: str, banner: str, now: datetime) -> 
     return _shell(f"Tenko — {status_code} (simulated)", banner, body, now, screen="error")
 
 
-# --- landing (ADR-021, ditata ulang ADR-027) -----------------------------------------------
-#: Tiga gambar landing, NAMA dari :data:`IMAGE_NAMES` (daftar tertutup) — bukan string bebas.
-#: Konstanta, bukan literal di tengah markup, supaya tes bisa menuntut ketiganya benar-benar
-#: dilayani dan supaya gambar keempat tidak bisa menyelinap tanpa satu baris di sini.
-HERO_IMAGE = "kage-approach.webp"
+# --- landing (ADR-021, ditata ulang ADR-027, hero ditata ulang lagi ADR-028) ---------------
+#: DUA gambar landing, NAMA dari :data:`IMAGE_NAMES` (daftar tertutup) — bukan string bebas.
+#: Konstanta, bukan literal di tengah markup, supaya tes bisa menuntut keduanya benar-benar
+#: dilayani dan supaya gambar ketiga tidak bisa menyelinap tanpa satu baris di sini.
+#:
+#: Yang HILANG di ADR-028 adalah gambar hero. Hero sekarang adalah RUANG KOSONG dengan satu
+#: sumber cahaya `radial-gradient` — nol `<img>`, jadi klaim "nol kalimat duduk di atas piksel
+#: gambar" menjadi lebih mudah dibuktikan di layar pertama, bukan lebih sulit: tidak ada
+#: gambar di sana untuk didudukinya.
 PROOF_IMAGE = "stone-lantern.webp"
 BAND_IMAGE = "kage-moonwater.webp"
 
 #: Kalimat yang menyatakan gambar-gambar itu PEMANDANGAN. Tanpa kalimat ini sebuah kuil di
 #: belakang papan keberangkatan bisa terbaca sebagai bagian dari bukti — `docs/spec.md` §8
 #: menyebut hiasan yang tampak nyata sebagai hal yang justru tidak dinilai.
-ART_NOTE = "Illustration — scenery, not evidence. Every measured number on this page is on the board below."
+ART_NOTE = (
+    "Illustration — scenery, not evidence. Every measured number on this page stands on the "
+    "departures board, beside the count it was read from."
+)
 
-if not {HERO_IMAGE, PROOF_IMAGE, BAND_IMAGE} <= set(IMAGE_NAMES):  # pragma: no cover — cacat kode
+if not {PROOF_IMAGE, BAND_IMAGE} <= set(IMAGE_NAMES):  # pragma: no cover — cacat kode
     raise RuntimeError(
         "gambar landing menunjuk nama di luar IMAGE_NAMES: rute `/ui/img/{name}` melayani "
         "daftar TERTUTUP, jadi nama yang tidak ada di sana adalah 404 di halaman pertama "
@@ -1370,6 +1377,7 @@ def _landing_board(entries: list[dict[str, Any]]) -> str:
         )
     return (
         '<section class="board" aria-labelledby="board-h">'
+        '<p class="kicker">03 — Departures</p>'
         '<h2 id="board-h">Departures · simulated</h2>'
         '<table class="lb">'
         '<colgroup><col class="c-when"><col class="c-sym"><col class="c-call"><col></colgroup>'
@@ -1397,10 +1405,16 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         for figure, label, body in LANDING_PROOFS
     )
     board = _landing_board(entries or [])
-    # Urutan bagian mengikuti anatomi landing yang dipakai pemenang awwwards: hero (ruang paling
-    # mahal, di atas lipatan) → PRODUK → bukti → detail. Versi pertama menaruh papan di dasar
-    # halaman, jadi juri harus menggulir melewati prosa untuk melihat satu-satunya bagian yang
-    # membuktikan produknya hidup. Papan sekarang berdiri langsung di bawah hero.
+    # Urutan bagian, dan tiap bagian memakai idiom label bernomor `NN — KATA` (ADR-028):
+    # 01 hero (ruang paling mahal, dan yang dibeli dengan ruang itu adalah KEKOSONGAN),
+    # 02 ritual, 03 papan, 04 bukti, 05 kenapa. Nomor 03 boleh hilang bersama papannya ketika
+    # store tak terbaca — celah di penomoran itu DISENGAJA dan lebih jujur daripada menomori
+    # ulang: bagian yang hilang memang hilang, dan halaman tidak berpura-pura utuh.
+    #
+    # Papan tidak lagi berdiri langsung di bawah hero seperti ADR-027, dan itu pilihan yang
+    # dibayar: hero sekarang setinggi satu layar penuh, jadi papan berada di bawah lipatan.
+    # Yang menggantikan kedekatan itu adalah satu tautan `Open the board` di sepertiga bawah
+    # layar pertama — satu klik, bukan satu gulir, ke papan yang SAMA di `/app`.
     body = (
         # Rel dirender server pada 0%: halaman tanpa JS tetap punya rel utuh, hanya keretanya
         # yang diam. `aria-hidden` karena posisi gulir sudah dibawa bilah gulir browser — ini
@@ -1409,53 +1423,70 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         '<span class="train"></span></div>'
         '<ul class="stops"><li>Departure</li><li>The board</li><li>Proof</li><li>Why</li></ul>'
         "</div>"
+        # HERO (ADR-028). Tiga hal saja di layar pertama, dan yang KETIGA adalah ruang kosong:
+        # label mono di kiri atas, kekosongan yang disengaja di tengah, judul + satu kalimat +
+        # satu tautan di sepertiga bawah. Tidak ada gambar dan tidak ada kolom kedua — hero
+        # dua-kolom teks|gambar yang digantinya terbaca seperti brosur, dan brosur adalah hal
+        # yang paling tidak dipercaya seorang juri di detik pertama.
         '<section class="hero">'
         '<div class="hero-in">'
-        '<div class="hero-body">'
-        '<p class="kicker"><span lang="ja">点呼</span> · TENKO · RYO-CHAN Hackathon 2026</p>'
+        # Baris atas: label bernomor di kiri, dan di kanan kalimat yang menyatakan seluruh
+        # halaman ini simulasi. Kalimat itu tetap di layar PERTAMA dengan sengaja
+        # (`docs/rules-compliance.md`), dan ia diletakkan di tepi atas justru supaya ia tidak
+        # membayar dengan ruang kosong yang menjadi inti tata letak ini.
+        '<div class="hero-top">'
+        '<p class="kicker">01 — <span lang="ja">点呼</span> Tenko · pre-departure roll call</p>'
+        '<p class="sub">Every position here is a <strong>practice</strong> trade: no funds, no '
+        "wallet, no signing keys, no real execution.</p>"
+        "</div>"
+        '<div class="hero-say">'
+        "<h1>Point at the evidence.<br>Then decide.</h1>"
+        '<p class="stand">Ten pieces of evidence, from five RYO tools, called out one at a '
+        "time before every practice trade. One red item — or one that goes "
+        "<strong>unspoken</strong> — holds the departure.</p>"
+        '<p class="cta"><a class="go" href="/app" aria-label="Open the watchlist '
+        'board — Screen A, every symbol with a current decision">Open the board</a>'
+        '<a class="alt" href="/api/routes" aria-label="See every route this app '
+        'serves, as JSON">See every route</a></p>'
+        "</div>"
+        "</div>"
+        "</section>"
+        # 02 — ritualnya. Prosa yang dulu berdesakan di hero pindah ke sini, di mana ia punya
+        # lebar baca dan tidak menghabiskan layar pertama.
+        '<section class="ritual" aria-labelledby="ritual-h">'
+        '<p class="kicker">02 — <span lang="ja">指差喚呼</span> Shisa kanko</p>'
+        '<h2 id="ritual-h">Point at it, and say it out loud</h2>'
+        '<p class="lede">Japanese train crews do not trust a signal they have only looked at. '
+        "They point at it and say it aloud — shisa kanko — and the error rate collapses. Tenko "
+        "runs that ritual over market evidence: every item names the tool.field it came from, "
+        "the value it read, and the as_of it was read at.</p>"
         '<ul class="pills">'
         '<li class="on">Simulated · no funds</li>'
         "<li>5 RYO tools · 10 items</li>"
         "<li>Replay byte-identical</li>"
         "</ul>"
-        "<h1>Point at the evidence.<br>Say it out loud.<br>Then decide.</h1>"
-        '<p class="lede">Japanese train crews do not trust a signal they have only looked at. '
-        'They point at it and say it aloud — <span lang="ja">指差喚呼</span>, shisa kanko — and '
-        "the error rate collapses. Tenko runs that ritual over market evidence: before every "
-        "practice trade it calls out ten pieces of evidence from five RYO tools, one at a time, "
-        "and refuses to depart on one red item — or one that goes unspoken.</p>"
-        '<p class="cta"><a class="go" href="/app" aria-label="Open the watchlist '
-        'board — Screen A, every symbol with a current decision">Open the board</a>'
-        '<a class="alt" href="/api/routes" aria-label="See every route this app '
-        'serves, as JSON">See every route</a></p>'
-        '<p class="sub">Every position here is a <strong>practice</strong> trade: no funds, no '
-        "wallet, no signing keys, no real execution.</p>"
-        "</div>"
-        # Gambar hero: `<img>` sungguhan dari daftar TERTUTUP `IMAGE_NAMES`, dilayani origin ini
-        # sendiri (`img-src 'self'`), dengan ukuran intrinsiknya supaya tidak ada geseran tata
-        # letak saat ia tiba. `alt=""` disengaja dan BENAR: ia pemandangan, bukan bukti — dan
-        # `<div class="hero-art">` sengaja TIDAK memuat teks apa pun, sehingga klaim "nol
-        # kalimat duduk di atas piksel gambar" adalah fakta tata letak, bukan harapan.
-        '<div class="hero-art">'
-        f'<img src="/ui/img/{HERO_IMAGE}" alt="" width="1536" height="1024">'
-        "</div>"
-        f'<p class="art-note">{escape(ART_NOTE, quote=True)}</p>'
         '<div class="rails">'
         '<p><span class="rail-label">All clocks</span><span>JST — as the board reads them</span></p>'
         '<p><span class="rail-label">Decision path</span><span>Deterministic · no LLM</span></p>'
         '<p><span class="rail-label">Store</span><span>Read-only · append-only</span></p>'
         "</div>"
-        "</div>"
         "</section>"
         f"{board}"
         '<section class="proofs" aria-labelledby="proofs-h">'
         '<div class="proofs-in">'
+        '<p class="kicker">04 — Proof</p>'
         '<h2 id="proofs-h">Three numbers you can check yourself</h2>'
         f'<ol class="figs">{proofs}</ol>'
         "</div>"
+        # Gambar: `<img>` sungguhan dari daftar TERTUTUP `IMAGE_NAMES`, dilayani origin ini
+        # sendiri (`img-src \'self\'`), dengan ukuran intrinsiknya supaya tidak ada geseran tata
+        # letak saat ia tiba. `alt=""` disengaja dan BENAR: ia pemandangan, bukan bukti — dan
+        # `<div class="proofs-art">` sengaja TIDAK memuat teks apa pun, sehingga klaim "nol
+        # kalimat duduk di atas piksel gambar" adalah fakta tata letak, bukan harapan.
         '<div class="proofs-art">'
         f'<img src="/ui/img/{PROOF_IMAGE}" alt="" width="1024" height="1499">'
         "</div>"
+        f'<p class="art-note">{escape(ART_NOTE, quote=True)}</p>'
         "</section>"
         # Pita penuh-lebar: satu-satunya tempat halaman ini memutus kolom baca. Teksnya duduk
         # di atas warna dasar yang PADAT (scrim `.band-art::after`), bukan langsung di atas
@@ -1465,6 +1496,7 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         f'<img src="/ui/img/{BAND_IMAGE}" alt="" width="1536" height="1024">'
         "</div>"
         '<div class="band-in">'
+        '<p class="kicker">05 — Why</p>'
         '<h2 id="why-h">What goes wrong without it</h2>'
         '<p class="answer">Almost every signal agent acts on a single verdict without checking '
         "the evidence that is available — and, worse, without knowing which evidence is "

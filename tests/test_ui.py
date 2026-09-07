@@ -2939,15 +2939,25 @@ def test_no_sentence_on_a_judged_screen_sits_on_top_of_an_image(client: TestClie
 
     Tiap angka kontras di atas mengandaikan latar teks adalah warna dari palet. Andaian itu
     runtuh di satu tempat yang mudah dibuat dan sulit dilihat: teks di atas gambar. ADR-027
-    karena itu menaruh tiap gambar di KOTAKNYA SENDIRI — kolom hero, pita `.band`, kolom
-    `.proofs-art` — dan tes ini memeriksa bahwa kotak-kotak itu memang tidak berisi apa pun
-    selain `<img>`, pada HTML yang benar-benar dilayani.
+    karena itu menaruh tiap gambar di KOTAKNYA SENDIRI dan tes ini memeriksa bahwa kotak-kotak
+    itu memang tidak berisi apa pun selain `<img>`, pada HTML yang benar-benar dilayani.
+
+    ADR-028 MENGHAPUS kotak ketiga, dan arahnya benar: hero tidak lagi punya gambar sama sekali
+    — ia void dengan satu `radial-gradient` yang seluruh warnanya adalah permukaan palet yang
+    sudah diukur. Layar pertama karena itu tidak lagi perlu klaim "teksnya di sebelah gambar,
+    bukan di atasnya"; tidak ada gambar di sana. Tes ini menjaga penghapusan itu SEBAGAI
+    penghapusan: `hero-art` wajib TIDAK ADA, supaya kolom gambar hero tidak bisa kembali
+    diam-diam bersama pasangan warna yang tidak pernah diukur ulang.
 
     Satu-satunya gambar yang MEMANG berada di bawah teks adalah latar `html`, dan ia dibayar
     dengan scrim ≥`MIN_SCRIM_ALPHA` yang diukur terhadap piksel putih di tes di atas.
     """
     html = client.get("/").text
-    for holder in ("hero-art", "band-art", "proofs-art"):
+    assert "hero-art" not in html, (
+        "kolom gambar hero kembali — ADR-028 menggantinya dengan void, dan teks hero tidak "
+        "pernah diukur terhadap piksel gambar"
+    )
+    for holder in ("band-art", "proofs-art"):
         blocks = re.findall(rf'<div class="{holder}">(.*?)</div>', html, re.S)
         assert blocks, f"{holder} tidak ada di landing"
         for inner in blocks:
@@ -2957,7 +2967,7 @@ def test_no_sentence_on_a_judged_screen_sits_on_top_of_an_image(client: TestClie
     # Tiap gambar itu benar-benar dilayani, membawa `alt`, dan membawa ukuran intrinsiknya —
     # `alt=""` disengaja (pemandangan, bukan bukti) dan ukuran mencegah halaman melompat.
     images = re.findall(r"<img ([^>]+)>", html)
-    assert len(images) == 3, images
+    assert len(images) == 2, images
     for attrs in images:
         source = re.search(r'src="([^"]+)"', attrs)
         assert source and source.group(1).startswith("/ui/img/"), attrs
@@ -2966,6 +2976,67 @@ def test_no_sentence_on_a_judged_screen_sits_on_top_of_an_image(client: TestClie
         assert "width=" in attrs and "height=" in attrs, f"gambar tanpa ukuran intrinsik: {attrs}"
     # Dan kalimat yang mengatakan gambar-gambar itu BUKAN bukti ikut tercetak.
     assert ui_screens.ART_NOTE in unescape(html)
+
+
+def test_the_first_screen_is_a_void_with_one_light_and_a_two_line_title(client: TestClient) -> None:
+    """ADR-028: bentuk layar PERTAMA, dipatok sebagai bentuk — bukan dititipkan ke selera.
+
+    Pemilik repo menilai landing ADR-027 jelek dan menanyakan kenapa tangkapan layar di
+    `references/awwwards-3d/docs/screenshots/` tidak pernah dipakai. Yang bisa dipakai dari sana
+    ternyata seluruhnya CSS: void rata, SATU sumber cahaya berfalloff lebar, label mono
+    bernomor, judul raksasa di sepertiga bawah, dan tengah yang KOSONG. Lima hal itu mudah
+    dikembalikan ke hero dua-kolom teks|gambar tanpa sadar, jadi kelimanya dipaku di sini.
+
+    Butir yang paling penting adalah butir tiga. Cahaya sinematik "yang benar" memakai putih
+    beralpha, dan `rgba()` yang menerangi dilarang di stylesheet ini karena ia bisa menaikkan
+    latar di bawah teks tanpa satu hex baru pun muncul untuk diukur
+    (`test_the_palette_is_measured_from_the_stylesheet_that_ships` butir 4). Cahaya hero karena
+    itu dibuat HANYA dari empat permukaan yang sudah dipasangkan dengan keenam warna teks. Tes
+    ini menjaga batas itu tepat di tempat yang paling menggoda untuk dilanggar.
+    """
+    html = client.get("/").text
+    css = client.get("/ui/tenko.css").text
+    squashed = css.replace(" ", "").replace("\n", "")
+
+    # 1. Label mono bernomor `NN — KATA` di kiri atas, dan bagian berikutnya ikut bernomor.
+    numbers = re.findall(r'<p class="kicker">(\d\d) — ', html)
+    assert numbers[:2] == ["01", "02"], f"label bernomor hilang dari landing: {numbers}"
+
+    # 2. Judul RAKSASA, maksimal DUA baris, dan barisnya diputus markup — bukan lebar kolom,
+    #    yang berubah diam-diam bersama tiap perubahan tata letak.
+    headline = re.search(r"<h1>(.*?)</h1>", html, re.S)
+    assert headline, "landing tanpa h1"
+    assert headline.group(1).count("<br>") == 1, f"judul hero bukan dua baris: {headline.group(1)}"
+    size = re.search(r"--t-hero:clamp\((\d+)px,([\d.]+)vw,(\d+)px\)", squashed)
+    assert size, "ukuran judul hero bukan clamp yang bisa dibaca"
+    assert int(size.group(1)) >= 56 and int(size.group(3)) >= 96, size.group(0)
+
+    # 3. SATU sumber cahaya, dan tiap perhentian warnanya adalah permukaan yang SUDAH diukur.
+    rule = re.search(r"\n\.hero \{([^{}]*)\}", css)
+    assert rule, "aturan `.hero` hilang dari stylesheet yang dilayani"
+    hero = rule.group(1)
+    assert "background-color: var(--ink)" in hero, hero
+    assert hero.count("radial-gradient") == 1, f"hero bukan satu sumber cahaya: {hero}"
+    light = hero[hero.index("radial-gradient") :]
+    stops = re.findall(r"var\(--[a-z]+\)", light)
+    assert len(stops) >= 3, f"falloff cahaya hero terlalu pendek untuk merembes: {light}"
+    assert set(stops) <= {"var(--ink)", "var(--panel)", "var(--row)", "var(--card)"}, stops
+    assert "rgba" not in hero and not re.search(r"#[0-9a-f]{6}", hero), (
+        f"cahaya hero memakai warna yang tidak lewat pengukuran palet: {hero}"
+    )
+
+    # 4. Kekosongan di tengah adalah STRUKTUR: satu baris kisi yang melar, isinya menempel ke
+    #    dasarnya. Tanpa kedua deklarasi ini, judulnya naik dan tengahnya terisi kembali.
+    assert "grid-template-rows:auto1fr" in squashed, "baris kosong hero hilang dari kisinya"
+    assert ".hero-say{align-self:end" in squashed, "isi hero tidak lagi menempel ke dasar layar"
+
+    # 5. Layar pertama memang SATU layar: tinggi viewport dikurangi chrome yang melekat.
+    assert "min-height:calc(100vh-var(--chrome))" in squashed, "hero tidak lagi setinggi layar"
+
+    # 6. ...dan tautan ke papan tetap berada DI DALAM layar pertama itu, bukan di bawahnya.
+    hero_html = slice_of(html, '<section class="hero">', "</section>")
+    assert '<a class="go" href="/app"' in hero_html, "tautan ke Layar A jatuh keluar dari hero"
+    assert "<img" not in hero_html, "gambar kembali ke hero — lihat tes gambar di atas"
 
 
 def test_the_card_table_has_one_header_for_every_column_it_renders(client: TestClient) -> None:
@@ -3881,8 +3952,8 @@ def test_one_css_naming_rule_serves_both_renderers() -> None:
 #:
 #: Cara memperbaruinya: `make frontend` mencetak hash barunya. Menggantinya adalah perbuatan
 #: yang TERLIHAT di diff — dan itulah seluruh gunanya.
-BUNDLE_SHA256 = "75b55ac0a41138d51a2c1b38a1f339da9707d66ff4caa9555eb037ca59c47d4c"
-STYLESHEET_SHA256 = "d6776cc92ef633e4619962bd2b49a20f652e0ab29696c794b1e74de165a2378f"
+BUNDLE_SHA256 = "cd95b3a47a7ed73ec719170eb1f188aa23acc1200e85606f1607b8695fd38343"
+STYLESHEET_SHA256 = "dc0a69838e248143f8a7774d53da93a8e253b899dd84b8e13bd833a218fa4aae"
 
 
 def test_the_shipped_bundle_is_pinned_byte_for_byte() -> None:
