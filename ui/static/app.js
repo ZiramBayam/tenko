@@ -7706,7 +7706,7 @@
   function motion() {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const targets = document.querySelectorAll(
-      ".hero, .board, .proofs, .why, .rails"
+      ".hero .kicker, .hero h1, .hero .lede, .hero .cta, .hero .rails, .board, .proofs-in, .band-in, .figs li"
     );
     if (!targets.length) return;
     document.documentElement.classList.add("js-motion");
@@ -7716,13 +7716,23 @@
     gsapWithCSS.ticker.add((time) => lenis.raf(time * 1e3));
     gsapWithCSS.ticker.lagSmoothing(0);
     gsapWithCSS.registerPlugin(ScrollTrigger2);
-    for (const node of targets) {
+    targets.forEach((node, index) => {
       gsapWithCSS.to(node, {
         opacity: 1,
         y: 0,
         duration: 0.7,
+        // Saudara di dalam satu kartu berangkat berurutan, bukan serentak: itu yang membuat
+        // sebuah bagian terbaca sebagai satu kalimat, bukan sebagai empat kotak yang muncul.
+        delay: index % 3 * 0.06,
         ease: "power2.out",
-        scrollTrigger: { trigger: node, start: "top 88%", once: true }
+        scrollTrigger: { trigger: node, start: "top 90%", once: true }
+      });
+    });
+    for (const art of document.querySelectorAll(".hero-art img, .band-art img")) {
+      gsapWithCSS.to(art, {
+        yPercent: 12,
+        ease: "none",
+        scrollTrigger: { trigger: art.parentElement ?? art, start: "top bottom", end: "bottom top", scrub: 0.6 }
       });
     }
   }

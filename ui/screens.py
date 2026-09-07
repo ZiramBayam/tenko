@@ -1288,6 +1288,26 @@ def render_error(status_code: int, message: str, banner: str, now: datetime) -> 
     return _shell(f"Tenko — {status_code} (simulated)", banner, body, now, screen="error")
 
 
+# --- landing (ADR-021, ditata ulang ADR-027) -----------------------------------------------
+#: Tiga gambar landing, NAMA dari :data:`IMAGE_NAMES` (daftar tertutup) — bukan string bebas.
+#: Konstanta, bukan literal di tengah markup, supaya tes bisa menuntut ketiganya benar-benar
+#: dilayani dan supaya gambar keempat tidak bisa menyelinap tanpa satu baris di sini.
+HERO_IMAGE = "kage-approach.webp"
+PROOF_IMAGE = "stone-lantern.webp"
+BAND_IMAGE = "kage-moonwater.webp"
+
+#: Kalimat yang menyatakan gambar-gambar itu PEMANDANGAN. Tanpa kalimat ini sebuah kuil di
+#: belakang papan keberangkatan bisa terbaca sebagai bagian dari bukti — `docs/spec.md` §8
+#: menyebut hiasan yang tampak nyata sebagai hal yang justru tidak dinilai.
+ART_NOTE = "Illustration — scenery, not evidence. Every measured number on this page is on the board below."
+
+if not {HERO_IMAGE, PROOF_IMAGE, BAND_IMAGE} <= set(IMAGE_NAMES):  # pragma: no cover — cacat kode
+    raise RuntimeError(
+        "gambar landing menunjuk nama di luar IMAGE_NAMES: rute `/ui/img/{name}` melayani "
+        "daftar TERTUTUP, jadi nama yang tidak ada di sana adalah 404 di halaman pertama "
+        "yang dilihat juri."
+    )
+
 # --- landing (ADR-021) --------------------------------------------------------------------
 #: Tiga angka yang boleh berdiri di landing. Masing-masing PUNYA pemeriksanya di repo ini, dan
 #: kalimatnya menyebut perintah yang membuktikannya — bukan klaim pemasaran yang tidak bisa
@@ -1390,6 +1410,8 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         '<ul class="stops"><li>Departure</li><li>The board</li><li>Proof</li><li>Why</li></ul>'
         "</div>"
         '<section class="hero">'
+        '<div class="hero-in">'
+        '<div class="hero-body">'
         '<p class="kicker"><span lang="ja">点呼</span> · TENKO · RYO-CHAN Hackathon 2026</p>'
         '<ul class="pills">'
         '<li class="on">Simulated · no funds</li>'
@@ -1408,18 +1430,41 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         'serves, as JSON">See every route</a></p>'
         '<p class="sub">Every position here is a <strong>practice</strong> trade: no funds, no '
         "wallet, no signing keys, no real execution.</p>"
+        "</div>"
+        # Gambar hero: `<img>` sungguhan dari daftar TERTUTUP `IMAGE_NAMES`, dilayani origin ini
+        # sendiri (`img-src 'self'`), dengan ukuran intrinsiknya supaya tidak ada geseran tata
+        # letak saat ia tiba. `alt=""` disengaja dan BENAR: ia pemandangan, bukan bukti — dan
+        # `<div class="hero-art">` sengaja TIDAK memuat teks apa pun, sehingga klaim "nol
+        # kalimat duduk di atas piksel gambar" adalah fakta tata letak, bukan harapan.
+        '<div class="hero-art">'
+        f'<img src="/ui/img/{HERO_IMAGE}" alt="" width="1536" height="1024">'
+        "</div>"
+        f'<p class="art-note">{escape(ART_NOTE, quote=True)}</p>'
         '<div class="rails">'
         '<p><span class="rail-label">All clocks</span><span>JST — as the board reads them</span></p>'
         '<p><span class="rail-label">Decision path</span><span>Deterministic · no LLM</span></p>'
         '<p><span class="rail-label">Store</span><span>Read-only · append-only</span></p>'
         "</div>"
+        "</div>"
         "</section>"
         f"{board}"
         '<section class="proofs" aria-labelledby="proofs-h">'
+        '<div class="proofs-in">'
         '<h2 id="proofs-h">Three numbers you can check yourself</h2>'
         f'<ol class="figs">{proofs}</ol>'
+        "</div>"
+        '<div class="proofs-art">'
+        f'<img src="/ui/img/{PROOF_IMAGE}" alt="" width="1024" height="1499">'
+        "</div>"
         "</section>"
-        '<section class="why" aria-labelledby="why-h">'
+        # Pita penuh-lebar: satu-satunya tempat halaman ini memutus kolom baca. Teksnya duduk
+        # di atas warna dasar yang PADAT (scrim `.band-art::after`), bukan langsung di atas
+        # piksel gambar — tidak ada satu pun kalimat yang kontrasnya bergantung pada gambar.
+        '<section class="band why" aria-labelledby="why-h">'
+        '<div class="band-art">'
+        f'<img src="/ui/img/{BAND_IMAGE}" alt="" width="1536" height="1024">'
+        "</div>"
+        '<div class="band-in">'
         '<h2 id="why-h">What goes wrong without it</h2>'
         '<p class="answer">Almost every signal agent acts on a single verdict without checking '
         "the evidence that is available — and, worse, without knowing which evidence is "
@@ -1436,6 +1481,7 @@ def render_landing(banner: str, now: datetime, entries: list[dict[str, Any]] | N
         '<p class="sub">Scenery, not evidence: an <a href="/kage">illustrated page</a> ships '
         "with this app. It reads nothing from the store, calls no RYO tool, and every figure "
         "printed on it is design copy — the measured numbers are on the board.</p>"
+        "</div>"
         "</section>"
     )
     return _shell("Tenko (点呼) — simulated", banner, body, now, screen="landing")

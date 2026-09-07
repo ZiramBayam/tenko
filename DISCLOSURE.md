@@ -153,8 +153,12 @@ said the directory did not exist; that is corrected here. **Both of those statem
 ADR-026).** `ui/static/` holds far more than two files: `three.min.js` and `kage-scene.js` under `vendor/`,
 `kage.css`, 14 `.webp` under `img/`, and eleven font faces. The sentence that used to stand here — "not one
 three/GSAP/Lenis file has ever been copied into this repo" — is **false as of ADR-026**: three.js r149 is
-vendored as a file. GSAP and Lenis remain bundled rather than vendored (next sections). Screens A and B are
-untouched and still use none of it; the Kage landing page is a separate route.
+vendored as a file. GSAP and Lenis remain bundled rather than vendored (next sections). **One more sentence here
+went out of date on 7 Sep 2026 and is corrected rather than quietly edited (ADR-027):** it used to say Screens A
+and B "are untouched and still use none of it". They now use two of those pre-existing assets — the vendored Onest
+faces, and `img/kage-approach.webp` as a background — because ADR-027 reconciled the two visual languages that
+ADR-026 left standing side by side. What is still true and narrower: no screen uses three.js, `kage-scene.js`, or
+`kage.css`, and the Kage page remains a separate route.
 
 The plan (ADR-014): when the screens were built, the three libraries would be **vendored locally** into
 `ui/static/vendor/<package>/`, with no build step, no npm, no CDN at runtime (ADR-001; `make demo` must run offline

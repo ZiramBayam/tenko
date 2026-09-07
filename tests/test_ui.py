@@ -2704,36 +2704,74 @@ def contrast_ratio(front: str, back: str) -> float:
     return (high + 0.05) / (low + 0.05)
 
 
+def composite(front: str, back: str, alpha: float) -> str:
+    """`front` dengan alpha `alpha` DI ATAS `back`, sebagai `#rrggbb` — kompositing sRGB biasa.
+
+    Dipakai untuk satu hal saja: menghitung latar TERBURUK yang mungkin muncul di bawah scrim
+    gambar. Piksel paling terang yang bisa dimiliki sebuah gambar adalah putih, jadi latar
+    terburuk di bawah scrim beralpha `a` adalah putih yang dikomposit di bawahnya.
+    """
+    parts = []
+    for index in (1, 3, 5):
+        top = int(front[index : index + 2], 16)
+        bottom = int(back[index : index + 2], 16)
+        parts.append(round(alpha * top + (1 - alpha) * bottom))
+    return "#{:02x}{:02x}{:02x}".format(*parts)
+
+
 def test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed(client: TestClient) -> None:
     """Kontras ≥4.5:1 (teks) dan ≥3:1 (garis/cincin fokus), dari CSS yang BENAR-BENAR dilayani.
 
-    Dua hal dijaga sekaligus: (1) tiap pasangan yang dipakai memenuhi batasnya, dan (2) tidak
-    ada warna baru yang bisa masuk `:root` tanpa ikut diukur — daftar `hex` di CSS harus habis
-    oleh pasangan di bawah. Tanpa (2), warna kelima belas akan lolos diam-diam.
+    ADR-027 mengganti seluruh paletnya (terang → gelap berlapis) dan MENCABUT kunci hex ADR-023/
+    024; yang TIDAK berubah adalah tuntutan ini, dan ia sekarang menggigit di tiga tempat, bukan
+    satu:
+
+    1. tiap warna teks di atas KEEMPAT permukaan yang benar-benar dipakai (`--ink` dasar,
+       `--panel` kartu/tabel, `--row` baris genap, `--card` chip/kepala kolom/baris tertunjuk);
+    2. `--line` (batas komponen, SC 1.4.11) di atas keempatnya, dan warna banner di atas
+       latarnya sendiri;
+    3. **latar TERBURUK yang bisa muncul di bawah gambar.** Ini yang baru: ADR-027 memasang
+       gambar sebagai latar `html`, jadi ada satu tempat di mana warna di bawah teks tidak
+       ditentukan palet melainkan piksel. Yang dipatok karena itu bukan "gambarnya kebetulan
+       gelap" melainkan scrim-nya: alpha minimalnya `.88`, dan bahkan piksel PUTIH di bawahnya
+       menjadi #232527 — di mana keenam warna teks tetap lolos 4.5:1 (terketat `--nogo`,
+       5.64:1). Ganti gambarnya dengan yang paling terang sekalipun dan angka ini tidak
+       bergerak.
+
+    Dan tetap: tiap hex di berkas ini harus habis oleh pasangan di atas. Warna kelima belas
+    tidak bisa menyelinap masuk tanpa ikut diukur.
     """
     css = client.get("/ui/tenko.css").text
     palette = dict(re.findall(r"--([a-z]+): (#[0-9a-f]{6})", css))
-    assert palette.keys() >= {"bg", "panel", "line", "ink", "dim", "go", "nogo", "warn", "link"}
-    even, banner_bg, banner_ink = "#e4eaf2", "#fdeaea", "#8c0b10"
-    backgrounds = (palette["bg"], palette["panel"], even)
-    text_pairs = [
-        (palette[name], background)
-        for name in ("ink", "dim", "go", "nogo", "warn", "link")
-        for background in backgrounds
-    ] + [(banner_ink, banner_bg), (palette["ink"], banner_bg)]
-    non_text_pairs = [(palette["line"], background) for background in backgrounds] + [
-        (palette["nogo"], banner_bg)  # garis banner
-    ]
+    assert palette.keys() == set(PALETTE_ROLES), sorted(palette)
+    roles = PALETTE_ROLES.items()
+    surfaces = [palette[name] for name, role in roles if role == "surface" and name != "bannerbg"]
+    texts = [name for name, role in roles if role == "text" and name != "bannerfg"]
+
+    text_pairs = [(palette[name], background) for name in texts for background in surfaces]
+    text_pairs += [(palette["bannerfg"], palette["bannerbg"])]
+    # Batas gambar: scrim `--ink` paling TIPIS yang ada di stylesheet ini, dikomposit di atas
+    # piksel paling terang yang mungkin dimiliki sebuah gambar (putih).
+    scrim = composite(palette["ink"], "#ffffff", MIN_SCRIM_ALPHA)
+    text_pairs += [(palette[name], scrim) for name in texts]
+    non_text_pairs = [(palette["line"], background) for background in surfaces]
+    non_text_pairs += [(palette["nogo"], palette["bannerbg"]), (palette["nogo"], palette["ink"])]
+
     for front, back in text_pairs:
         assert contrast_ratio(front, back) >= 4.5, f"teks {front} di atas {back}"
     for front, back in non_text_pairs:
         assert contrast_ratio(front, back) >= 3.0, f"non-teks {front} di atas {back}"
-    # Angka yang ditulis `ui/README.md` adalah angka yang sama, bukan angka lama:
-    assert round(contrast_ratio(palette["go"], palette["row"]), 2) == 4.55  # teks paling ketat
-    assert round(contrast_ratio(palette["line"], palette["row"]), 2) == 3.06  # garis paling ketat
-    assert round(contrast_ratio(palette["warn"], palette["bg"]), 2) == 4.94  # cincin fokus
+
+    # Angka yang ditulis `ui/README.md` adalah angka yang sama, bukan angka lama. Keempatnya
+    # adalah yang TERKETAT di kategorinya masing-masing.
+    assert round(contrast_ratio(palette["nogo"], palette["card"]), 2) == 5.88  # teks paling ketat
+    assert round(contrast_ratio(palette["line"], palette["card"]), 2) == 3.06  # garis paling ketat
+    assert round(contrast_ratio(palette["warn"], palette["ink"]), 2) == 10.47  # cincin fokus
+    assert round(contrast_ratio(palette["nogo"], scrim), 2) == 5.64  # paling ketat di atas gambar
+
     measured = {colour for pair in text_pairs + non_text_pairs for colour in pair}
-    assert set(re.findall(r"#[0-9a-f]{6}", css)) == measured
+    decor = {palette[name] for name, role in PALETTE_ROLES.items() if role == "decor"}
+    assert set(re.findall(r"#[0-9a-f]{6}", css)) == measured - {scrim} | decor
 
 
 def test_the_ui_readme_carries_the_a11y_checklist_and_admits_the_missing_recording() -> None:
@@ -2748,11 +2786,12 @@ def test_the_ui_readme_carries_the_a11y_checklist_and_admits_the_missing_recordi
         "Isi yang berubah diumumkan",  # ADR-020: konten dinamis wajib `aria-live`
         "Nilai yang tidak ada adalah KATA, bukan tanda hubung",
         "Tanpa hover-only",
-        # Angka palet jalur JR (ADR-023), bukan palet abu-abu 4.6. Keduanya adalah pasangan
-        # TERSEMPIT di masing-masing kategori, jadi tes ini merah begitu klaim README
-        # tertinggal di belakang palet yang benar-benar dilayani.
-        "4.55:1",
+        # Angka palet ADR-027, bukan palet jalur JR ADR-023/024. Ketiganya adalah pasangan
+        # TERSEMPIT di masing-masing kategori (teks, garis, teks di atas gambar), jadi tes ini
+        # merah begitu klaim README tertinggal di belakang palet yang benar-benar dilayani.
+        "5.88:1",
         "3.06:1",
+        "5.64:1",
     ):
         assert claim in readme, claim
     assert "- [ ] **Rekaman 30 detik**" in readme  # belum dicentang, dan itu memang jujur
@@ -2781,47 +2820,152 @@ BUNDLE_URL_ALLOWLIST = {
     "https://gsap.com/forums/topic/20368-possible-gsap-bug-switching-classnames-in-chrome/",
 }
 
+#: PERAN tiap warna palet — dan peran itulah yang menentukan AMBANGnya. Ia bukan komentar:
+#: `test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed` membacanya untuk
+#: merakit pasangan yang diukur, jadi warna yang perannya salah akan diukur dengan ambang yang
+#: salah dan itu terlihat sebagai tes merah, bukan sebagai dokumen yang usang.
+#:
+#: `decor` adalah satu-satunya peran TANPA ambang, dan karena itu ia dibayar dengan larangan:
+#: warna dekor tidak boleh pernah menjadi `color:` apa pun (dipatok di bawah). Ia hanya boleh
+#: menjadi pemisah rambut yang kehilangannya tidak menghilangkan satu pun informasi.
+PALETTE_ROLES = {
+    "ink": "surface",
+    "panel": "surface",
+    "row": "surface",
+    "card": "surface",
+    "bannerbg": "surface",
+    "fg": "text",
+    "dim": "text",
+    "go": "text",
+    "nogo": "text",
+    "warn": "text",
+    "link": "text",
+    "bannerfg": "text",
+    "line": "line",
+    "hair": "decor",
+}
+
+#: Alpha TERTIPIS yang boleh dimiliki scrim di atas gambar latar. Angka ini, bukan gambarnya,
+#: yang menjaga kontras: piksel paling terang yang mungkin ada di sebuah gambar adalah putih,
+#: dan putih di bawah scrim setebal ini masih menyisakan 5.64:1 untuk warna teks terketat.
+MIN_SCRIM_ALPHA = 0.88
+
+#: Palet ADR-027, dipatok sebagai LITERAL. Tes pasangan di atas menjamin tiap warna ikut
+#: terukur; yang dijamin di sini adalah warnanya masih warna yang SAMA — sehingga penyegaran
+#: tampilan berikutnya tidak bisa menggeser satu nilai lalu "mengukur ulang" pasangannya
+#: menjadi angka lain yang kebetulan juga lulus.
 MEASURED_PALETTE = {
-    "bg": "#eef2f7",
-    "panel": "#ffffff",
-    "line": "#6c87a9",
-    "ink": "#0b1a2e",
-    "dim": "#586985",
-    "go": "#55721c",
-    "nogo": "#d20911",
-    "warn": "#995900",
-    "link": "#007197",
-    "row": "#e4eaf2",
+    "ink": "#05070a",
+    "panel": "#0e131a",
+    "row": "#141b23",
+    "card": "#1a222c",
+    "fg": "#dfe7e0",
+    "dim": "#9daba4",
+    "go": "#7ddc9a",
+    "nogo": "#ff6f61",
+    "warn": "#e0b552",
+    "link": "#6fd2e8",
+    "line": "#5d6f78",
+    "hair": "#232c35",
+    "bannerbg": "#3a0d0b",
+    "bannerfg": "#ffd9d4",
 }
 
 
-def test_the_palette_is_the_measured_jr_line_palette_and_nothing_else(client: TestClient) -> None:
-    """ADR-023: paletnya BERGERAK, sekali, dengan sengaja — dan tidak boleh menyimpang lagi.
+def test_the_palette_is_measured_from_the_stylesheet_that_ships(client: TestClient) -> None:
+    """ADR-027 MENGGANTIKAN ADR-023/024. Yang dicabut adalah KUNCInya, bukan jaminannya.
 
-    Tes ini menggantikan `test_the_restyle_did_not_move_a_single_measured_colour`, yang menuntut
-    dua belas warna 4.6 tidak berubah. Tuntutan itu benar selama paletnya abu-abu netral;
-    ADR-023 menggantinya dengan warna jalur kereta Jepang yang sebenarnya, dan seluruh dua belas
-    pasangan diukur ULANG (bukan diasumsikan) di
-    `test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`.
+    Tes ini menggantikan `test_the_palette_is_the_measured_jr_line_palette_and_nothing_else`,
+    yang menuntut himpunan hex stylesheet PERSIS sama dengan empat warna jalur JR + latar
+    terangnya. Tuntutan itu ternyata melarang lebih dari yang dimaksudnya: nol permukaan
+    antara, nol tint kartu, nol garis rambut — jadi nol kedalaman, dan ketiga layar terbaca
+    seperti dokumen yang dicetak. Pemilik repo menilai hasilnya demikian dengan kata-kata itu,
+    dan ADR-027 mencabut kuncinya.
 
-    Yang dijaga di sini adalah ASAL-USULNYA, bukan sekadar nilainya: keempat warna status harus
-    tetap warna jalur yang dinamai ADR-023. Warna status yang digeser "sedikit supaya lebih
-    enak dilihat" adalah cara paling pelan sebuah keputusan desain kehilangan alasannya, dan
-    dua di antaranya (nogo, line) hanya berjarak 0.03 dan 0.48 dari batas WCAG-nya.
+    Yang TIDAK ikut dicabut, dan yang dipaku di sini:
+
+    1. **Angka kontrasnya DIUKUR dari stylesheet yang benar-benar dilayani**, bukan disalin dari
+       komentar — itu pekerjaan tes pasangan di atas, dan ia sekarang mengukur lebih banyak
+       (termasuk latar terburuk di bawah gambar).
+    2. **Paletnya tetap dipatok sebagai literal.** Sebuah warna boleh berpindah, tetapi hanya
+       lewat commit yang mengubah angka di sini — bukan lewat "sedikit lebih enak dilihat".
+    3. **Warna dekor tidak pernah membawa teks.** Satu-satunya warna tanpa ambang kontras
+       adalah `--hair`, dan ia dibayar dengan larangan yang diperiksa di sini: ia tidak boleh
+       muncul sebagai `color:` apa pun. Tanpa butir ini, "dekor" menjadi pintu belakang untuk
+       teks abu-abu yang tidak terbaca.
+    4. **Transparansi hanya boleh MENGGELAPKAN.** Tiap `rgba()` di berkas ini wajib hitam atau
+       warna dasar `--ink`; keduanya hanya menggerakkan latar ke arah gelap, dan karena seluruh
+       teks halaman ini lebih terang daripada seluruh permukaannya, kontras hanya bisa NAIK.
+       Sebuah `rgba()` berwarna lain bisa menerangi latar di bawah teks tanpa satu hex baru pun
+       muncul di berkas — persis lubang yang membuat pemeriksaan "himpunan hex" saja tidak cukup.
     """
     css = client.get("/ui/tenko.css").text
     palette = dict(re.findall(r"--([a-z]+): (#[0-9a-f]{6})", css))
     assert palette == MEASURED_PALETTE
-    # Warna jalur, dengan namanya. Angka telanjang di sini akan kehilangan alasannya.
-    assert palette["go"] == "#55721c", "Yamanote, digelapkan agar lolos (ADR-024)"
-    assert palette["nogo"] == "#d20911", "Marunouchi, digelapkan (ADR-024)"
-    assert palette["warn"] == "#995900", "Ginza, digelapkan (ADR-024)"
-    assert palette["link"] == "#007197", "Keihin-Tohoku, digelapkan (ADR-024)"
-    assert "#2c3442" not in css  # garis redup yang GAGAL 1.4.11, dan tidak boleh kembali
-    assert set(re.findall(r"#[0-9a-f]{6}", css)) == set(MEASURED_PALETTE.values()) | {
-        "#fdeaea",
-        "#8c0b10",
-    }
+    assert "#eef2f7" not in css, "latar terang ADR-023 kembali tanpa ADR baru"
+
+    # (3) warna dekor tidak pernah menjadi teks.
+    decor = {palette[name] for name, role in PALETTE_ROLES.items() if role == "decor"}
+    decor_tokens = {f"var(--{name})" for name, role in PALETTE_ROLES.items() if role == "decor"}
+    for declaration in re.findall(r"[a-z-]+\s*:[^;{}]+", css):
+        prop, _, value = declaration.partition(":")
+        if prop.strip() != "color":
+            continue
+        assert not (decor | decor_tokens) & set(re.findall(r"var\(--[a-z]+\)|#[0-9a-f]{6}", value)), (
+            f"warna dekor (tanpa ambang kontras) dipakai sebagai teks: {declaration.strip()}"
+        )
+
+    # (4) transparansi hanya menggelapkan.
+    ink = tuple(int(palette["ink"][index : index + 2], 16) for index in (1, 3, 5))
+    channels = [
+        tuple(int(part) for part in match)
+        for match in re.findall(r"rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,", css)
+    ]
+    assert channels, "prasyarat: stylesheet ini memang memakai rgba (bayangan + scrim gambar)"
+    for triple in channels:
+        assert triple in (ink, (0, 0, 0)), f"rgba yang bukan penggelap: rgba{triple}"
+
+    # ...dan scrim di atas gambar tidak boleh lebih tipis daripada yang diukur.
+    for layer in re.findall(r"background-image:[^;]+", css):
+        if "url(" not in layer:
+            continue
+        alphas = [float(value) for value in re.findall(r"rgba\([^)]*,\s*(\.?\d+(?:\.\d+)?)\s*\)", layer)]
+        assert alphas, "gambar latar tanpa scrim sama sekali: kontras teks jadi milik pikselnya"
+        assert min(alphas) >= MIN_SCRIM_ALPHA, f"scrim terlalu tipis: {min(alphas)}"
+
+
+def test_no_sentence_on_a_judged_screen_sits_on_top_of_an_image(client: TestClient) -> None:
+    """Klaim yang membuat pengukuran palet berlaku: nol teks di atas piksel gambar.
+
+    Tiap angka kontras di atas mengandaikan latar teks adalah warna dari palet. Andaian itu
+    runtuh di satu tempat yang mudah dibuat dan sulit dilihat: teks di atas gambar. ADR-027
+    karena itu menaruh tiap gambar di KOTAKNYA SENDIRI — kolom hero, pita `.band`, kolom
+    `.proofs-art` — dan tes ini memeriksa bahwa kotak-kotak itu memang tidak berisi apa pun
+    selain `<img>`, pada HTML yang benar-benar dilayani.
+
+    Satu-satunya gambar yang MEMANG berada di bawah teks adalah latar `html`, dan ia dibayar
+    dengan scrim ≥`MIN_SCRIM_ALPHA` yang diukur terhadap piksel putih di tes di atas.
+    """
+    html = client.get("/").text
+    for holder in ("hero-art", "band-art", "proofs-art"):
+        blocks = re.findall(rf'<div class="{holder}">(.*?)</div>', html, re.S)
+        assert blocks, f"{holder} tidak ada di landing"
+        for inner in blocks:
+            assert re.fullmatch(r"<img [^>]+>", inner.strip()), (
+                f"{holder} memuat lebih dari gambar: {inner[:80]}"
+            )
+    # Tiap gambar itu benar-benar dilayani, membawa `alt`, dan membawa ukuran intrinsiknya —
+    # `alt=""` disengaja (pemandangan, bukan bukti) dan ukuran mencegah halaman melompat.
+    images = re.findall(r"<img ([^>]+)>", html)
+    assert len(images) == 3, images
+    for attrs in images:
+        source = re.search(r'src="([^"]+)"', attrs)
+        assert source and source.group(1).startswith("/ui/img/"), attrs
+        assert client.get(source.group(1)).status_code == 200, attrs
+        assert 'alt=""' in attrs, f"gambar hiasan tanpa alt kosong: {attrs}"
+        assert "width=" in attrs and "height=" in attrs, f"gambar tanpa ukuran intrinsik: {attrs}"
+    # Dan kalimat yang mengatakan gambar-gambar itu BUKAN bukti ikut tercetak.
+    assert ui_screens.ART_NOTE in unescape(html)
 
 
 def test_the_card_table_has_one_header_for_every_column_it_renders(client: TestClient) -> None:
@@ -2940,11 +3084,13 @@ def test_the_stylesheet_loads_nothing_from_anywhere_including_itself(client: Tes
     tanpa jaringan.
 
     ADR-022 mengubah bentuk tes ini, bukan jaminannya. Dulu `url(` dan `@font-face` dilarang
-    HABIS, yang kebetulan cukup selama tidak ada aset sama sekali. Sekarang empat face IBM Plex
-    di-vendor, jadi yang dilarang bukan lagi "memuat" melainkan "memuat dari tempat lain": tiap
-    `url()` di stylesheet WAJIB berupa path se-origin di bawah `/ui/fonts/`, dan tiap berkas
-    yang ditunjuknya WAJIB benar-benar dilayani. Larangan yang dilonggarkan tanpa diganti
-    penggantinya adalah larangan yang hilang, jadi keduanya diperiksa di sini.
+    HABIS, yang kebetulan cukup selama tidak ada aset sama sekali. Sekarang font di-vendor dan
+    (ADR-027) satu gambar dipakai sebagai latar layar, jadi yang dilarang bukan lagi "memuat"
+    melainkan "memuat dari tempat lain": tiap `url()` di stylesheet WAJIB berupa path se-origin
+    di bawah `/ui/fonts/` atau `/ui/img/` — DUA daftar TERTUTUP di `ui/screens.py`, bukan dua
+    folder yang bisa diisi apa saja — dan tiap berkas yang ditunjuknya WAJIB benar-benar
+    dilayani dengan tipe yang benar. Larangan yang dilonggarkan tanpa diganti penggantinya
+    adalah larangan yang hilang, jadi keduanya diperiksa di sini.
     """
     css = client.get("/ui/tenko.css").text
     for forbidden in ("data:", "@import", "http", "//"):
@@ -2952,16 +3098,23 @@ def test_the_stylesheet_loads_nothing_from_anywhere_including_itself(client: Tes
 
     urls = re.findall(r"url\(([^)]*)\)", css)
     assert urls, "prasyarat: stylesheet memang memuat font yang di-vendor"
+    kinds = {
+        "/ui/fonts/": ("font/woff2", b"wOF2", ui_screens.FONT_NAMES),
+        "/ui/img/": ("image/webp", b"RIFF", ui_screens.IMAGE_NAMES),
+    }
     for raw in urls:
         target = raw.strip().strip("\"'")
-        assert target.startswith("/ui/fonts/"), f"aset dari luar /ui/fonts/: {target}"
+        prefix = next((name for name in kinds if target.startswith(name)), None)
+        assert prefix, f"aset dari luar /ui/fonts/ dan /ui/img/: {target}"
         assert ".." not in target, target
+        kind, magic, closed_list = kinds[prefix]
+        assert target.removeprefix(prefix) in closed_list, f"{target}: di luar daftar tertutup"
         # ...dan ia BENAR-BENAR ada. `url()` yang menunjuk berkas hilang adalah 404 diam-diam
         # yang hanya terlihat di browser, dan tidak ada browser di jalur tes.
         served = client.get(target)
         assert served.status_code == 200, f"{target} -> {served.status_code}"
-        assert served.headers["content-type"] == "font/woff2", target
-        assert served.content[:4] == b"wOF2", f"{target} bukan woff2"
+        assert served.headers["content-type"] == kind, target
+        assert served.content[:4] == magic, f"{target} bukan {kind}"
 
     # Tiap `@font-face` menyebut `font-display`, supaya teks terbaca dengan font sistem SEBELUM
     # Plex tiba: layar tidak pernah kosong menunggu aset (alasan yang sama dengan ADR-020 6).
@@ -3728,8 +3881,8 @@ def test_one_css_naming_rule_serves_both_renderers() -> None:
 #:
 #: Cara memperbaruinya: `make frontend` mencetak hash barunya. Menggantinya adalah perbuatan
 #: yang TERLIHAT di diff — dan itulah seluruh gunanya.
-BUNDLE_SHA256 = "9c53cb42aeecba10d2d98526ac2f685f6cb99e336686ac5f8746fec83597c137"
-STYLESHEET_SHA256 = "8752479a59f58b807abc217df152d3e620f2d9f778a7c603dd695a77d50626fe"
+BUNDLE_SHA256 = "75b55ac0a41138d51a2c1b38a1f339da9707d66ff4caa9555eb037ca59c47d4c"
+STYLESHEET_SHA256 = "d6776cc92ef633e4619962bd2b49a20f652e0ab29696c794b1e74de165a2378f"
 
 
 def test_the_shipped_bundle_is_pinned_byte_for_byte() -> None:

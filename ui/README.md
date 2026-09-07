@@ -93,39 +93,53 @@ Dua hal yang perlu dikatakan apa adanya tentang build itu:
 
 ---
 
-## Penyegaran tampilan (5 Sep 2026) — apa yang berubah, dan apa yang sengaja tidak
+## Penyegaran tampilan (ADR-027, 7 Sep 2026) — apa yang berubah, dan apa yang sengaja tidak
 
-Yang dinilai di layar ini adalah **keterbacaan dalam 30 detik**, bukan kemewahan. Yang berubah:
+Yang dinilai di layar ini adalah **keterbacaan dalam 30 detik**, bukan kemewahan — tetapi
+"terbaca" dan "terbaca seperti dokumen Word" bukan hal yang sama, dan sampai ADR-027 layar ini
+adalah yang kedua. Sebabnya bisa ditunjuk: tes palet lama melarang SETIAP hex di luar sepuluh
+warna jalur JR, jadi nol permukaan antara, nol tint kartu, nol garis rambut — dan tanpa itu
+tidak ada satu pun cara membuat kedalaman.
 
-- **Tipografi punya dua peran.** Prosa memakai font sans **sistem** (`system-ui`, dst.), angka /
-  hash / id / nilai asal-RYO tetap monospace supaya kolomnya sejajar. Nol webfont diunduh.
-- **Satu tangga spasi** (`--s1`…`--s6`) dan dua radius (`--r1`, `--r2`) menggantikan jarak yang
-  dulu dikarang per aturan; halaman dibatasi 1240px dan dipusatkan.
-- **Kalimat jawaban dinaikkan menjadi kartu** (`.answer`): panel + garis, elevasi lewat
-  border/background — bukan bayangan tebal, bukan gradien.
-- **Layar B disusun ulang**: sepuluh baris tunjuk→sebut kini tepat di bawah kalimat jawaban, dan
-  daftar hash/jam/replay pindah ke bawahnya dengan `<h2>` sendiri. Tidak ada isi yang dihapus.
-  → `test_screen_b_puts_the_ten_rows_above_the_hashes_not_below_them`
-- **Judul kolom kartu diperbaiki**: `CARD_COLUMNS` dulu berisi tujuh judul untuk sembilan sel,
-  sehingga `<th scope="col">` menunjuk kolom yang salah — cacat tampilan sekaligus cacat pembaca
-  layar. → `test_the_card_table_has_one_header_for_every_column_it_renders`
-- **Lebar kolom Layar A ditetapkan**: kolom "apa yang menahan" (jawabannya) mendapat 30%, bukan
-  seperembilan lebar yang sama rata seperti sebelumnya.
-- **Banner SIMULATED melekat** (`position: sticky`, **bukan** `fixed`): ia ada di setiap frame
-  video, tetapi tetap mengalir di dalam dokumen — bukan overlay, tidak menutupi apa pun, tidak
-  bisa menjebak fokus. Sasaran tautan lompat diberi `scroll-margin-top` supaya tidak mendarat di
-  baliknya. → `test_the_banner_stays_in_frame_without_becoming_an_overlay`
+Yang berubah:
+
+- **Satu bahasa visual untuk ketiga layar**, didamaikan dengan `/kage` (utang yang diakui
+  ADR-026): `--ink:#05070a` + `--fg:#dfe7e0` — token yang sama dengan `ui/static/kage.css` —
+  dengan tiga permukaan di atasnya (`--panel`, `--row`, `--card`), satu garis struktural, dan
+  empat warna status yang mempertahankan ARTI palet lama pada nilai yang terbaca di latar gelap.
+- **Sistem tata letak, bukan blok yang dipusatkan.** `main` adalah kisi tiga jalur (pinggir ·
+  kolom baca 1240px · pinggir); bagian yang ingin penuh-lebar meminta jalur `full`. Nol
+  `overflow-x: hidden` dan nol `margin-inline: calc(50% - 50vw)` — keduanya mematikan
+  `position: sticky`, dan banner SIMULATED bergantung padanya.
+- **Permukaan berlapis.** Tabel menjadi kartu ber-radius dengan **kepala kolom yang melekat**
+  (pada 1280×720 nama kolom tetap terbaca saat baris kesepuluh sedang dilihat), baris genap
+  punya permukaannya sendiri, dan baris yang ditunjuk ATAU memegang fokus keyboard naik satu
+  tingkat lagi — dua jalan masuk, satu keadaan.
+- **Skala tipografi.** Muka huruf aplikasi menjadi Onest (di-vendor, ADR-026); IBM Plex Mono
+  tetap memegang angka, hash, id, dan tiap nilai asal-RYO supaya kolomnya sejajar dan aksara
+  mirip tidak tertukar. Simbol Layar A naik menjadi 19px mono: ia judul barisnya.
+- **Gambar masuk ke layar juri** — tiga di landing, satu sebagai latar `html` di semua layar,
+  semuanya dari daftar TERTUTUP `ui.screens.IMAGE_NAMES` dan dilayani origin sendiri.
+- **Gerak yang sudah dibayar ADR-025 dibelanjakan**: reveal berurutan pada blok landing dan
+  parallax ber-`scrub` pada dua gambar. Keduanya di dalam `motion()`, yang berhenti sebelum
+  baris pertamanya bila `prefers-reduced-motion` menyala.
 
 Yang **tidak** berubah, dan dijaga tes:
 
-- **Nol dari dua belas warna digeser.** Rasio di tabel bawah karena itu masih rasio yang sama;
-  tidak ada yang perlu dihitung ulang. `--line` khususnya tetap `#646e84` (3.72:1) dan tidak
-  dikembalikan ke `#2c3442` (1.52:1, GAGAL 1.4.11) demi rasa.
-  → `test_the_restyle_did_not_move_a_single_measured_colour`
-- Nol animasi, nol `transition`, nol `:hover`, nol `position: fixed`. (Sejak ADR-020 ada TEPAT SATU
-  `<script src="/ui/app.js" defer>`, tanpa satu aksara pun isi sebaris; yang dijaga tes sekarang
-  adalah jumlahnya = 1, bukan 0 — lihat baris CSP di atas.)
-- Warna tetap tidak pernah sendirian; `unspoken` tetap terbaca "tidak disebut", bukan 0.
+- **Tiap pasangan warna DIUKUR** dari stylesheet yang benar-benar dilayani, dan sekarang lebih
+  banyak dari sebelumnya: termasuk latar TERBURUK yang mungkin muncul di bawah gambar.
+  → `test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`,
+  `test_the_palette_is_measured_from_the_stylesheet_that_ships`
+- **Nol teks di atas piksel gambar.** Tiap gambar landing duduk di kotaknya sendiri yang berisi
+  hanya satu `<img>`. → `test_no_sentence_on_a_judged_screen_sits_on_top_of_an_image`
+- **Nol `position: fixed`.** Gambar latar dipasang sebagai latar `html`, bukan elemen melayang,
+  jadi tidak ada permukaan baru yang bisa menjebak fokus.
+  → `test_escape_has_nothing_to_close_because_no_screen_traps_focus`
+- **Layar A tetap `<table>`** dengan kolom, `scope`, dan `aria-label` baris yang sama persis:
+  `render.ts` merender Layar A dengan markup identik dengan server, dan itu yang membuat render
+  klien dan render server tidak bisa menyimpang.
+- Banner SIMULATED tetap `sticky` (bukan `fixed`), warna tetap tidak pernah sendirian, dan
+  `unspoken` tetap terbaca "tidak disebut", bukan 0.
 
 ---
 
@@ -277,54 +291,94 @@ Semua di `tests/test_ui.py`; jalankan dengan `uv run pytest tests/test_ui.py -q`
 - [x] **Terbaca 1280×720.** `<meta name="viewport" content="width=1280">`, badan halaman
       dibatasi 1240px, **sembilan** kolom kartu dan sembilan kolom watchlist berlebar tetap
       supaya kolom `reason` (Layar B) dan kolom "apa yang menahan" (Layar A) tidak terhimpit,
-      teks minimum 13px. Di bawah 900px lebar tetap itu dilepas kembali (`table-layout: auto`).
+      teks minimum 12,5px. Di bawah 1000px lebar tetap itu dilepas kembali (`table-layout: auto`), kolom
+      hero/bukti/rails menumpuk jadi satu, dan gambar hiasan `.proofs-art` menghilang sama sekali.
 - [ ] **Rekaman 30 detik** — lihat "Batas yang belum tertutup" di bawah.
 
 ### Angka kontras (WCAG 2.1, sRGB relative luminance)
 
 Dihitung dari warna yang benar-benar dilayani `/ui/tenko.css`. Batas: **4.5:1** untuk teks
-(1.4.3) dan **3:1** untuk garis/cincin fokus (1.4.11).
+(1.4.3) dan **3:1** untuk garis/cincin fokus (1.4.11). Paletnya berubah di **ADR-027** (palet
+jalur JR ADR-023/024 DICABUT; tema gelap berlapis yang didamaikan dengan `/kage`), dan seluruh
+pasangan di bawah diukur ULANG — bukan disalin dari tabel lama.
 
 **Teks (batas 4.5:1)**
 
 | Depan | Belakang | Rasio | |
 |---|---|---|---|
-| `--ink` #0b1a2e | `--bg` #eef2f7 | **15.55:1** | PASS |
-| `--ink` #0b1a2e | `--panel` #ffffff | **17.48:1** | PASS |
-| `--ink` #0b1a2e | baris genap #e4eaf2 | **14.44:1** | PASS |
-| `--dim` #586985 | `--bg` #eef2f7 | **4.95:1** | PASS |
-| `--dim` #586985 | `--panel` #ffffff | **5.56:1** | PASS |
-| `--dim` #586985 | baris genap #e4eaf2 | **4.60:1** | PASS |
-| `--go` #55721c (Yamanote, digelapkan) | `--bg` #eef2f7 | **4.90:1** | PASS |
-| `--go` #55721c (Yamanote, digelapkan) | `--panel` #ffffff | **5.51:1** | PASS |
-| `--go` #55721c (Yamanote, digelapkan) | baris genap #e4eaf2 | **4.55:1** | PASS |
-| `--nogo` #d20911 (Marunouchi, digelapkan) | `--bg` #eef2f7 | **4.93:1** | PASS |
-| `--nogo` #d20911 (Marunouchi, digelapkan) | `--panel` #ffffff | **5.54:1** | PASS |
-| `--nogo` #d20911 (Marunouchi, digelapkan) | baris genap #e4eaf2 | **4.58:1** | PASS |
-| `--warn` #995900 (Ginza, digelapkan) | `--bg` #eef2f7 | **4.94:1** | PASS |
-| `--warn` #995900 (Ginza, digelapkan) | `--panel` #ffffff | **5.55:1** | PASS |
-| `--warn` #995900 (Ginza, digelapkan) | baris genap #e4eaf2 | **4.59:1** | PASS |
-| `--link` #007197 (Keihin-Tohoku, digelapkan) | `--bg` #eef2f7 | **4.90:1** | PASS |
-| `--link` #007197 (Keihin-Tohoku, digelapkan) | `--panel` #ffffff | **5.51:1** | PASS |
-| `--link` #007197 (Keihin-Tohoku, digelapkan) | baris genap #e4eaf2 | **4.56:1** | PASS |
-| teks banner #8c0b10 | latar banner #fdeaea | **8.35:1** | PASS |
-| `--ink` #0b1a2e | latar banner #fdeaea | **15.09:1** | PASS |
+| `--fg` #dfe7e0 | `--ink` #05070a | **15.99:1** | PASS |
+| `--fg` #dfe7e0 | `--panel` #0e131a | **14.77:1** | PASS |
+| `--fg` #dfe7e0 | `--row` #141b23 | **13.75:1** | PASS |
+| `--fg` #dfe7e0 | `--card` #1a222c | **12.71:1** | PASS |
+| `--dim` #9daba4 | `--ink` #05070a | **8.45:1** | PASS |
+| `--dim` #9daba4 | `--panel` #0e131a | **7.81:1** | PASS |
+| `--dim` #9daba4 | `--row` #141b23 | **7.26:1** | PASS |
+| `--dim` #9daba4 | `--card` #1a222c | **6.72:1** | PASS |
+| `--go` #7ddc9a | `--ink` #05070a | **12.08:1** | PASS |
+| `--go` #7ddc9a | `--panel` #0e131a | **11.16:1** | PASS |
+| `--go` #7ddc9a | `--row` #141b23 | **10.39:1** | PASS |
+| `--go` #7ddc9a | `--card` #1a222c | **9.61:1** | PASS |
+| `--nogo` #ff6f61 | `--ink` #05070a | **7.39:1** | PASS |
+| `--nogo` #ff6f61 | `--panel` #0e131a | **6.83:1** | PASS |
+| `--nogo` #ff6f61 | `--row` #141b23 | **6.36:1** | PASS |
+| `--nogo` #ff6f61 | `--card` #1a222c | **5.88:1** | PASS |
+| `--warn` #e0b552 | `--ink` #05070a | **10.47:1** | PASS |
+| `--warn` #e0b552 | `--panel` #0e131a | **9.67:1** | PASS |
+| `--warn` #e0b552 | `--row` #141b23 | **9.00:1** | PASS |
+| `--warn` #e0b552 | `--card` #1a222c | **8.33:1** | PASS |
+| `--link` #6fd2e8 | `--ink` #05070a | **11.58:1** | PASS |
+| `--link` #6fd2e8 | `--panel` #0e131a | **10.70:1** | PASS |
+| `--link` #6fd2e8 | `--row` #141b23 | **9.96:1** | PASS |
+| `--link` #6fd2e8 | `--card` #1a222c | **9.21:1** | PASS |
+| teks banner #ffd9d4 | latar banner #3a0d0b | **12.98:1** | PASS |
 
-Yang paling ketat: **4.55:1** (`--go` Yamanote di atas baris genap), yaitu 1.01x batas 4.5:1. Untuk teks GELAP kasus terburuk adalah latar TERGELAP, kebalikan dari tema gelap.
+Yang paling ketat: **5.88:1** (`--nogo` di atas `--card`, permukaan paling terang) — 1.31x
+batas 4.5:1. Untuk teks TERANG kasus terburuk adalah latar paling TERANG, kebalikan dari palet
+terang yang dipakai sebelum ADR-027.
+
+**Teks di atas gambar (batas 4.5:1)**
+
+ADR-027 memasang satu `.webp` sebagai latar `html` di semua layar. Kontrasnya karena itu tidak
+lagi ditentukan palet saja, dan yang menjaganya BUKAN "gambarnya kebetulan gelap" melainkan
+scrim di atasnya: alpha minimalnya **.88** (dipatok tes). Piksel paling terang yang mungkin ada
+di sebuah gambar adalah putih, dan putih di bawah scrim setebal itu menjadi **#232527**:
+
+| Depan | Belakang | Rasio | |
+|---|---|---|---|
+| `--fg` #dfe7e0 | scrim gambar #232527 | **12.19:1** | PASS |
+| `--dim` #9daba4 | scrim gambar #232527 | **6.44:1** | PASS |
+| `--go` #7ddc9a | scrim gambar #232527 | **9.21:1** | PASS |
+| `--nogo` #ff6f61 | scrim gambar #232527 | **5.64:1** | PASS |
+| `--warn` #e0b552 | scrim gambar #232527 | **7.98:1** | PASS |
+| `--link` #6fd2e8 | scrim gambar #232527 | **8.83:1** | PASS |
+
+Tiga gambar landing (`kage-approach`, `stone-lantern`, `kage-moonwater`) TIDAK masuk hitungan
+ini karena tidak ada satu kalimat pun di atasnya: masing-masing duduk di kotaknya sendiri
+(`.hero-art`, `.proofs-art`, `.band-art`) yang berisi **hanya** satu `<img>` — dipatok
+`test_no_sentence_on_a_judged_screen_sits_on_top_of_an_image`. Semuanya `alt=""` (pemandangan,
+bukan bukti) dan satu baris `ART_NOTE` mengatakannya untuk mata.
+
+**Non-teks (batas 3:1)**
 
 | Pasangan non-teks | Latar | Rasio | Batas 3:1 |
 |---|---|---|---|
-| `--line` #6c87a9 | `--bg` #eef2f7 | **3.29:1** | PASS |
-| `--line` #6c87a9 | `--panel` #ffffff | **3.70:1** | PASS |
-| `--line` #6c87a9 | baris genap #e4eaf2 | **3.06:1** | PASS |
-| `--nogo` #d20911 (garis banner) | latar banner #fdeaea | **4.79:1** | PASS |
-| `--warn` #995900 (cincin fokus) | `--bg` #eef2f7 | **4.94:1** | PASS |
-| `--warn` #995900 (cincin fokus) | `--panel` #ffffff | **5.55:1** | PASS |
-| `--warn` #995900 (cincin fokus) | baris genap #e4eaf2 | **4.59:1** | PASS |
+| `--line` #5d6f78 | `--ink` #05070a | **3.85:1** | PASS |
+| `--line` #5d6f78 | `--panel` #0e131a | **3.56:1** | PASS |
+| `--line` #5d6f78 | `--row` #141b23 | **3.31:1** | PASS |
+| `--line` #5d6f78 | `--card` #1a222c | **3.06:1** | PASS |
+| `--nogo` #ff6f61 (garis banner) | latar banner #3a0d0b | **6.20:1** | PASS |
+| `--nogo` #ff6f61 (garis banner) | `--ink` #05070a | **7.39:1** | PASS |
+| `--warn` #e0b552 (cincin fokus) | `--ink` #05070a | **10.47:1** | PASS |
+| `--warn` #e0b552 (cincin fokus) | `--card` #1a222c | **8.33:1** | PASS |
 
-`--line` sebelumnya `#2c3442` = **1.52:1**: cukup untuk hiasan, tidak cukup untuk garis yang
-memisahkan sembilan kolom di layar 1280×720. Ia dinaikkan ke `#646e84` pada TASKS 4.6, dan
-angkanya sekarang dipatok tes — bukan mata.
+Satu warna TIDAK punya ambang: `--hair` #232c35, pemisah rambut di dalam kartu. Ia dibayar
+dengan larangan yang diperiksa tes — ia tidak boleh muncul sebagai `color:` apa pun, jadi ia
+tidak pernah membawa teks dan kehilangannya tidak menghilangkan satu pun informasi.
+
+Dan satu aturan yang menutup lubang terakhir: tiap `rgba()` di stylesheet wajib hitam atau
+`--ink`. Transparansi karena itu hanya bisa MENGGELAPKAN, dan karena seluruh teks halaman ini
+lebih terang daripada seluruh permukaannya, sebuah lapis transparan hanya bisa menaikkan
+kontras — tidak pernah menurunkannya, tanpa satu hex baru pun perlu muncul di berkas.
 
 ---
 

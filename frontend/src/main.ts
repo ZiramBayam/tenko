@@ -359,8 +359,13 @@ function isInternal(link: HTMLAnchorElement): boolean {
  */
 function motion(): void {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  // Yang muncul saat digulir: blok TEKS dan kartu. Gambar TIDAK ikut di sini — sebuah gambar
+  // yang memudar masuk hanya menunda pemandangan, sementara blok yang memudar masuk memberi
+  // halaman ritme baca. Daftarnya eksplisit supaya tidak ada elemen yang tanpa sengaja
+  // ber-`opacity: 0` hanya karena ia kebetulan cocok dengan pemilih yang terlalu lebar.
   const targets = document.querySelectorAll<HTMLElement>(
-    ".hero, .board, .proofs, .why, .rails"
+    ".hero .kicker, .hero h1, .hero .lede, .hero .cta, .hero .rails, " +
+      ".board, .proofs-in, .band-in, .figs li"
   );
   if (!targets.length) return;
 
@@ -373,13 +378,27 @@ function motion(): void {
   gsap.ticker.lagSmoothing(0);
 
   gsap.registerPlugin(ScrollTrigger);
-  for (const node of targets) {
+  targets.forEach((node, index) => {
     gsap.to(node, {
       opacity: 1,
       y: 0,
       duration: 0.7,
+      // Saudara di dalam satu kartu berangkat berurutan, bukan serentak: itu yang membuat
+      // sebuah bagian terbaca sebagai satu kalimat, bukan sebagai empat kotak yang muncul.
+      delay: (index % 3) * 0.06,
       ease: "power2.out",
-      scrollTrigger: { trigger: node, start: "top 88%", once: true },
+      scrollTrigger: { trigger: node, start: "top 90%", once: true },
+    });
+  });
+
+  // Parallax: gambar bergerak lebih lambat daripada halaman. `scrub` mengikatnya ke posisi
+  // gulir (bukan ke waktu), jadi ia tidak pernah bergerak sendiri saat halaman diam, dan ia
+  // hanya menyentuh `y` sebuah elemen DEKORATIF — tidak ada teks yang ikut bergeser.
+  for (const art of document.querySelectorAll<HTMLElement>(".hero-art img, .band-art img")) {
+    gsap.to(art, {
+      yPercent: 12,
+      ease: "none",
+      scrollTrigger: { trigger: art.parentElement ?? art, start: "top bottom", end: "bottom top", scrub: 0.6 },
     });
   }
 }

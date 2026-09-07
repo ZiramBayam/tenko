@@ -1,190 +1,318 @@
-/* Tenko — Layar A & B. Tanpa library runtime, tanpa CDN, tanpa animasi (ADR-001, ADR-020).
+/* Tenko — landing, Layar A, Layar B. Satu bahasa visual untuk ketiganya (ADR-027).
 
    SUMBER berkas ini adalah `frontend/styles/app.css`; yang dilayani `/ui/tenko.css` adalah
    hasil build `ui/static/app.css` (esbuild, ADR-020 butir 3) yang DILACAK GIT — clone tanpa
    Node tetap bisa `make ui`.
 
-   PALETNYA BERUBAH di ADR-023: dari abu-abu netral menjadi warna jalur JR (lihat `:root`).
-   Kedua belas warna itu diukur ulang seluruhnya, bukan diasumsikan, dan angkanya dipatok
-   `tests/test_ui.py::test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`:
-   teks terendah go #55721c di atas baris genap #e4eaf2 = 4.55:1 (batas 4.5:1); garis
-   #6c87a9 di atas baris genap = 3.06:1 (batas non-teks 3:1); cincin fokus #995900 di
-   atas #eef2f7 = 4.94:1. Kasus terburuk untuk teks GELAP adalah latar TERGELAP (baris
-   genap), bukan putih — kebalikan dari tema gelap, dan mudah tertukar.
+   APA YANG BERUBAH DI ADR-027 (dan kenapa)
+   ----------------------------------------
+   ADR-023/024 mengunci palet ke empat warna jalur JR di atas badan kereta yang TERANG, dan
+   tesnya melarang setiap hex di luar himpunan itu. Akibatnya bukan selera melainkan struktur:
+   nol permukaan abu-abu, nol tint kartu, nol garis antara — jadi tidak ada satu pun cara
+   membuat kedalaman, dan ketiga layar terbaca seperti dokumen yang dicetak, bukan seperti
+   produk. ADR-027 MENCABUT kunci itu dan menggantinya dengan tema gelap berlapis yang sejalan
+   dengan halaman `/kage` (`ui/static/kage.css`): ink #05070a dan bone #dfe7e0 — dua token yang
+   SAMA PERSIS dengan berkas itu — plus tiga permukaan di atas ink dan empat warna status yang
+   mempertahankan ARTI palet lama pada nilai yang terbaca di latar gelap.
 
-   Warna tidak pernah membawa informasi sendirian: tiap lencana membawa teksnya, hijau-netral
-   membawa kalimatnya, dan `unspoken` membawa "tidak disebut".
+   YANG TIDAK IKUT DICABUT, dan yang tetap dipatok tes:
+   * tiap pasangan teks/latar yang benar-benar dipakai DIUKUR dengan rumus WCAG 2.1 atas CSS
+     yang BENAR-BENAR DILAYANI (`test_the_palette_is_measured_from_the_stylesheet_that_ships`).
+     Angka terburuk hari ini: teks `--nogo` di atas `--card` = 5.88:1, garis `--line` di atas
+     `--card` = 3.06:1 (batas non-teks 3:1), cincin fokus `--warn` di atas `--ink` = 10.47:1,
+     dan teks di atas gambar berscrim (putih di bawah alpha .88 = #232527) = 5.64:1;
+   * warna tidak pernah membawa informasi sendirian: tiap lencana membawa teksnya;
+   * nol permintaan ke luar repo ini — nol CDN, nol `data:`, nol URI tertanam. `url()` hanya
+     menunjuk `/ui/fonts/` dan `/ui/img/`, dua daftar TERTUTUP di `ui/screens.py`;
+   * gerak MATI TOTAL di `prefers-reduced-motion`, dan tiap `:hover` punya padanan `:focus`.
 
-   ADR-022 mengubah satu kalimat yang dulu berdiri di sini ("nol webfont"): empat face IBM Plex
-   kini DI-VENDOR ke `ui/static/fonts/` dan dilayani dari origin sendiri. Yang TIDAK berubah dan
-   yang menjadikannya tetap aman: nol permintaan ke luar repo ini, nol CDN, nol URI tertanam,
-   nol gambar yang dimuat — dan tumpukan font sistem tetap berdiri di belakang Plex sebagai
-   fallback yang sungguh dipakai selama `swap` dan bila asetnya hilang. */
-/* --- IBM Plex, di-vendor (SIL OFL 1.1, ADR-022) -------------------------------------------
-   Dilayani dari origin sendiri lewat `/ui/fonts/{name}` (daftar TERTUTUP di `ui/screens.py`),
-   jadi `font-src 'self'` cukup dan nol permintaan jaringan tetap berdiri — `make demo` jalan
-   tanpa jaringan (spec §7). Lisensinya ikut terkirim di `ui/static/fonts/LICENSE.txt` karena
-   OFL 1.1 menuntutnya.
+   Satu warna "dekor" (`--hair`) sengaja TIDAK memenuhi 3:1 dan karena itu tidak pernah dipakai
+   sebagai `color:` mana pun — tes memaksanya: ia hanya boleh menjadi pemisah rambut yang
+   kehilangannya tidak menghilangkan satu pun informasi. */
 
-   Empat face dan tidak lebih: Regular + SemiBold untuk masing-masing sans dan mono. Papan
-   keberangkatan tidak butuh tujuh bobot, dan tiap face adalah ~50 KB yang harus dibayar juri
-   dalam uji 30 detik.
+/* --- muka huruf, semuanya di-vendor dari origin ini sendiri ---------------------------------
+   Onest + NotoJP datang bersama halaman `/kage` (ADR-026) dan sudah dilayani lewat
+   `/ui/fonts/{name}`; ADR-027 memakainya untuk SELURUH aplikasi supaya dua bahasa visual yang
+   selama ini berdampingan menjadi satu. IBM Plex tetap: Mono untuk angka/hash/nilai asal-RYO
+   (kolom sejajar, aksara mirip tidak tertukar), Sans sebagai lapis kedua di belakang Onest.
 
-   `font-display: swap` disengaja: teksnya terbaca dengan font sistem SEBELUM Plex tiba, jadi
-   layar tidak pernah kosong menunggu aset — alasan yang sama dengan ADR-020 butir 6. */
+   `font-display: swap` disengaja: teks terbaca dengan font sistem SEBELUM aset tiba, jadi
+   layar tidak pernah kosong menunggu berkas (alasan yang sama dengan ADR-020 butir 6). */
+@font-face {
+  font-family: "Onest Vendored";
+  src: url("/ui/fonts/Onest-300.woff2") format("woff2");
+  font-weight: 300; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Onest Vendored";
+  src: url("/ui/fonts/Onest-400.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Onest Vendored";
+  src: url("/ui/fonts/Onest-500.woff2") format("woff2");
+  font-weight: 500 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Onest Vendored";
+  src: url("/ui/fonts/Onest-700.woff2") format("woff2");
+  font-weight: 700 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "NotoJP Vendored";
+  src: url("/ui/fonts/NotoJP-400.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
 @font-face {
   font-family: "IBM Plex Sans Vendored";
   src: url("/ui/fonts/IBMPlexSans-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 400; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: "IBM Plex Sans Vendored";
   src: url("/ui/fonts/IBMPlexSans-SemiBold.woff2") format("woff2");
-  font-weight: 600 700;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 600 700; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: "IBM Plex Mono Vendored";
   src: url("/ui/fonts/IBMPlexMono-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 400; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: "IBM Plex Mono Vendored";
   src: url("/ui/fonts/IBMPlexMono-SemiBold.woff2") format("woff2");
-  font-weight: 600 700;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 600 700; font-style: normal; font-display: swap;
 }
+
 :root {
-  /* PALET JALUR JR (ADR-023). Bukan "dark fintech" dan bukan selera: keempat warna status di
-     bawah adalah warna jalur kereta Jepang yang sebenarnya, diambil dari Wikipedia
-     `Template:Ja-rail-color` (dibaca 7 Sep 2026), dan masing-masing kebetulan memetakan persis
-     ke makna yang sudah dipakai layar ini. Latarnya navy papan penunjuk stasiun, bukan abu-abu
-     netral.
+  /* PERMUKAAN, dari yang paling dalam ke yang paling tinggi. Empat tingkat, dan itulah yang
+     membuat halaman punya kedalaman: dasar → panel → baris genap → kartu/chip. */
+  --ink: #05070a;
+  --panel: #0e131a;
+  --row: #141b23;
+  --card: #1a222c;
+  /* TEKS. `--fg` bone yang sama dengan wordmark `/kage`; `--dim` untuk keterangan. */
+  --fg: #dfe7e0;
+  --dim: #9daba4;
+  /* STATUS. Nada jalur JR ADR-023 dipertahankan ARTINYA (hijau=go, merah=nogo, kuning=warn,
+     biru=tautan) tetapi diterangkan untuk latar gelap; hex jalur resmi gagal 4.5:1 di sini
+     dengan cara yang berlawanan dari ADR-024, dan yang menang tetap keterbacaan. */
+  --go: #7ddc9a;
+  --nogo: #ff6f61;
+  --warn: #e0b552;
+  --link: #6fd2e8;
+  /* GARIS struktural: batas kartu, tabel, kontrol. ≥3:1 di ATAS KEEMPAT permukaan. */
+  --line: #5d6f78;
+  /* DEKOR — tidak pernah `color:`. Pemisah rambut di dalam kartu dan di antara bagian;
+     kehilangannya tidak menghilangkan satu pun informasi. */
+  --hair: #232c35;
+  /* BANNER SIMULATED: satu-satunya blok yang berlatar merah, karena ia harus terbaca sebagai
+     peringatan di setiap frame video. */
+  --bannerbg: #3a0d0b;
+  --bannerfg: #ffd9d4;
 
-       --go    #55721c  Yamanote  (JNR Yellow Green No.6, ウグイス色)
-       --nogo  #d20911  Marunouchi
-       --warn  #995900  Ginza
-       --link  #007197  Keihin-Tohoku
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 18px; --s5: 28px; --s6: 44px; --s7: 72px; --s8: 112px;
+  --r1: 6px; --r2: 12px;
+  --pad: clamp(20px, 4vw, 56px);
+  --wide: 1240px;
+  --t-hero: clamp(32px, 4.4vw, 56px);
+  --t-fig: clamp(34px, 4vw, 56px);
+  --t-h1: clamp(28px, 3.4vw, 44px);
+  --t-h2: clamp(20px, 2.2vw, 30px);
+  --t-lede: clamp(16px, 1.35vw, 20px);
+  --t-label: 11px;
+  /* Tinggi banner yang melekat: dipakai `top:` semua yang ikut melekat di bawahnya, supaya
+     kepala tabel tidak pernah mendarat DI BALIK banner. */
+  --stick: 52px;
 
-       PENTING (ADR-024): keempatnya adalah HUE jalur itu, DIGELAPKAN — bukan hex
-       resminya. Di atas badan shinkansen yang terang, keempat nilai RESMI gagal 4.5:1
-       (Yamanote 1.75:1, Ginza 2.04:1, Keihin-Tohoku 1.97:1, Marunouchi 3.64:1).
-       Pilihannya: warna resmi yang tidak terbaca sebagian orang, atau warna yang
-       terbaca semua orang. ADR-024 memilih yang kedua DAN mengatakannya.
-
-     Setiap pasangan DIUKUR, bukan diklaim — angkanya ada di
-     `test_every_colour_pair_in_the_served_stylesheet_is_measured_not_claimed`, dan himpunan hex
-     di berkas ini harus PERSIS sama dengan himpunan yang diukur di sana. Yang paling ketat:
-     Marunouchi di atas panel = 4.53:1 terhadap batas 4.5:1. Itu batas SUNGGUHAN — menerangkan
-     panel sedikit saja akan menjatuhkannya, jadi jangan sentuh --panel tanpa menghitung ulang. */
-  --bg: #eef2f7; --panel: #ffffff; --line: #6c87a9; --ink: #0b1a2e; --dim: #586985;
-  --go: #55721c; --nogo: #d20911; --warn: #995900; --link: #007197;
-  /* Baris genap tabel. Dulu angka telanjang di satu aturan; sekarang bernama supaya ia ikut
-     terbaca sebagai bagian palet yang diukur, bukan warna kelima belas yang menyelinap. */
-  --row: #e4eaf2;
-  /* Satu tangga spasi dan dua radius, dipakai ulang di seluruh layar: jarak antarblok tidak
-     lagi dikarang per tempat, dan itulah yang membuat halaman terbaca punya ritme. */
-  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 18px; --s5: 28px; --s6: 44px;
-  --r1: 5px; --r2: 9px;
-  /* Font SISTEM saja — nol webfont dan nol permintaan ke luar. Prosa memakai sans (kalimat
-     yang harus terbaca dalam 30 detik), sedangkan angka, hash, id, dan nilai asal-RYO tetap
-     monospace supaya kolomnya sejajar dan aksara yang mirip tidak tertukar. */
-  --sans: "IBM Plex Sans Vendored", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "DejaVu Sans", Arial,
-    /* CJK: Plex tidak punya glif Jepang, dan tanpa baris ini 点呼 jadi kotak tofu di mesin
-       juri. Semuanya font SISTEM — nol aset baru, nol baris DISCLOSURE. */
-    "Noto Sans CJK JP", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
-  --mono: "IBM Plex Mono Vendored", ui-monospace, SFMono-Regular, "DejaVu Sans Mono", "Liberation Mono", Consolas,
-    "Noto Sans CJK JP", "Noto Sans Mono CJK JP", "Yu Gothic", Meiryo, monospace;
+  --sans: "Onest Vendored", "IBM Plex Sans Vendored", system-ui, -apple-system, "Segoe UI",
+    Roboto, "Noto Sans", "DejaVu Sans", Arial,
+    /* CJK: Onest/Plex tidak punya glif Jepang, dan tanpa baris ini 点呼 jadi kotak tofu di
+       mesin juri. NotoJP di-vendor tetapi HANYA subset halaman `/kage`, jadi tumpukan sistem
+       tetap berdiri di belakangnya dan glif yang tidak ada di subset jatuh ke sana. */
+    "NotoJP Vendored", "Noto Sans CJK JP", "Noto Sans JP", "Hiragino Kaku Gothic ProN",
+    "Yu Gothic", Meiryo, sans-serif;
+  --mono: "IBM Plex Mono Vendored", ui-monospace, SFMono-Regular, "DejaVu Sans Mono",
+    "Liberation Mono", Consolas, "Noto Sans CJK JP", "Yu Gothic", Meiryo, monospace;
 }
+
 * { box-sizing: border-box; }
-/* `[hidden]` bawaan browser adalah aturan UA ber-spesifisitas rendah; `.controls { display:flex }`
-   mengalahkannya, sehingga bar kontrol TETAP TERLIHAT di layar yang menyembunyikannya. Akibatnya
-   kartu memamerkan saringan/sakelar auto-refresh sambil kalimatnya sendiri berkata ia tidak
-   punya ketiganya — halaman yang membantah dirinya sendiri di depan juri ("Easy to read 25").
-   Satu aturan ini menutup seluruh kelasnya, bukan hanya `.controls`. */
+/* `[hidden]` bawaan browser adalah aturan UA ber-spesifisitas rendah; `.controls{display:flex}`
+   mengalahkannya, sehingga bar kontrol TETAP TERLIHAT di layar yang menyembunyikannya —
+   halaman yang membantah kalimatnya sendiri di depan juri. Satu aturan ini menutup kelasnya. */
 [hidden] { display: none !important; }
-html { background: var(--bg); }
-body {
-  margin: 0 auto; max-width: 1240px; padding: 0 var(--s4) var(--s6);
-  background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans);
-}
-a { color: var(--link); text-underline-offset: 2px; }
-/* Fokus keyboard: `:focus` ikut disebut supaya cincin ini tidak bergantung pada dukungan
-   `:focus-visible`; 3px kuning di atas latar segelap ini = 13.55:1, jauh di atas 3:1 yang
-   diminta 1.4.11 dan terlihat pada video 1280x720. */
-a:focus, a:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
-/* Tautan lompat memindahkan fokus ke tabel; `:target` menandai TEMPAT MENDARATNYA supaya
-   pemakai keyboard tidak kehilangan jejak. `scroll-margin-top` menjaga tempat itu tidak
-   mendarat di balik banner yang melekat. Tanpa JS, tanpa animasi. */
-:target { outline: 3px solid var(--warn); outline-offset: 4px; scroll-margin-top: 88px; }
 
-/* --- banner SIMULATED ------------------------------------------------------------------
-   `sticky`, BUKAN `fixed`: ia tetap mengalir di dalam dokumen (jadi tidak menutupi apa pun
-   dan tidak menjadi overlay yang bisa menjebak fokus — lihat
-   `test_escape_has_nothing_to_close_because_no_screen_traps_focus`), tetapi tidak pernah
-   keluar dari bingkai saat juri menggulir. Kewajiban `docs/rules-compliance.md` ini karena
-   itu terbukti di setiap frame video, bukan hanya di frame pertama. */
+body {
+  margin: 0; padding: 0 0 var(--s7);
+  background: transparent; color: var(--fg);
+  font: 300 15.5px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Lapis pemandangan: SATU gambar, sangat redup, di belakang seluruh isi setiap layar. Ia
+   dipasang sebagai LATAR `html` (bukan `<img>`, bukan elemen `position: fixed`) karena dua
+   alasan yang keduanya keras:
+
+   * markup Layar A/B tidak berubah sedikit pun, jadi render server dan render klien tetap
+     menghasilkan DOM yang sama persis;
+   * nol elemen baru berarti nol permukaan baru untuk perangkap fokus — `position: fixed`
+     dilarang di seluruh berkas ini dan larangan itu TIDAK dilonggarkan demi hiasan
+     (`test_escape_has_nothing_to_close_because_no_screen_traps_focus`).
+
+   Scrim di atasnya minimal `.88` di mana pun (dipatok tes): piksel PALING TERANG yang mungkin
+   ada di gambar (putih) menjadi #232527 di bawahnya, dan keenam warna teks tetap lolos 4.5:1
+   di atas warna itu — yang terketat `--nogo` = 5.64:1. Jadi bahkan kalau gambarnya diganti
+   dengan yang paling terang sekalipun, tidak ada kalimat yang jatuh di bawah ambang. */
+html {
+  background-color: var(--ink);
+  background-image:
+    linear-gradient(180deg, rgba(5, 7, 10, .88) 0%, rgba(5, 7, 10, .97) 62%, var(--ink) 100%),
+    url("/ui/img/kage-approach.webp");
+  background-size: cover, cover;
+  background-position: center top, center top;
+  background-repeat: no-repeat, no-repeat;
+  background-attachment: fixed, fixed;
+  color-scheme: dark;
+}
+
+/* --- kerangka tata letak -------------------------------------------------------------------
+   Satu kisi tiga jalur untuk seluruh halaman: pinggir, kolom baca, pinggir. Anak `main` masuk
+   kolom baca secara baku; yang ingin penuh-lebar (`.hero`, `.band`) meminta jalur `full`.
+   Tidak ada `margin-inline: calc(50% - 50vw)` dan tidak ada `overflow-x: hidden` — keduanya
+   mematikan `position: sticky`, dan banner SIMULATED bergantung padanya. */
+main {
+  display: grid;
+  grid-template-columns:
+    [full-start] minmax(var(--pad), 1fr)
+    [wide-start] minmax(0, var(--wide))
+    [wide-end] minmax(var(--pad), 1fr)
+    [full-end];
+}
+main > * { grid-column: wide; min-width: 0; }
+main > .hero, main > .band { grid-column: full; }
+/* Sesudah klien menempel, isi layar pindah ke `#tenko-view` (satu anak `main`). */
+#tenko-view { min-width: 0; }
+footer { padding: 0 var(--pad); }
+footer > * { max-width: var(--wide); margin-inline: auto; }
+
+a { color: var(--link); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover, a:focus, a:focus-visible { color: var(--fg); }
+/* Cincin fokus: emas 3px di atas latar segelap ini = 10.47:1, jauh di atas 3:1 (SC 1.4.11) dan
+   terlihat jelas pada video 1280x720. `:focus` ikut disebut supaya ia tidak bergantung pada
+   dukungan `:focus-visible`. */
+a:focus, a:focus-visible,
+input:focus, select:focus, button:focus,
+input:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 3px solid var(--warn); outline-offset: 2px; border-radius: var(--r1);
+}
+:target { outline: 3px solid var(--warn); outline-offset: 6px; scroll-margin-top: calc(var(--stick) + var(--s5)); }
+
+/* --- banner SIMULATED -----------------------------------------------------------------------
+   `sticky`, BUKAN `fixed`: ia tetap mengalir di dalam dokumen (tidak menutupi apa pun, tidak
+   menjadi overlay yang bisa menjebak fokus) tetapi tidak pernah keluar dari bingkai saat juri
+   menggulir. Kewajiban `docs/rules-compliance.md` ini terbukti di setiap frame video. */
 .banner {
-  position: sticky; top: 0; z-index: 2;
-  display: flex; align-items: center; gap: var(--s2);
-  background: #fdeaea; border: 2px solid var(--nogo); border-top: 0;
-  border-radius: 0 0 var(--r2) var(--r2);
-  color: #8c0b10; padding: 10px var(--s3);
-  margin: 0 calc(var(--s4) * -1) var(--s4);
-  font: 700 14px/1.4 var(--mono); letter-spacing: .02em;
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: var(--s3);
+  margin: 0; padding: var(--s3) var(--pad);
+  background: var(--bannerbg);
+  border-bottom: 2px solid var(--nogo);
+  color: var(--bannerfg);
+  font: 600 13px/1.35 var(--mono); letter-spacing: .04em;
+  box-shadow: 0 18px 40px -28px rgba(0, 0, 0, .95);
 }
 .banner svg { flex: 0 0 auto; }
 
-/* --- hierarki tipografi ------------------------------------------------------------------ */
-h1 { font: 700 30px/1.25 var(--sans); letter-spacing: -.01em; margin: var(--s4) 0 var(--s2); }
-h1 .badge { font-size: 17px; vertical-align: 4px; }
-h1 .sub { font: 500 15px/1.4 var(--sans); }
+/* --- tipografi ------------------------------------------------------------------------------ */
+h1 {
+  margin: var(--s6) 0 var(--s3);
+  font: 500 var(--t-h1)/1.08 var(--sans); letter-spacing: -.025em; color: var(--fg);
+}
 h2 {
-  font: 700 19px/1.3 var(--sans); letter-spacing: .01em;
-  margin: var(--s5) 0 var(--s2); padding-bottom: var(--s2);
-  border-bottom: 2px solid var(--line);
+  margin: var(--s6) 0 var(--s3);
+  font: 500 var(--t-h2)/1.2 var(--sans); letter-spacing: -.02em; color: var(--fg);
 }
-p { margin: var(--s2) 0; }
-/* Kalimat yang harus menjawab pertanyaan juri dalam 30 detik. Ia dinaikkan menjadi kartu
-   ber-panel supaya mata mendarat di sana lebih dulu — elevasi lewat garis + latar, bukan
-   bayangan tebal. */
-.answer {
-  font-size: 18px; line-height: 1.5; max-width: 100ch;
-  background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--line);
-  border-radius: var(--r2); padding: var(--s3) var(--s4); margin: var(--s3) 0;
-}
-.sub { color: var(--dim); font-size: 14px; margin: var(--s1) 0; max-width: 108ch; }
-.dim { color: var(--dim); }
-.empty { color: var(--warn); font-weight: 700; }
-code { font-family: var(--mono); font-size: inherit; overflow-wrap: anywhere; }
+p { margin: var(--s3) 0; }
+strong, b { font-weight: 600; color: var(--fg); }
+em { font-style: normal; color: var(--warn); }
+code { font-family: var(--mono); font-size: .95em; overflow-wrap: anywhere; color: var(--fg); }
 .mono { font-family: var(--mono); }
+.dim { color: var(--dim); }
+.sub { color: var(--dim); font-size: 13.5px; line-height: 1.6; margin: var(--s2) 0; max-width: 104ch; }
+.empty { color: var(--warn); font-weight: 600; }
 
-/* --- tabel ------------------------------------------------------------------------------- */
-table {
-  border-collapse: collapse; width: 100%; table-layout: fixed;
-  margin: var(--s2) 0 var(--s4); font-size: 13.5px;
+/* Kalimat yang harus menjawab pertanyaan juri dalam 30 detik. Ia kartu terangkat dengan pita
+   emas di kiri: mata mendarat di sana lebih dulu, tanpa perlu satu klik pun. */
+.answer {
+  position: relative;
+  margin: var(--s4) 0; padding: var(--s4) var(--s5);
+  max-width: 96ch;
+  background: linear-gradient(180deg, var(--card) 0%, var(--panel) 100%);
+  border: 1px solid var(--line); border-left: 3px solid var(--warn);
+  border-radius: var(--r2);
+  font-size: 17.5px; line-height: 1.55; color: var(--fg);
+  box-shadow: 0 26px 60px -44px rgba(0, 0, 0, .96);
 }
-caption { text-align: left; padding: 0 0 var(--s2); }
+.answer.empty { color: var(--warn); }
+
+/* Label mono kecil ber-tracking lebar. Satu bentuk untuk kicker, kepala kolom papan, dan
+   penanda teknis — kebetulan itu juga persis cara papan stasiun menamai kolomnya. */
+.kicker, .rail-label, .lb thead th, .narr-label, .controls label {
+  font: 600 var(--t-label)/1.4 var(--mono);
+  letter-spacing: .2em; text-transform: uppercase; color: var(--dim);
+  margin: 0;
+}
+.narr-label { display: block; color: var(--warn); margin-bottom: var(--s1); }
+.narr { color: var(--dim); }
+.mark { display: block; color: var(--dim); font-size: 12.5px; line-height: 1.5; margin-top: var(--s1); }
+
+/* --- tabel ----------------------------------------------------------------------------------
+   Kartu, bukan kisi telanjang: satu permukaan terangkat dengan kepala kolom yang MELEKAT, jadi
+   pada 1280x720 nama kolom tetap terbaca saat baris kesepuluh sedang dilihat. */
+table {
+  width: 100%; margin: var(--s3) 0 var(--s6);
+  border-collapse: separate; border-spacing: 0;
+  table-layout: fixed;
+  background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--r2);
+  font-size: 13.5px;
+  box-shadow: 0 30px 70px -50px rgba(0, 0, 0, .96);
+}
+/* Sudutnya dibulatkan per SEL, bukan dengan `overflow: hidden` di tabelnya: `overflow` apa pun
+   pada leluhur mengubah `position: sticky` menjadi sticky di dalam kotak yang tidak menggulir —
+   yaitu kepala kolom yang berhenti melekat. Empat aturan ini membeli bentuk yang sama tanpa
+   membayar dengan perilaku. */
+thead th:first-child { border-top-left-radius: var(--r2); }
+thead th:last-child { border-top-right-radius: var(--r2); }
+tbody tr:last-child > *:first-child { border-bottom-left-radius: var(--r2); }
+tbody tr:last-child > *:last-child { border-bottom-right-radius: var(--r2); }
+caption { text-align: left; padding: 0 0 var(--s3); color: var(--dim); }
 th, td {
-  border: 1px solid var(--line); padding: var(--s2) 10px; text-align: left; vertical-align: top;
+  padding: var(--s3); text-align: left; vertical-align: top;
+  border-bottom: 1px solid var(--hair);
   overflow-wrap: anywhere;
 }
 thead th {
-  background: var(--panel); color: var(--ink);
-  font: 700 13px/1.35 var(--sans); letter-spacing: .03em; border-bottom-width: 2px;
+  position: sticky; top: var(--stick); z-index: 1;
+  background: var(--card); color: var(--dim);
+  font: 600 11px/1.4 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
 }
-tbody th { background: var(--panel); color: var(--ink); font-weight: 700; }
-tbody tr:nth-child(even) td { background: var(--row); }
+tbody th { color: var(--fg); font-weight: 600; }
+tbody tr:last-child > * { border-bottom: 0; }
+tbody tr:nth-child(even) > * { background: var(--row); }
+/* Baris yang sedang ditunjuk ATAU sedang memegang fokus keyboard — dua jalan masuk, satu
+   keadaan, jadi tidak ada informasi yang hanya hidup di bawah tetikus. */
+tbody tr:hover > *, tbody tr:focus-within > * { background: var(--card); }
 td.num {
   font-family: var(--mono); text-align: right; white-space: nowrap;
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: tabular-nums; color: var(--fg);
 }
+/* Simbol Layar A adalah judul barisnya: ia dibaca lebih dulu dari sembilan sel di sebelahnya. */
+table#watchlist tbody th { font: 600 19px/1.2 var(--mono); letter-spacing: -.01em; }
+table#watchlist tbody th a { color: var(--fg); text-decoration-color: var(--line); }
+table#watchlist tbody th a:hover, table#watchlist tbody th a:focus { color: var(--link); }
+
 /* 1280x720, Layar B: sembilan kolom diberi lebar tetap supaya `reason` (kolom yang menjawab
    pertanyaan juri) tidak terhimpit kolom nilai yang panjangnya bisa ratusan aksara. */
 table.card tr > *:nth-child(1) { width: 5%; }
@@ -196,9 +324,7 @@ table.card tr > *:nth-child(6) { width: 11%; }
 table.card tr > *:nth-child(7) { width: 6%; }
 table.card tr > *:nth-child(8) { width: 10%; }
 table.card tr > *:nth-child(9) { width: 12%; }
-/* Layar A: kolom "apa yang menahan" adalah jawabannya, jadi ia mendapat sepertiga lebar —
-   sebelumnya sembilan kolom dibagi rata dan kalimat penahan terperas menjadi satu kata per
-   baris. */
+/* Layar A: kolom "apa yang menahan" adalah jawabannya, jadi ia mendapat sepertiga lebar. */
 table#watchlist tr > *:nth-child(1) { width: 10%; }
 table#watchlist tr > *:nth-child(2) { width: 8%; }
 table#watchlist tr > *:nth-child(3) { width: 6%; }
@@ -209,337 +335,324 @@ table#watchlist tr > *:nth-child(7) { width: 9%; }
 table#watchlist tr > *:nth-child(8) { width: 10%; }
 table#watchlist tr > *:nth-child(9) { width: 12%; }
 
-/* --- lencana ----------------------------------------------------------------------------- */
+/* --- lencana --------------------------------------------------------------------------------
+   Warna TIDAK PERNAH sendirian: tiap lencana membawa teksnya, jadi layar tetap terbaca
+   hitam-putih dan oleh pembaca layar. */
 .badge {
-  display: inline-block; padding: 2px 10px; border: 2px solid currentColor; border-radius: 999px;
-  font: 700 13px/1.5 var(--mono); letter-spacing: .03em; white-space: nowrap;
+  display: inline-block; padding: 3px 11px;
+  background: var(--panel);
+  border: 1px solid currentColor; border-radius: 999px;
+  font: 600 12px/1.5 var(--mono); letter-spacing: .06em; white-space: nowrap;
 }
 /* Satu-satunya lencana yang juga tautan ("putar ulang sekarang"): bentuk tombol, bukan pil,
    supaya afordansinya terbaca tanpa warna dan tanpa hover. */
-a.badge { padding: 7px 14px; border-radius: var(--r2); text-decoration: none; }
-.d-GO { color: var(--go); }
-.d-NO_GO { color: var(--nogo); }
-.s-green { color: var(--go); }
-.s-green-neutral { color: var(--go); border-style: dashed; }
-.s-red { color: var(--nogo); }
-.s-unspoken { color: var(--warn); }
-.tone-verified { color: var(--go); }
-.tone-finding { color: var(--nogo); }
-.tone-not_assessed { color: var(--warn); }
-.tone-no_evidence { color: var(--warn); }
-.tone-unknown { color: var(--dim); }
-.mark { display: block; color: var(--dim); font-size: 13px; line-height: 1.45; margin-top: var(--s1); }
-.narr { color: var(--dim); }
-.narr-label {
-  display: block; color: var(--warn); font-weight: 700; font-size: 13px;
-  letter-spacing: .02em; margin-bottom: var(--s1);
+a.badge {
+  padding: 9px 16px; border-radius: var(--r1); text-decoration: none;
+  background: var(--card); color: var(--fg); border-color: var(--line);
 }
+a.badge:hover, a.badge:focus { border-color: var(--warn); color: var(--warn); }
+.d-GO, .s-green, .tone-verified { color: var(--go); }
+.d-NO_GO, .s-red, .tone-finding { color: var(--nogo); }
+.s-green-neutral { color: var(--go); border-style: dashed; }
+.s-unspoken, .tone-not_assessed, .tone-no_evidence { color: var(--warn); }
+.tone-unknown { color: var(--dim); }
 
-/* --- daftar definisi (hash, jam, replay) -------------------------------------------------- */
+/* --- daftar definisi (hash, jam, replay) ---------------------------------------------------- */
 dl.meta {
-  display: grid; grid-template-columns: 24ch 1fr; gap: 0;
+  display: grid; grid-template-columns: 26ch minmax(0, 1fr); gap: 0;
+  margin: var(--s4) 0 var(--s6);
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--r2);
-  overflow: hidden; margin: var(--s3) 0 var(--s4);
+  overflow: hidden;
+  box-shadow: 0 30px 70px -50px rgba(0, 0, 0, .96);
 }
 dl.meta dt {
-  color: var(--dim); font-weight: 700; font-size: 14px;
-  padding: var(--s2) var(--s3); border-top: 1px solid var(--line);
+  padding: var(--s3) var(--s4); border-top: 1px solid var(--hair);
+  background: var(--row);
+  font: 600 11px/1.5 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
 }
 dl.meta dd {
-  margin: 0; padding: var(--s2) var(--s3); border-top: 1px solid var(--line);
-  font-family: var(--mono); font-size: 13.5px; overflow-wrap: anywhere;
+  margin: 0; padding: var(--s3) var(--s4); border-top: 1px solid var(--hair);
+  font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; color: var(--fg);
 }
 dl.meta dt:first-of-type, dl.meta dd:first-of-type { border-top: 0; }
 
-ul.notes { margin: var(--s2) 0 var(--s4); padding-left: 22px; color: var(--dim); max-width: 104ch; }
-ul.notes li { margin-bottom: var(--s2); line-height: 1.55; }
+ul.notes {
+  margin: var(--s3) 0 var(--s6); padding: var(--s4) var(--s5) var(--s4) calc(var(--s5) + 12px);
+  max-width: 104ch; color: var(--dim); font-size: 13.5px;
+  background: var(--panel); border: 1px solid var(--hair); border-radius: var(--r2);
+}
+ul.notes li { margin-bottom: var(--s3); line-height: 1.6; }
+ul.notes li:last-child { margin-bottom: 0; }
+
 footer {
-  margin-top: var(--s6); padding-top: var(--s3); border-top: 1px solid var(--line);
-  color: var(--dim); font-size: 13px;
+  margin-top: var(--s7); padding-top: var(--s5);
+  border-top: 1px solid var(--hair); color: var(--dim); font-size: 12.5px;
 }
 footer p { max-width: 108ch; }
 
-/* Layar sempit: lebar kolom tetap berhenti membantu ketika tidak ada lebar untuk dibagi. */
-@media (max-width: 900px) {
-  body { padding: 0 var(--s3) var(--s5); }
-  .banner { margin: 0 calc(var(--s3) * -1) var(--s3); }
-  table { table-layout: auto; }
-  h1 { font-size: 25px; }
-  dl.meta { grid-template-columns: 1fr; }
-  dl.meta dd { border-top: 0; padding-top: 0; }
-}
-
-/* --- kendali dinamis Layar A (ADR-020 butir 4) --------------------------------------------
-   Saring, urutkan, dan segarkan berkala. Semuanya berjalan di KLIEN atas angka yang datang
-   dari `/api/watchlist`; tidak satu pun angka dihitung di sini. Tanpa animasi dan tanpa
-   `:hover` — sama seperti sisa halaman, dan karena alasan yang sama. */
+/* --- bar kontrol Layar A (ADR-020 butir 4) ---------------------------------------------------
+   Saring, urutkan, segarkan. Semuanya berjalan di KLIEN atas angka yang datang dari
+   `/api/watchlist`; tidak satu pun angka dihitung di sini. */
 .controls {
-  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s3);
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s4);
+  margin: var(--s4) 0; padding: var(--s3) var(--s4);
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--r2);
-  padding: var(--s3) var(--s4); margin: var(--s3) 0 var(--s4);
+  box-shadow: 0 20px 50px -40px rgba(0, 0, 0, .96);
 }
 .controls .field { display: flex; flex-direction: column; gap: var(--s1); }
-.controls label { color: var(--dim); font: 700 13px/1.35 var(--sans); letter-spacing: .03em; }
 .controls input, .controls select, .controls button {
-  background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+  background: var(--ink); color: var(--fg); border: 1px solid var(--line);
   border-radius: var(--r1); padding: var(--s2) var(--s3);
-  font: 13.5px/1.4 var(--mono); min-height: 34px;
+  font: 400 13px/1.4 var(--mono); min-height: 36px;
 }
 .controls input::placeholder { color: var(--dim); opacity: 1; }
-.controls button { font-weight: 700; }
-.controls button[aria-pressed="true"] { border-color: var(--warn); color: var(--warn); }
-input:focus, select:focus, button:focus,
-input:focus-visible, select:focus-visible, button:focus-visible {
-  outline: 3px solid var(--warn); outline-offset: 2px;
-}
-/* Keadaan JUJUR: memuat / gagal / kosong. Ketiganya tercetak sebagai kalimat, bukan sebagai
-   spinner, dan yang gagal tidak pernah menyisakan angka lama tanpa mengatakan angka itu lama. */
-.live { margin: var(--s2) 0 var(--s3); color: var(--dim); font-size: 13.5px; }
-.live.state-error { color: var(--nogo); font-weight: 700; }
-.live.state-loading { color: var(--warn); font-weight: 700; }
-.live.state-stale { color: var(--warn); font-weight: 700; }
+.controls button { font-weight: 600; }
+.controls button:hover, .controls button:focus { border-color: var(--warn); }
+.controls button[aria-pressed="true"] { border-color: var(--go); color: var(--go); }
 
-/* --- landing (ADR-021, ditata ulang di ADR-023) --------------------------------------------
-   Susunannya mengikuti anatomi landing yang dipakai pemenang awwwards: hero → produk → bukti →
-   detail, dengan hero mengambil ruang paling mahal di atas lipatan. Yang diambil dari sana
-   bukan efeknya melainkan tiga keputusan bentuk:
-
-     1. SKALA yang berani. Judul clamp(44px, 8vw, 92px) dengan tracking -.035em; angka bukti
-        setinggi judul. Versi sebelumnya melompat dari 60px langsung ke 13px, sehingga seluruh
-        halaman terbaca kecil dan rata.
-     2. GARIS, BUKAN KOTAK. Panel berbingkai di mana-mana adalah bahasa admin template. Di sini
-        pemisahnya hairline 1px selebar kolom, dan yang memberi bentuk adalah ruang kosong.
-     3. LABEL MONO KECIL ber-tracking lebar sebagai penanda teknis — kebetulan itu juga persis
-        cara papan stasiun menamai kolomnya.
-
-   Nol hex baru di blok ini: setiap warna `var(--…)` dari palet jalur JR yang sudah diukur. */
-:root {
-  --t-hero: clamp(44px, 8vw, 92px);
-  --t-fig: clamp(40px, 6.5vw, 76px);
-  --t-head: clamp(20px, 2.6vw, 28px);
-  --t-label: 11px;
+/* Keadaan JUJUR: memuat / gagal / basi. Ketiganya kalimat, bukan spinner, dan yang gagal tidak
+   pernah menyisakan angka lama tanpa mengatakan angka itu lama. */
+.live {
+  margin: var(--s3) 0; padding: var(--s2) var(--s3);
+  border-left: 3px solid var(--line); border-radius: 0 var(--r1) var(--r1) 0;
+  background: var(--panel); color: var(--dim); font: 400 13px/1.5 var(--mono);
 }
-/* Label mono: satu bentuk, dipakai kicker, judul papan, dan kepala kolom. */
-.kicker, .board h2, .lb thead th, .rail-label {
-  font: 700 var(--t-label)/1.4 var(--mono);
-  letter-spacing: .2em; text-transform: uppercase; color: var(--dim);
-  margin: 0;
+.live.state-error { color: var(--nogo); border-left-color: var(--nogo); font-weight: 600; }
+.live.state-loading { color: var(--warn); border-left-color: var(--warn); font-weight: 600; }
+.live.state-stale { color: var(--warn); border-left-color: var(--warn); font-weight: 600; }
+
+/* ============================================================================================
+   LANDING
+   ============================================================================================ */
+.hero { padding: var(--s8) var(--pad) var(--s7); }
+/* Dua kolom, dan gambar duduk di KOLOMNYA SENDIRI. Menaruh gambar di BELAKANG seluruh hero
+   terlihat bagus dan tidak bisa dibuktikan — kontras tiap kalimat lalu bergantung pada piksel
+   di belakangnya. Dengan gambar di kolom terpisah, klaimnya menjadi fakta tata letak: TIDAK
+   ADA satu pun teks di halaman ini yang duduk di atas gambar, jadi tiap pasangan warna yang
+   diukur adalah pasangan yang benar-benar terjadi. */
+.hero-in {
+  max-width: var(--wide); margin-inline: auto;
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+  gap: var(--s6); align-items: center;
 }
-.hero { padding: var(--s6) 0 var(--s5); }
-.hero .kicker { margin-bottom: var(--s4); }
+.hero-body { min-width: 0; }
+.hero-art { min-width: 0; position: relative; }
+.hero-art img {
+  width: 100%; height: auto; display: block;
+  border: 1px solid var(--hair); border-radius: var(--r2);
+  box-shadow: 0 60px 120px -60px rgba(0, 0, 0, .95);
+}
+/* Vignette di TEPI gambar supaya ia menyatu dengan halaman, bukan ditempel di atasnya. Ia
+   berada di atas gambar dan di bawah nol teks: `.hero-art` hanya berisi satu `<img>`. */
+.hero-art::after {
+  content: ""; position: absolute; inset: 0; border-radius: var(--r2); pointer-events: none;
+  background-image: radial-gradient(120% 92% at 50% 40%, rgba(5, 7, 10, 0) 42%, rgba(5, 7, 10, .72) 100%);
+}
+.hero .kicker { margin-bottom: var(--s5); }
 .hero h1 {
-  margin: 0 0 var(--s4);
-  font: 700 var(--t-hero)/1.02 var(--sans);
-  letter-spacing: -.035em;
-  border: 0; padding: 0;
-  max-width: 16ch;
+  margin: 0 0 var(--s5); max-width: 20ch;
+  font: 700 var(--t-hero)/1.06 var(--sans); letter-spacing: -.035em;
 }
-/* --- judul dot-matrix ----------------------------------------------------------------------
-   Huruf diisi kisi titik, seperti papan LED peron. Ini CSS murni: `radial-gradient` sebagai
-   pola, `background-clip: text` sebagai masker. Nol gambar, nol berkas, nol permintaan
-   jaringan — jadi ia tetap muncul saat demo dijalankan tanpa jaringan (spec §7).
+.hero .art-note { grid-column: 2; margin: var(--s3) 0 0; }
+.hero .rails { grid-column: 1 / -1; }
+/* --- judul dot-matrix ------------------------------------------------------------------------
+   Huruf diisi kisi titik, seperti papan LED peron. CSS murni: `radial-gradient` sebagai pola,
+   `background-clip: text` sebagai masker — nol gambar, nol berkas, nol permintaan jaringan.
 
-   DUA lapis, dan urutannya yang menjaga aksesibilitas: titik oranye Ginza DI ATAS huruf padat
-   --ink. Titik saja akan menurunkan kontras efektif huruf (mata melihat rata-rata titik dan
-   celahnya); dengan lapis padat di bawahnya, lantai kontrasnya tetap --ink di atas --bg =
-   17.42:1, dan titiknya murni tekstur.
+   DUA lapis, dan urutannya yang menjaga aksesibilitas: titik emas DI ATAS huruf padat `--fg`.
+   Titik saja akan menurunkan kontras efektif huruf (mata melihat rata-rata titik dan celahnya);
+   dengan lapis padat di bawahnya, lantai kontrasnya tetap `--fg` di atas `--ink` = 15.99:1.
 
    `@supports` bukan hiasan: tanpa dukungan `background-clip: text`, `color: transparent` akan
-   membuat JUDUL HALAMAN HILANG sama sekali. Warna padat adalah keadaan dasar; efeknya hanya
-   dipasang bila browser bisa menampilkannya. */
+   membuat JUDUL HALAMAN HILANG sama sekali. Warna padat adalah keadaan dasar. */
 @supports ((background-clip: text) or (-webkit-background-clip: text)) {
   .hero h1 {
     background-image:
-      radial-gradient(circle, var(--warn) 38%, transparent 40%),
-      linear-gradient(var(--ink), var(--ink));
-    background-size: 11px 11px, 100% 100%;
+      radial-gradient(circle, var(--warn) 36%, transparent 38%),
+      linear-gradient(var(--fg), var(--fg));
+    background-size: 12px 12px, 100% 100%;
     background-position: 2px 2px, 0 0;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
 }
-/* Mata yang peka gerak tidak terpengaruh (tidak ada animasi di sini), tetapi pola rapat adalah
-   beban visual; siapa pun yang meminta gerak dikurangi mendapat huruf padat tanpa kisi. */
-@media (prefers-reduced-motion: reduce) {
-  .hero h1 { background-image: none; color: var(--ink); }
+.lede {
+  margin: 0 0 var(--s5); max-width: 54ch;
+  font-size: var(--t-lede); line-height: 1.6; color: var(--fg); font-weight: 300;
 }
-/* Windows High Contrast dan mode paksa-warna lain MEMBUANG gambar latar, tetapi `color:
-   transparent` di atas akan tetap berlaku — hasilnya JUDUL UTAMA HALAMAN HILANG SAMA SEKALI.
-   Cacat ini lahir bersama efek dot-matrix-nya (7 Sep 2026) dan hanya terlihat karena 4.6
-   diaudit ulang atas UI yang sekarang, bukan atas UI yang dulu.
+.pills { display: flex; flex-wrap: wrap; gap: var(--s2); margin: 0 0 var(--s5); padding: 0; list-style: none; }
+.pills li {
+  padding: 7px var(--s3); border: 1px solid var(--line); border-radius: 999px;
+  background: var(--panel);
+  font: 600 var(--t-label)/1.4 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim);
+}
+.pills .on { border-color: var(--go); color: var(--go); }
+.cta { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; margin: 0 0 var(--s4); }
+.cta a {
+  display: inline-block; padding: 15px var(--s6); border-radius: var(--r1);
+  font: 600 12.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+  text-decoration: none;
+}
+.cta .go { background: var(--card); border: 1px solid var(--go); color: var(--go); }
+.cta .alt { border: 1px solid var(--line); color: var(--dim); }
+.cta .go:hover, .cta .go:focus { color: var(--fg); background: var(--row); }
+.cta .alt:hover, .cta .alt:focus { border-color: var(--warn); color: var(--warn); }
+/* Keterangan gambar: satu baris yang menyatakan gambar itu PEMANDANGAN. Tanpa baris ini, sebuah
+   kuil di sebelah papan keberangkatan bisa terbaca sebagai bagian dari bukti. */
+.art-note {
+  color: var(--dim);
+  font: 400 var(--t-label)/1.6 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+}
+.rails {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4);
+  margin: var(--s6) 0 0; padding: var(--s4) 0 0; border-top: 1px solid var(--hair);
+}
+.rails p { margin: 0; }
+.rails .rail-label + span { display: block; color: var(--fg); font-size: 14px; margin-top: var(--s1); }
 
-   `CanvasText` adalah warna sistem, bukan hex, jadi ia tidak masuk himpunan yang diukur. */
-@media (forced-colors: active) {
-  .hero h1 { background-image: none; color: CanvasText; }
+/* --- papan keberangkatan ---------------------------------------------------------------------
+   Bukan tabel yang menempel di prosa: kartu penuh, baris tinggi, simbol besar. Urutan kolom
+   tetap — As of · Symbol · Call · Held by — karena itu urutan yang tidak perlu dipelajari
+   ulang oleh orang yang baru pertama melihatnya. */
+.board { padding: var(--s7) 0 var(--s6); }
+.board > h2 { margin-top: 0; }
+.lb { margin: var(--s4) 0 0; font-size: 14px; }
+.lb caption { margin: 0 0 var(--s4); }
+.lb col.c-when { width: 24%; }
+.lb col.c-sym { width: 16%; }
+.lb col.c-call { width: 18%; }
+.lb th, .lb td { padding: var(--s4); vertical-align: baseline; }
+.lb tbody th { font: 600 clamp(20px, 2.4vw, 28px)/1 var(--mono); letter-spacing: -.02em; }
+.lb td:first-child { font: 400 13px/1.4 var(--mono); color: var(--dim); }
+.lb td:last-child { color: var(--dim); }
+/* Status memakai warnanya dengan pita tegak di kiri — cara papan stasiun menandai jalur. Teks
+   `GO`/`NO_GO` tetap tercetak, jadi papan ini terbaca utuh tanpa warna. */
+.lb .mark {
+  display: inline-block; margin: 0; padding-left: var(--s3);
+  border-left: 3px solid var(--line);
+  font: 600 15px/1.2 var(--mono); letter-spacing: .08em; color: var(--dim);
+}
+.lb .d-go { color: var(--go); border-left-color: var(--go); }
+.lb .d-no_go { color: var(--nogo); border-left-color: var(--nogo); }
+
+/* --- tiga angka -------------------------------------------------------------------------------
+   Kartu, bukan kolom telanjang: tiap angka duduk di permukaannya sendiri, dan tiap angka
+   membawa kalimat yang menyebut PERINTAH yang membuktikannya. */
+.proofs {
+  padding: var(--s6) 0;
+  display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: var(--s6); align-items: end;
+}
+.proofs-in { min-width: 0; }
+.proofs-in > h2 { margin-top: 0; }
+/* Lentera batu: potongan latar-tembus, DEKORASI, dan ia hilang begitu lebarnya habis — tidak
+   ada satu pun informasi yang tinggal di dalamnya. */
+.proofs-art { min-width: 0; }
+.proofs-art img { width: 100%; height: auto; display: block; opacity: .85; }
+.figs {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4);
+  margin: var(--s5) 0 0; padding: 0; list-style: none;
+}
+.figs li {
+  padding: var(--s5); border: 1px solid var(--hair); border-radius: var(--r2);
+  background: linear-gradient(180deg, var(--panel) 0%, var(--ink) 100%);
+}
+.fig {
+  margin: 0 0 var(--s3);
+  font: 600 var(--t-fig)/.9 var(--mono); letter-spacing: -.05em; color: var(--warn);
+  font-variant-numeric: tabular-nums;
+}
+.fig-label { margin: 0 0 var(--s3); font-weight: 500; font-size: 16px; line-height: 1.35; color: var(--fg); }
+.figs .sub { margin: 0; max-width: none; }
+
+/* --- pita penuh-lebar dengan gambar ------------------------------------------------------------ */
+
+.band { position: relative; margin: var(--s7) 0 0; padding: 0 var(--pad) var(--s7); }
+/* Pita gambar penuh-lebar, lalu teksnya DI BAWAHNYA — bukan di atasnya. Alasannya sama dengan
+   hero: kontras yang bisa dibuktikan mengalahkan gambar di belakang huruf. */
+.band-art {
+  position: relative; height: clamp(180px, 26vw, 380px); overflow: hidden;
+  margin: 0 calc(var(--pad) * -1) var(--s6);
+}
+.band-art img { width: 100%; height: 100%; object-fit: cover; object-position: center 42%; display: block; }
+.band-art::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: linear-gradient(180deg, rgba(5, 7, 10, .55) 0%, rgba(5, 7, 10, .1) 42%, var(--ink) 100%);
+}
+.band-in { position: relative; max-width: var(--wide); margin-inline: auto; }
+.band h2 { margin-top: 0; }
+.why .answer { max-width: 78ch; }
+
+/* --- bilah gulir bergaya peta jalur -----------------------------------------------------------
+   Rel melintang di bawah banner dengan kereta yang bergerak sepanjangnya seiring gulir. Ia
+   dirender SERVER pada 0%, jadi halaman tanpa JS tetap punya rel utuh — hanya keretanya yang
+   diam. Ia BUKAN pembawa informasi (posisi gulir sudah dibawa bilah gulir browser), karena itu
+   `aria-hidden`. `--p` (0..1) ditulis klien; CSS hanya membacanya. */
+.railbar {
+  --p: 0;
+  position: sticky; top: var(--stick); z-index: 4;
+  margin: 0; padding: var(--s2) var(--pad) 10px;
+  background: var(--ink);
+  border-bottom: 1px solid var(--hair);
+}
+.railbar .track { position: relative; height: 2px; background: var(--hair); border-radius: 2px; }
+.railbar .track::before {
+  content: ""; position: absolute; inset: 0 auto 0 0;
+  width: calc(var(--p) * 100%); background: var(--go); border-radius: 2px;
+}
+.railbar .train {
+  position: absolute; top: -4px; left: calc(var(--p) * 100%);
+  width: 26px; height: 10px; margin-left: -13px;
+  background: var(--go); border-radius: 2px;
+}
+.railbar .train::after {
+  content: ""; position: absolute; top: 3px; left: 5px; width: 16px; height: 4px;
+  background: var(--ink); border-radius: 1px;
+}
+.railbar .stops {
+  display: flex; justify-content: space-between; margin: var(--s2) 0 0; padding: 0; list-style: none;
+  font: 600 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
 }
 
-/* --- gerak: smooth scroll + reveal (ADR-025) ------------------------------------------------
-   Kelas di bawah dipasang KLIEN, tidak pernah oleh server. Itu urutan yang menjaga jaminan
-   ADR-020 butir 6: halaman yang dikirim server sudah lengkap dan TERLIHAT; klien yang gagal
-   memuat meninggalkan landing yang utuh, bukan halaman berisi blok tak terlihat yang menunggu
-   animasi yang tidak pernah datang. Menaruh `opacity: 0` di HTML server adalah cara paling
-   umum sebuah situs beranimasi menjadi halaman kosong.
+/* --- gerak (ADR-025) ---------------------------------------------------------------------------
+   Kelas di bawah dipasang KLIEN, tidak pernah oleh server. Itu urutan yang menjaga ADR-020
+   butir 6: halaman yang dikirim server sudah lengkap dan TERLIHAT; klien yang gagal memuat
+   meninggalkan landing utuh, bukan blok tak terlihat yang menunggu animasi yang tak datang.
 
    `scroll-behavior: auto` wajib: `smooth` bawaan browser berkelahi dengan Lenis. */
 html.lenis, html.lenis body { height: auto; }
 .lenis.lenis-smooth { scroll-behavior: auto; }
 .lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
 .lenis.lenis-stopped { overflow: hidden; }
-/* Keadaan awal reveal — HANYA aktif setelah klien menandai dokumen. */
-.js-motion .reveal { opacity: 0; transform: translateY(18px); }
+.js-motion .reveal { opacity: 0; transform: translateY(20px); }
 
-/* --- bilah gulir bergaya peta jalur --------------------------------------------------------
-   Rel melintang di bawah banner, dengan kereta yang bergerak sepanjangnya seiring gulir.
-   Bentuknya diambil dari peta jalur (路線図) yang tergantung di atas pintu kereta: garis tipis,
-   titik stasiun di sepanjangnya, dan penanda posisi.
+/* Pemakai yang meminta gerak dikurangi mendapat halaman DIAM dan huruf padat tanpa kisi — pola
+   rapat adalah beban visual, bukan hanya gerak. Klien tidak pernah membuat Lenis di sini, jadi
+   yang di bawah adalah pagar kedua, bukan satu-satunya. */
+@media (prefers-reduced-motion: reduce) {
+  .hero h1 { background-image: none; color: var(--fg); }
+  * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+/* Windows High Contrast dan mode paksa-warna lain MEMBUANG gambar latar, tetapi `color:
+   transparent` akan tetap berlaku — hasilnya JUDUL UTAMA HALAMAN HILANG SAMA SEKALI.
+   `CanvasText` adalah warna sistem, bukan hex, jadi ia tidak masuk himpunan yang diukur. */
+@media (forced-colors: active) {
+  .hero h1 { background-image: none; color: CanvasText; }
+  .hero-art, .band-art { display: none; }
+  html { background-image: none; }
+}
 
-   Dua hal yang membuatnya tidak melanggar apa pun:
-   * Ia dirender SERVER pada 0%, jadi halaman tanpa JS tetap punya rel yang utuh — hanya
-     keretanya yang tidak bergerak. Tidak ada informasi yang hanya hidup di JS.
-   * Ia BUKAN pembawa informasi: posisi gulir sudah dibawa bilah gulir browser sendiri. Rel ini
-     kanal kedua, jadi kehilangannya tidak menghilangkan apa pun. Karena itu `aria-hidden`.
-
-   `--p` (0..1) ditulis klien; CSS hanya membacanya. Tanpa JS ia tetap 0. */
-.railbar {
-  --p: 0;
-  position: sticky; top: 44px; z-index: 1;
-  margin: 0 calc(var(--s4) * -1) var(--s4);
-  padding: var(--s2) var(--s4) 10px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line);
-}
-.railbar .track {
-  position: relative; height: 3px; background: var(--line); border-radius: 2px;
-}
-/* Bagian rel yang sudah dilewati. */
-.railbar .track::before {
-  content: ""; position: absolute; inset: 0 auto 0 0;
-  width: calc(var(--p) * 100%); background: var(--go); border-radius: 2px;
-}
-/* Keretanya: balok pendek di kepala jalur. */
-.railbar .train {
-  position: absolute; top: -4px; left: calc(var(--p) * 100%);
-  width: 26px; height: 11px; margin-left: -13px;
-  background: var(--go); border-radius: 2px;
-}
-/* Jendela kereta — dua celah gelap, cukup untuk membacanya sebagai kereta, bukan balok. */
-.railbar .train::after {
-  content: ""; position: absolute; top: 3px; left: 5px; width: 16px; height: 5px;
-  background: var(--bg);
-  border-radius: 1px;
-  box-shadow: none;
-}
-.railbar .stops {
-  display: flex; justify-content: space-between; margin: var(--s2) 0 0; padding: 0;
-  list-style: none;
-  font: 700 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
-}
-/* Tidak ada blok `prefers-reduced-motion` untuk rel ini, dan itu disengaja: seluruh repo nol
-   animasi dan nol transisi (dijaga tes), jadi kereta LANGSUNG berada di posisinya. Tidak ada
-   gerak yang perlu dikurangi. */
-
-/* --- pil & label sudut ---------------------------------------------------------------------
-   Pil membawa satu fakta pendek yang bisa diperiksa; label sudut membawa keterangan tetap.
-   Keduanya mono kecil ber-tracking lebar — bentuk yang sama dengan kepala kolom papan. */
-.pills { display: flex; flex-wrap: wrap; gap: var(--s2); margin: 0 0 var(--s4); padding: 0; list-style: none; }
-.pills li {
-  padding: 7px var(--s3); border: 1px solid var(--line); border-radius: 999px;
-  font: 700 var(--t-label)/1.4 var(--mono); letter-spacing: .14em; text-transform: uppercase;
-  color: var(--dim);
-}
-.pills .on { border-color: var(--go); color: var(--go); }
-.rails {
-  display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s4);
-  margin: var(--s5) 0 0; padding: var(--s4) 0 0; border-top: 1px solid var(--line);
-}
-.rails p { margin: 0; }
-.rails .rail-label + span { display: block; color: var(--dim); font-size: 13px; margin-top: 2px; }
-.lede {
-  margin: 0 0 var(--s5); max-width: 56ch;
-  font-size: clamp(16px, 1.5vw, 19px); line-height: 1.55; color: var(--dim);
-}
-.cta { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; margin: 0 0 var(--s3); }
-/* `.go` memakai --go sebagai TEKS di atas latar: membalik hijau jadi latar penuh menuntut
-   warna teks baru, dan himpunan hex berkas ini terkunci pada yang sudah diukur. */
-.cta a {
-  display: inline-block; padding: 14px var(--s5); border-radius: 2px;
-  font: 700 13px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
-  text-decoration: none;
-}
-.cta .go { border: 2px solid var(--go); color: var(--go); }
-.cta .alt { border: 1px solid var(--line); color: var(--dim); }
-
-/* --- papan keberangkatan -------------------------------------------------------------------
-   Bukan tabel yang menempel di prosa: baris tinggi, simbol besar, pemisah hairline saja.
-   Urutan kolom tetap — As of · Symbol · Call · Held by — karena itu urutan yang tidak perlu
-   dipelajari ulang oleh orang yang baru pertama melihatnya. */
-.board { padding: var(--s5) 0; border-top: 1px solid var(--line); }
-.board h2 { margin-bottom: var(--s4); }
-.lb {
-  width: 100%; border-collapse: collapse; text-align: left; margin: 0;
-  /* `auto` membiarkan cap waktu memaksa kolom pertama jadi 40% lebar papan dan meremas tiga
-     kolom sisanya. Papan stasiun punya lebar kolom TETAP, dan itu bagian dari kenapa ia bisa
-     dibaca sekali lihat. */
-  table-layout: fixed;
-}
-.lb caption { margin: 0 0 var(--s4); text-align: left; }
-.lb col.c-when { width: 24%; }
-.lb col.c-sym { width: 16%; }
-.lb col.c-call { width: 18%; }
-.lb th, .lb td {
-  padding: var(--s4) var(--s3) var(--s4) 0;
-  border: 0; border-bottom: 1px solid var(--line);
-  vertical-align: baseline;
-  /* Selang-seling baris global (`tbody tr:nth-child(even) td`) hanya mengenai `td`, sehingga
-     sel `th` di tengah baris tertinggal gelap dan pitanya tampak PATAH. Papan ini tidak
-     memakai selang-seling sama sekali: pemisahnya hairline, dan itu sudah cukup. */
-  background: none;
-}
-.lb tbody tr:nth-child(even) td, .lb tbody tr:nth-child(even) th { background: none; }
-.lb thead th { padding-bottom: var(--s2); }
-.lb tbody tr:last-child th, .lb tbody tr:last-child td { border-bottom: 0; }
-.lb tbody th {
-  font: 700 clamp(22px, 2.6vw, 30px)/1 var(--mono); letter-spacing: -.01em;
-}
-.lb td:first-child { font: 400 14px/1.3 var(--mono); color: var(--dim); }
-.lb td:last-child { color: var(--dim); }
-/* Status memakai warna jalurnya, dengan pita tegak di kirinya — cara papan stasiun menandai
-   jalur. Warna TIDAK PERNAH sendirian: teksnya (`GO` / `NO_GO`) tetap tercetak, jadi papan ini
-   terbaca utuh hitam-putih dan oleh pembaca layar. */
-.lb .mark {
-  display: inline-block; font: 700 15px/1 var(--mono); letter-spacing: .08em;
-  padding-left: var(--s3); border-left: 3px solid var(--line); color: var(--dim);
-}
-.lb .d-go { color: var(--go); border-left-color: var(--go); }
-.lb .d-no_go { color: var(--nogo); border-left-color: var(--nogo); }
-
-/* --- tiga angka: satu baris, dipisah garis tegak, tanpa kotak ------------------------------ */
-.proofs { padding: var(--s5) 0; border-top: 1px solid var(--line); }
-.proofs h2 { margin: 0 0 var(--s5); }
-.figs {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 0; padding: 0; list-style: none;
-}
-@media (max-width: 860px) { .figs { grid-template-columns: minmax(0, 1fr); } }
-.figs li { padding: 0 var(--s5); border-left: 1px solid var(--line); }
-.figs li:first-child { padding-left: 0; border-left: 0; }
-@media (max-width: 860px) {
-  .figs li { padding: var(--s4) 0; border-left: 0; border-top: 1px solid var(--line); }
-  .figs li:first-child { border-top: 0; padding-top: 0; }
-}
-.fig {
-  margin: 0 0 var(--s3);
-  font: 700 var(--t-fig)/.85 var(--mono); letter-spacing: -.05em; color: var(--ink);
-}
-.fig-label { margin: 0 0 var(--s2); font-weight: 700; line-height: 1.3; font-size: 16px; }
-.figs .sub { margin: 0; max-width: none; }
-
-/* --- penutup: prosa lebar, satu kolom ------------------------------------------------------ */
-.why { padding: var(--s5) 0 var(--s6); border-top: 1px solid var(--line); }
-.why h2 { margin: 0 0 var(--s4); }
-.why .answer { max-width: 74ch; }
-.proofs h2, .why h2 {
-  font: 700 var(--t-head)/1.2 var(--sans); letter-spacing: -.02em;
-  border: 0; padding: 0;
+/* --- layar sempit ------------------------------------------------------------------------------
+   Lebar kolom tetap berhenti membantu ketika tidak ada lebar untuk dibagi. */
+@media (max-width: 1000px) {
+  table { table-layout: auto; }
+  .figs, .rails { grid-template-columns: minmax(0, 1fr); }
+  .proofs { grid-template-columns: minmax(0, 1fr); }
+  .proofs-art { display: none; }
+  dl.meta { grid-template-columns: minmax(0, 1fr); }
+  dl.meta dd { border-top: 0; padding-top: 0; }
+  .hero { padding-top: var(--s7); }
+  .hero-in { grid-template-columns: minmax(0, 1fr); gap: var(--s6); }
+  .hero .art-note { grid-column: 1; }
 }

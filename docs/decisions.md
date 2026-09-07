@@ -691,3 +691,65 @@ Utang yang diakui terbuka, bukan disembunyikan:
 Konsekuensi: `ui/app.py` (route aset baru) · `ui/screens.py` (`FONT_NAMES`, halaman baru) · `ui/static/` (14 webp,
 2 vendor JS + LICENSE.three.txt, kage.css, 7 woff2) · `ui/README.md` · `DISCLOSURE.md` · `docs/versions.md`
 (pin three.js — ditulis `api-verifier`).
+
+## ADR-027 (DITERIMA 7 Sep 2026) Palet jalur JR DICABUT: satu bahasa visual gelap berlapis untuk landing, Layar A, dan Layar B
+Konteks: pemilik repo menilai landing dan dashboard "masih jelek, kelihatan kaya dokumen Word, bukan website", dan
+pengukurannya membenarkan kalimat itu: `ui/static/app.css` yang dikirim 15 KB dengan `display:flex` 0×,
+`transition` 0×, `box-shadow` 1×, `position:sticky` 0×; Layar A satu `<table>` di tengah halaman; **nol `<img>` di
+layar juri** padahal 14 `.webp` sudah dilayani; GSAP + Lenis sudah dibayar (terbundel, ADR-025) tetapi dipakai satu
+`gsap.to` saja.
+
+Akar penyebabnya bukan selera melainkan sebuah tes. Baris terakhir
+`test_the_palette_is_the_measured_jr_line_palette_and_nothing_else` menuntut himpunan SETIAP hex di stylesheet
+persis sama dengan sepuluh warna jalur JR + dua warna banner. Selama itu berlaku: nol permukaan antara, nol tint
+kartu, nol garis rambut — jadi tidak ada satu pun cara membuat kedalaman. Utang ADR-026 ("dua bahasa visual hidup
+berdampingan, keduanya belum didamaikan") tidak bisa dibayar tanpa mencabutnya lebih dulu.
+
+Keputusan:
+1. **ADR-023 dan ADR-024 DICABUT untuk bagian paletnya.** Palet jalur JR yang terang (`--bg:#eef2f7`,
+   `--go:#55721c`, `--nogo:#d20911`, `--warn:#995900`, `--link:#007197`) tidak lagi dipakai, dan kunci "hanya warna
+   ini yang boleh ada di stylesheet" hilang bersamanya. Pencabutan ini diminta pemilik repo secara eksplisit.
+2. **Penggantinya adalah tema gelap berlapis yang didamaikan dengan `/kage`** (ADR-026): `--ink:#05070a`,
+   `--fg:#dfe7e0` — keduanya token yang sama dengan `ui/static/kage.css` — plus tiga permukaan di atas ink
+   (`--panel`, `--row`, `--card`), satu garis struktural (`--line`), satu warna dekor (`--hair`), dan empat warna
+   status yang mempertahankan ARTI ADR-023 (hijau=go, merah=nogo, kuning=warn, biru=tautan) dengan nilai yang
+   diterangkan untuk latar gelap. Muka huruf aplikasi menjadi Onest + NotoJP (aset ADR-026); IBM Plex Mono tetap
+   memegang angka, hash, dan tiap nilai asal-RYO.
+3. **Yang TIDAK ikut dicabut**, dan ini daftar tertutup: (a) tiap pasangan teks/latar DIUKUR dengan rumus WCAG 2.1
+   atas CSS yang benar-benar DILAYANI; (b) warna tidak pernah membawa informasi sendirian; (c) nol permintaan ke
+   luar repo — `url()` hanya `/ui/fonts/` dan `/ui/img/`, keduanya daftar TERTUTUP di `ui/screens.py`; (d) gerak
+   mati total di `prefers-reduced-motion` dan tiap `:hover` punya padanan `:focus` (ADR-025 butir 9); (e) larangan
+   `position: fixed` di stylesheet layar juri — gambar latar dipasang sebagai latar `html`, bukan sebagai elemen
+   melayang, jadi nol permukaan baru untuk perangkap fokus; (f) CSP `HTML_HEADERS` tidak berubah satu direktif pun.
+4. **Tesnya DIGANTI, bukan dihapus.** `test_the_palette_is_the_measured_jr_line_palette_and_nothing_else` →
+   `test_the_palette_is_measured_from_the_stylesheet_that_ships`, yang memaku empat hal: paletnya tetap literal
+   (bergeser hanya lewat commit yang mengubah angkanya), warna dekor tidak pernah menjadi `color:`, tiap `rgba()`
+   wajib hitam atau `--ink` (transparansi hanya boleh MENGGELAPKAN, jadi kontras hanya bisa naik), dan tiap scrim
+   di atas gambar ≥ `MIN_SCRIM_ALPHA`. Tes pasangan warna ikut tumbuh: ia sekarang juga mengukur latar TERBURUK
+   yang mungkin muncul di bawah gambar — putih di bawah scrim `.88` = `#232527`, di mana warna terketat `--nogo`
+   masih 5.64:1.
+5. **Gambar masuk ke layar juri, dengan pagarnya.** Tiga `.webp` di landing (`kage-approach`, `stone-lantern`,
+   `kage-moonwater`) dan satu sebagai latar `html` di seluruh layar. Pagarnya:
+   `test_no_sentence_on_a_judged_screen_sits_on_top_of_an_image` — tiap gambar duduk di kotaknya sendiri yang
+   TIDAK berisi teks apa pun, sehingga setiap angka kontras yang diukur adalah angka yang benar-benar terjadi.
+   Semua `alt=""` (pemandangan, bukan bukti) dan satu kalimat `ART_NOTE` mengatakannya untuk mata.
+6. **Gerak yang sudah dibayar dibelanjakan**: reveal berurutan pada blok teks/kartu landing dan parallax
+   ber-`scrub` pada dua gambar — keduanya di dalam `motion()`, yang tetap berhenti sebelum baris pertamanya bila
+   `prefers-reduced-motion` menyala.
+7. **Layar A tetap `<table>`.** Kartu/grid dipertimbangkan dan ditolak: `render.ts` merender Layar A dengan markup
+   yang sama persis dengan server, jadi mengubah bentuknya berarti mengubah dua renderer + delapan tes semantik
+   tabel sehari sebelum deadline. Yang dibeli sebagai gantinya: permukaan kartu, kepala kolom yang MELEKAT, simbol
+   19px mono sebagai judul baris, dan keadaan `:hover`/`:focus-within` — kolom, `scope`, dan `aria-label` baris
+   tidak disentuh sama sekali.
+8. **Skrip build npm didamaikan dengan `make frontend`.** `package.json` sebelumnya membangun tanpa
+   `--legal-comments=eof`, tanpa banner Lenis, dan tanpa `--external:` — jadi `npm run build` menghasilkan bundel
+   TANPA notis lisensi GSAP/Lenis (pelanggaran lisensi) dan gagal pada `url()`. Kedua resep sekarang identik.
+
+Angka kontras hasil ukur (rumus WCAG 2.1, dari stylesheet yang dilayani): teks terketat `--nogo` di atas `--card`
+= **5.88:1**; garis terketat `--line` di atas `--card` = **3.06:1**; cincin fokus `--warn` di atas `--ink` =
+**10.47:1**; teks terketat di atas gambar berscrim = **5.64:1**. Bandingkan palet lama, yang berdiri 0,05 dan 0,06
+dari ambangnya (4.55:1 dan 3.06:1) — tema gelap lulus lebih lega, dan itu bagian dari alasannya.
+
+Konsekuensi: `frontend/styles/app.css` (ditulis ulang) · `frontend/src/main.ts` (gerak) · `ui/screens.py` (markup
+landing + tiga konstanta gambar) · `tests/test_ui.py` (dua tes diganti, satu ditambah, hash bundel diperbarui) ·
+`ui/README.md` · `Makefile` + `package.json` (resep build identik).

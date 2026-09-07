@@ -2,13 +2,13 @@
   "name": "tenko-frontend",
   "version": "0.0.0",
   "private": true,
-  "description": "Tenko (\u70b9\u547c) screen client. BUILD-time only: Node is never needed to run Tenko (ADR-020 point 2). The build output ui/static/app.js + ui/static/app.css is tracked in git and shipped.",
+  "description": "Tenko (点呼) screen client. BUILD-time only: Node is never needed to run Tenko (ADR-020 point 2). The build output ui/static/app.js + ui/static/app.css is tracked in git and shipped. Kedua skrip build di bawah HARUS sama persis dengan resep `make frontend` di Makefile: `--legal-comments=eof` + banner Lenis (lisensi GSAP/MIT menuntut notisnya ikut terkirim) dan `--external:` untuk aset yang dilayani runtime, bukan dibundel.",
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build:js": "esbuild frontend/src/main.ts --bundle --format=iife --target=es2020 --charset=utf8 --legal-comments=none --outfile=ui/static/app.js",
-    "build:css": "esbuild frontend/styles/app.css --bundle --charset=utf8 --legal-comments=none --outfile=ui/static/app.css",
+    "build:js": "esbuild frontend/src/main.ts --bundle --format=iife --target=es2020 --charset=utf8 --legal-comments=eof --banner:js='/*! Lenis 1.1.0 — The MIT License — Copyright (c) 2024 darkroom.engineering — https://github.com/darkroomengineering/lenis/blob/main/LICENSE */' --outfile=ui/static/app.js",
+    "build:css": "esbuild frontend/styles/app.css --bundle --charset=utf8 --legal-comments=none --external:/ui/fonts/* --external:/ui/img/* --outfile=ui/static/app.css",
     "build": "npm run typecheck && npm run build:js && npm run build:css"
   },
   "devDependencies": {
